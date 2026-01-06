@@ -1,0 +1,40 @@
+services:
+  - type: web
+    name: barbermove-api
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    autoDeploy: true
+    envVars:
+      - key: SECRET_KEY
+        generateValue: true
+      - key: ALLOWED_ORIGINS
+        value: https://barbermove-api.onrender.com,https://barbermove-pwa.onrender.com,http://localhost:5173
+      - key: REQUIRE_EMAIL_VERIFIED
+        value: "1"
+      - key: VERIFICATION_LINK_BASE
+        value: https://barbermove-api.onrender.com/api/v1/email/verificar?token=
+      - key: SMTP_HOST
+        value: sandbox.smtp.mailtrap.io
+      - key: SMTP_PORT
+        value: "2525"
+      - key: SMTP_USER
+        value: 826f9d0fb87650
+      - key: SMTP_PASSWORD
+        value: 99382a6862f2dc
+      - key: SMTP_FROM
+        value: noreply@mailtrap.io
+      - key: SMTP_USE_TLS
+        value: "1"
+      - key: API_URL
+        value: https://barbermove-api.onrender.com
+      - key: FRONTEND_URL
+        value: https://barbermove-pwa.onrender.com
+      - key: DATABASE_URL
+        fromDatabase:
+          name: barbermove-db
+          property: connectionString
+
+databases:
+  - name: barbermove-db
+    plan: free
