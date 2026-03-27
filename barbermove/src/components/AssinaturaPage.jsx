@@ -3,6 +3,27 @@ import { CreditCard, Check, AlertCircle, TrendingDown, QrCode, Copy } from 'luci
 
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
 
+const normalizarPixPayload = (data) => {
+    const payload = data?.pix || data?.dados_pix || data || {};
+    return {
+        ...payload,
+        qrcode_base64:
+            payload.qrcode_base64 ||
+            payload.qr_code_base64 ||
+            payload.qrcode ||
+            payload.qr_code ||
+            payload.qrCodeBase64 ||
+            null,
+        pix_copia_cola:
+            payload.pix_copia_cola ||
+            payload.codigo_pix ||
+            payload.copia_cola ||
+            payload.emv ||
+            '',
+        valor: payload.valor ?? payload.amount ?? payload.valor_mensalidade ?? 0,
+    };
+};
+
 export default function AssinaturaPage({ token, notify }) {
     const [qtdCadeiras, setQtdCadeiras] = useState(1);
     const [assinaturaAtual, setAssinaturaAtual] = useState(null);
@@ -145,7 +166,12 @@ export default function AssinaturaPage({ token, notify }) {
                     throw new Error(pixData.detail || 'Erro ao gerar PIX da mensalidade');
                 }
 
-                setPixMensalidade(pixData);
+                const pixNormalizado = normalizarPixPayload(pixData);
+                if (!pixNormalizado.qrcode_base64 && !pixNormalizado.pix_copia_cola) {
+                    throw new Error('PIX gerado sem QR Code e sem codigo copia e cola');
+                }
+
+                setPixMensalidade(pixNormalizado);
                 notify('PIX gerado! Escaneie o QR Code ou use o copia e cola.', 'success');
                 await carregarAssinatura();
                 return;
@@ -405,6 +431,12 @@ export default function AssinaturaPage({ token, notify }) {
                                     alt="QR Code PIX"
                                     className="w-44 h-44 bg-white rounded p-2 mx-auto"
                                 />
+                            )}
+
+                            {!pixMensalidade.qrcode_base64 && (
+                                <p className="text-[11px] text-yellow-300">
+                                    QR Code indisponivel. Use o codigo copia e cola abaixo.
+                                </p>
                             )}
 
                             <div className="bg-zinc-900 border border-zinc-700 rounded p-2">

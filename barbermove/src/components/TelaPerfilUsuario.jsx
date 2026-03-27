@@ -5,6 +5,27 @@ import { TabPortfolioBarbeiro, TabAvaliacoesBarbeiro } from './TabsPortfolioAval
 const DEFAULT_HOST = typeof window !== "undefined" ? window.location.hostname : "localhost";
 const API_URL = import.meta.env.VITE_API_URL || `http://${DEFAULT_HOST}:8000`;
 
+const normalizarPixPayload = (data) => {
+  const payload = data?.pix || data?.dados_pix || data || {};
+  return {
+    ...payload,
+    qrcode_base64:
+      payload.qrcode_base64 ||
+      payload.qr_code_base64 ||
+      payload.qrcode ||
+      payload.qr_code ||
+      payload.qrCodeBase64 ||
+      null,
+    pix_copia_cola:
+      payload.pix_copia_cola ||
+      payload.codigo_pix ||
+      payload.copia_cola ||
+      payload.emv ||
+      '',
+    valor: payload.valor ?? payload.amount ?? payload.valor_mensalidade ?? 0,
+  };
+};
+
 export default function TelaPerfilUsuario({ userType, token, onLogout, onNotify }) {
   const AVALIACOES_PAGINA = 10;
   const [user, setUser] = useState(null);
@@ -562,7 +583,12 @@ export default function TelaPerfilUsuario({ userType, token, onLogout, onNotify 
         throw new Error(data?.detail || 'Erro ao gerar PIX da mensalidade');
       }
 
-      setPixMensalidade(data);
+      const pixNormalizado = normalizarPixPayload(data);
+      if (!pixNormalizado.qrcode_base64 && !pixNormalizado.pix_copia_cola) {
+        throw new Error('PIX gerado sem QR Code e sem codigo copia e cola');
+      }
+
+      setPixMensalidade(pixNormalizado);
       onNotify('PIX gerado. Pague e confirme para regularizar.', 'success');
     } catch (error) {
       onNotify(error.message || 'Erro ao gerar PIX', 'error');
@@ -595,6 +621,16 @@ export default function TelaPerfilUsuario({ userType, token, onLogout, onNotify 
       onNotify(error.message || 'Erro ao confirmar PIX', 'error');
     } finally {
       setPagamentoAssinaturaLoading(false);
+    }
+  };
+
+  const copiarPixMensalidade = async () => {
+    if (!pixMensalidade?.pix_copia_cola) return;
+    try {
+      await navigator.clipboard.writeText(pixMensalidade.pix_copia_cola);
+      onNotify('Codigo PIX copiado!', 'success');
+    } catch (_error) {
+      onNotify('Nao foi possivel copiar automaticamente', 'error');
     }
   };
 
@@ -1216,7 +1252,16 @@ export default function TelaPerfilUsuario({ userType, token, onLogout, onNotify 
                         className="w-40 h-40 bg-white p-2 rounded mx-auto"
                       />
                     )}
+                    {!pixMensalidade.qrcode_base64 && (
+                      <p className="text-yellow-300">QR Code indisponivel. Use o codigo copia e cola.</p>
+                    )}
                     <p className="break-all">Copia e cola: {pixMensalidade.pix_copia_cola}</p>
+                    <button
+                      onClick={copiarPixMensalidade}
+                      className="w-full bg-zinc-700 hover:bg-zinc-600 text-white px-3 py-2 rounded font-bold"
+                    >
+                      Copiar codigo PIX
+                    </button>
                     <button
                       onClick={confirmarPixMensalidade}
                       disabled={pagamentoAssinaturaLoading}
