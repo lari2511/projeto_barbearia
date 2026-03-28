@@ -2,9 +2,9 @@
 // Componente para upload e verificação de documentos
 
 import React, { useState } from 'react';
-import { Upload, CheckCircle, AlertCircle, Loader } from 'lucide-react';
+import { Upload, CheckCircle } from 'lucide-react';
 
-export default function VerificacaoDocumentos({ usuarioId, onVerificado }) {
+export default function VerificacaoDocumentos({ _usuarioId, onVerificado }) {
   const [etapa, setEtapa] = useState('inicio'); // 'inicio', 'upload', 'confirmacao', 'finalizado'
   const [documentos, setDocumentos] = useState({
     cpf: '',
@@ -17,34 +17,13 @@ export default function VerificacaoDocumentos({ usuarioId, onVerificado }) {
   const [mensagem, setMensagem] = useState('');
   const [sucesso, setSucesso] = useState(false);
 
-  const handleUpload = async (tipo, arquivo) => {
+  const handleUpload = (tipo, arquivo) => {
     if (!arquivo) return;
-
-    setLoading(true);
-    const formData = new FormData();
-    formData.append('arquivo', arquivo);
-
-    try {
-      const response = await fetch(`${import.meta.env.VITE_API_URL}/api/v1/documentos/upload?tipo=${tipo}`, {
-        method: 'POST',
-        body: formData,
-        headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        setDocumentos(prev => ({
-          ...prev,
-          [tipo === 'frente' ? 'frente' : tipo === 'verso' ? 'verso' : 'selfie']: data.arquivo_url
-        }));
-        setMensagem(`${tipo.toUpperCase()} enviado com sucesso!`);
-      } else {
-        setMensagem('Erro ao fazer upload');
-      }
-    } catch (err) {
-      setMensagem('Erro na conexão');
-    }
-    setLoading(false);
+    setDocumentos(prev => ({
+      ...prev,
+      [tipo === 'frente' ? 'frente' : tipo === 'verso' ? 'verso' : 'selfie']: arquivo
+    }));
+    setMensagem(`${tipo.toUpperCase()} selecionado!`);
   };
 
   const handleSalvarDocumentos = async () => {
@@ -55,29 +34,59 @@ export default function VerificacaoDocumentos({ usuarioId, onVerificado }) {
 
     setLoading(true);
     try {
-      const response = await fetch(`${import.meta.env.VITE_API_URL}/api/v1/documentos/salvar`, {
+      const uploadData = new FormData();
+      uploadData.append('documento_frente', documentos.frente);
+      uploadData.append('documento_verso', documentos.verso);
+      uploadData.append('selfie_documento', documentos.selfie);
+
+      const uploadResponse = await fetch(`${import.meta.env.VITE_API_URL}/api/v1/documentos/upload-files`, {
+        method: 'POST',
+        body: uploadData,
+        headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+      });
+
+      if (!uploadResponse.ok) {
+        setMensagem('Erro ao enviar imagens');
+        setLoading(false);
+        return;
+      }
+
+      const uploadResult = await uploadResponse.json();
+
+      const salvarResponse = await fetch(`${import.meta.env.VITE_API_URL}/api/v1/documentos/upload`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${localStorage.getItem('token')}`
         },
         body: JSON.stringify({
-          usuario_id: usuarioId,
-          cpf: documentos.cpf,
           rg: documentos.rg,
-          documento_frente_url: documentos.frente,
-          documento_verso_url: documentos.verso,
-          selfie_documento_url: documentos.selfie
+          documento_frente_url: uploadResult.documento_frente_url,
+          documento_verso_url: uploadResult.documento_verso_url,
+          selfie_documento_url: uploadResult.selfie_documento_url
         })
       });
 
-      if (response.ok) {
-        setSucesso(true);
-        setMensagem('Documentos salvos! Aguardando verificação...');
-        setEtapa('finalizado');
-        setTimeout(() => onVerificado && onVerificado(), 2000);
+      if (!salvarResponse.ok) {
+        setMensagem('Erro ao salvar documentos');
+        setLoading(false);
+        return;
       }
-    } catch (err) {
+
+      await fetch(`${import.meta.env.VITE_API_URL}/api/v1/usuarios/me`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
+        },
+        body: JSON.stringify({ cpf: documentos.cpf })
+      });
+
+      setSucesso(true);
+      setMensagem('Documentos salvos! Aguardando verificação...');
+      setEtapa('finalizado');
+      setTimeout(() => onVerificado && onVerificado(), 2000);
+    } catch (_err) {
       setMensagem('Erro ao salvar documentos');
     }
     setLoading(false);

@@ -17,6 +17,7 @@
  * A categoria é padrão (para organização e relatórios).
  */
 
+// eslint-disable-next-line react-refresh/only-export-components
 export const CATEGORIAS_SERVICOS = [
   { valor: "corte", label: "Corte de Cabelo" },
   { valor: "barba", label: "Barba e Bigode" },

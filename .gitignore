@@ -45,6 +45,12 @@ barbermove/android/build/
 barbermove/android/app/build/
 barbermove/ios/build/
 
+# Large binaries (keep repo lean)
+*.apk
+ngrok.exe
+ngrok.zip
+barbermove/node-22.zip
+
 # Certificates
 *.pem
 *.key

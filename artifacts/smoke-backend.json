@@ -1,0 +1,55 @@
+﻿{
+    "baseUrl":  "http://127.0.0.1:8000",
+    "success":  true,
+    "timestamp":  "2026-03-18T21:46:04.4861417-03:00",
+    "metadata":  {
+                     "environment":  "local",
+                     "appVersion":  "0.0.0",
+                     "gitCommitSha":  "60b19a1",
+                     "durationMs":  697,
+                     "workspace":  "C:\\projeto_barbearia",
+                     "generator":  "smoke_backend.ps1"
+                 },
+    "checks":  [
+                   {
+                       "Check":  "Root",
+                       "Endpoint":  "/",
+                       "Status":  200,
+                       "Expected":  200,
+                       "Result":  "PASS",
+                       "Details":  ""
+                   },
+                   {
+                       "Check":  "Health",
+                       "Endpoint":  "/health",
+                       "Status":  200,
+                       "Expected":  200,
+                       "Result":  "PASS",
+                       "Details":  ""
+                   },
+                   {
+                       "Check":  "API Health",
+                       "Endpoint":  "/api/health",
+                       "Status":  200,
+                       "Expected":  200,
+                       "Result":  "PASS",
+                       "Details":  ""
+                   },
+                   {
+                       "Check":  "OpenAPI",
+                       "Endpoint":  "/openapi.json",
+                       "Status":  200,
+                       "Expected":  200,
+                       "Result":  "PASS",
+                       "Details":  ""
+                   },
+                   {
+                       "Check":  "Docs",
+                       "Endpoint":  "/docs",
+                       "Status":  200,
+                       "Expected":  200,
+                       "Result":  "PASS",
+                       "Details":  ""
+                   }
+               ]
+}

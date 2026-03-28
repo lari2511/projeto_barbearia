@@ -111,12 +111,22 @@ Contas criadas:
 
 ## 📚 DOCUMENTAÇÃO COMPLETA
 
+### 📖 Guias Técnicos
 - 📖 [FINALIZACAO.md](FINALIZACAO.md) - **GUIA COMPLETO DE FINALIZAÇÃO**
 - 🚀 [DEPLOY.md](DEPLOY.md) - Como publicar nas lojas e nuvem
 - ✨ [FUNCIONALIDADES.md](FUNCIONALIDADES.md) - Todas as 16+ funcionalidades
 - 📱 [GUIA_PWA.md](GUIA_PWA.md) - Progressive Web App
 - 🏪 [GUIA_SERVICOS_BARBEARIA.md](GUIA_SERVICOS_BARBEARIA.md) - Sistema de serviços
 - ⏰ [GUIA_VALIDACAO_HORARIOS.md](GUIA_VALIDACAO_HORARIOS.md) - Validação de horários
+
+### ⚖️ Documentos Legais
+- 📄 [TERMOS_DE_USO.md](TERMOS_DE_USO.md) - Termos de uso e condições gerais
+- 🔒 [POLITICA_PRIVACIDADE.md](POLITICA_PRIVACIDADE.md) - Política de privacidade LGPD
+
+**Acesso via API:**
+- `http://localhost:8000/api/v1/termos-de-uso` - Termos em HTML
+- `http://localhost:8000/api/v1/politica-privacidade` - Privacidade em HTML
+- Também acessível diretamente no app (links na tela de login)
 
 ---
 

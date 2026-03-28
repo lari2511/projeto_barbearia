@@ -1,13 +1,26 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { 
   User, Scissors, Store, MapPin, 
   LogOut, CheckCircle, AlertCircle, ArrowRight, 
-  History, Search, X, Star, Navigation, Bell, CreditCard, Lock, Calendar
+  History, Search, X, Star, Navigation, Bell, CreditCard, Lock, Calendar, Briefcase
 } from 'lucide-react';
-import { useLiveJobs, useRealTimeUpdates } from './hooks/useRealTimeUpdates';
+import PoliticaPrivacidade from './components/PoliticaPrivacidade';
+import TermosDeUso from './components/TermosDeUso';
+import TelaPerfilUsuario from './components/TelaPerfilUsuario';
+import TelaPagamentoNova from './components/TelaPagamentoNova';
+import RatingComponent from './components/RatingComponent';
+import AbaPadronizadaAvaliacoes from './components/AbaPadronizadaAvaliacoes';
+import PaymentSection from './components/PaymentSection';
+import ProfileCard from './components/ProfileCard';
+import AssinaturaPage from './components/AssinaturaPage';
+import ClientDashboard from './components/ClientDashboard';
+import BarberDashboard from './components/BarberDashboard';
+import ShopDashboard from './components/ShopDashboard';
+import { useLiveJobs } from './hooks/useRealTimeUpdates';
 
-const API_URL = import.meta.env.VITE_API_URL || "https://unpuritan-gastrocnemial-charlyn.ngrok-free.dev";
-const WS_URL = import.meta.env.VITE_WS_URL || "wss://unpuritan-gastrocnemial-charlyn.ngrok-free.dev/ws/notificacoes";
+const DEFAULT_HOST = typeof window !== "undefined" ? window.location.hostname : "localhost";
+const API_URL = import.meta.env.VITE_API_URL || `http://${DEFAULT_HOST}:8000`;
+const WS_URL = import.meta.env.VITE_WS_URL || `ws://${DEFAULT_HOST}:8000/ws/notificacoes`;
 const BRAND_LOGO = "/brand-logo.png"; // coloque a logo em public/brand-logo.png
 
 // Utilitário para imagens
@@ -18,12 +31,33 @@ export default function App() {
   const [token, setToken] = useState(localStorage.getItem('token'));
   const [view, setView] = useState(token ? 'dashboard' : 'login');
   const [toast, setToast] = useState(null);
+  const [showTerms, setShowTerms] = useState(false);
+  const [showPrivacy, setShowPrivacy] = useState(false);
+  const [currentUser, setCurrentUser] = useState(null);
+  const [userApproved, setUserApproved] = useState(true);
+
+  // Verificar aprovação do usuário quando entra no dashboard
+  useEffect(() => {
+    if (token && view === 'dashboard') {
+      fetch(`${API_URL}/api/v1/documentos/status`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      })
+      .then(r => r.ok ? r.json() : Promise.reject())
+      .then(data => {
+        setCurrentUser(data);
+        setUserApproved(Boolean(data?.perfil_aprovado));
+      })
+      .catch(() => setUserApproved(true));
+    }
+  }, [token, view]);
 
   // WebSocket Global para notificações
   useEffect(() => {
     if (token) {
       const ws = new WebSocket(WS_URL);
-      ws.onopen = () => setNotifications(prev => [...prev, { id: Date.now(), message: "Sistema de notificações conectado", type: "info" }]);
+      ws.onopen = () => {
+        ws.send(JSON.stringify({ tipo: 'auth', token }));
+      };
       ws.onmessage = (event) => {
         const msg = JSON.parse(event.data);
         notify(msg.texto || "Nova atualização!", 'info');
@@ -51,9 +85,66 @@ export default function App() {
     setUserType(null);
     setToken(null);
     setView('login');
+    setCurrentUser(null);
+    setUserApproved(true);
   };
 
   // --- COMPONENTES UI COMPARTILHADOS ---
+
+  // ⏳ TELA DE ESPERA POR APROVAÇÃO
+  const PendingApprovalScreen = () => (
+    <div className="fixed inset-0 bg-gradient-to-br from-black via-zinc-900 to-black flex items-center justify-center p-4 z-50">
+      <div className="max-w-md w-full bg-zinc-900 rounded-3xl border border-zinc-800 p-8 text-center shadow-2xl">
+        <div className="mb-6 flex justify-center">
+          <div className="relative">
+            <div className="w-20 h-20 rounded-full bg-yellow-600/20 border-2 border-yellow-600 flex items-center justify-center animate-pulse">
+              <AlertCircle size={40} className="text-yellow-500" />
+            </div>
+          </div>
+        </div>
+        
+        <h1 className="text-2xl font-bold text-white mb-2">Perfil em Análise</h1>
+        <p className="text-zinc-400 mb-6">
+          Seu perfil foi enviado para aprovação. A equipe de administração está analisando seus dados.
+        </p>
+        
+        <div className="bg-zinc-800/50 rounded-lg p-4 mb-6 border border-zinc-700">
+          <p className="text-sm text-zinc-300 mb-2">⏱️ Tempo estimado:</p>
+          <p className="text-lg font-bold text-yellow-500">Até 24 horas</p>
+        </div>
+        
+        {currentUser && (
+          <div className="bg-zinc-800/30 rounded-lg p-4 mb-6 border border-zinc-700/50">
+            <p className="text-xs text-zinc-500 mb-2">Usuário:</p>
+            <p className="text-sm font-semibold text-white">{currentUser.nome}</p>
+            <p className="text-xs text-zinc-400">{currentUser.email}</p>
+          </div>
+        )}
+        
+        <p className="text-xs text-zinc-500 mb-6">
+          Você receberá um email quando sua aprovação for concluída.
+        </p>
+        
+        <button
+          onClick={() => {
+            setUserApproved(true); // Reload
+            window.location.reload();
+          }}
+          className="w-full px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg transition mb-3"
+        >
+          🔄 Verificar Novamente
+        </button>
+        
+        <button
+          onClick={logout}
+          className="w-full px-6 py-3 bg-zinc-800 hover:bg-zinc-700 text-white font-bold rounded-lg transition"
+        >
+          ← Sair
+        </button>
+      </div>
+    </div>
+  );
+
   const Toast = () => {
     if (!toast) return null;
     const colors = { success: 'bg-green-600', error: 'bg-red-600', info: 'bg-blue-600' };
@@ -66,11 +157,447 @@ export default function App() {
     );
   };
 
+  const VerificationBadge = ({ user, onClick }) => {
+    if (!user) return null;
+    const emailOk = !!user.email_verificado;
+    const docOk = !!user.documento_verificado;
+    const statusColor = emailOk && docOk ? 'bg-green-600' : emailOk && !docOk ? 'bg-yellow-600' : 'bg-red-600';
+    const title = emailOk && docOk ? 'Verificado' : emailOk ? 'Docs pendentes' : 'Email pendente';
+    return (
+      <button
+        title={title}
+        onClick={onClick}
+        className={`ml-2 px-2 py-1 rounded-full text-[10px] font-bold text-white ${statusColor}`}
+      >
+        {title}
+      </button>
+    );
+  };
+
   const MapFrame = ({ address }) => {
     const encodedAddress = encodeURIComponent(address || "São Paulo");
     return (
       <div className="w-full bg-zinc-800 rounded-2xl overflow-hidden border border-zinc-700 relative group shadow-lg h-32 shrink-0">
         <iframe width="100%" height="100%" src={`https://maps.google.com/maps?q=${encodedAddress}&t=&z=15&ie=UTF8&iwloc=&output=embed`} frameBorder="0" scrolling="no" className="opacity-80 group-hover:opacity-100 transition-opacity" title="Mapa"></iframe>
+      </div>
+    );
+  };
+
+  // ==================== ADMIN DASHBOARD (TIPO: ADMIN) ====================
+  const AdminDashboard = () => {
+    const [splitForm, setSplitForm] = useState({
+      percentual_barbeiro: '40',
+      percentual_barbearia: '50',
+      percentual_barbermove: '10',
+      deposito_nome: '',
+      deposito_chave_pix: '',
+      deposito_banco: '',
+      deposito_agencia: '',
+      deposito_conta: ''
+    });
+    const [loadingSplit, setLoadingSplit] = useState(true);
+    const [savingSplit, setSavingSplit] = useState(false);
+
+    const totalSplit =
+      (parseFloat(splitForm.percentual_barbeiro || 0) || 0) +
+      (parseFloat(splitForm.percentual_barbearia || 0) || 0) +
+      (parseFloat(splitForm.percentual_barbermove || 0) || 0);
+
+    useEffect(() => {
+      const carregarSplit = async () => {
+        try {
+          const res = await fetch(`${API_URL}/api/v1/pagamentos-config/split`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+          });
+
+          if (!res.ok) {
+            throw new Error('Nao foi possivel carregar configuracoes de split');
+          }
+
+          const data = await res.json();
+          setSplitForm({
+            percentual_barbeiro: String(data.percentual_barbeiro ?? 40),
+            percentual_barbearia: String(data.percentual_barbearia ?? 50),
+            percentual_barbermove: String(data.percentual_barbermove ?? 10),
+            deposito_nome: data.deposito_nome || '',
+            deposito_chave_pix: data.deposito_chave_pix || '',
+            deposito_banco: data.deposito_banco || '',
+            deposito_agencia: data.deposito_agencia || '',
+            deposito_conta: data.deposito_conta || ''
+          });
+        } catch (err) {
+          notify(err.message || 'Erro ao carregar split', 'error');
+        } finally {
+          setLoadingSplit(false);
+        }
+      };
+
+      carregarSplit();
+    }, []);
+
+    const salvarSplit = async () => {
+      if (Math.abs(totalSplit - 100) > 0.0001) {
+        notify('A soma dos percentuais deve ser 100%', 'error');
+        return;
+      }
+
+      setSavingSplit(true);
+      try {
+        const payload = {
+          percentual_barbeiro: parseFloat(splitForm.percentual_barbeiro || 0) || 0,
+          percentual_barbearia: parseFloat(splitForm.percentual_barbearia || 0) || 0,
+          percentual_barbermove: parseFloat(splitForm.percentual_barbermove || 0) || 0,
+          deposito_nome: splitForm.deposito_nome || null,
+          deposito_chave_pix: splitForm.deposito_chave_pix || null,
+          deposito_banco: splitForm.deposito_banco || null,
+          deposito_agencia: splitForm.deposito_agencia || null,
+          deposito_conta: splitForm.deposito_conta || null
+        };
+
+        const res = await fetch(`${API_URL}/api/v1/pagamentos-config/split`, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          },
+          body: JSON.stringify(payload)
+        });
+
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          throw new Error(err.detail || 'Erro ao salvar configuracao');
+        }
+
+        notify('Split e deposito salvos com sucesso', 'success');
+      } catch (err) {
+        notify(err.message || 'Erro ao salvar split', 'error');
+      } finally {
+        setSavingSplit(false);
+      }
+    };
+
+    return (
+      <div className="bg-black h-full flex flex-col text-white">
+        <div className="p-5 pt-8 sticky top-0 bg-black/80 backdrop-blur-md z-20 border-b border-zinc-800">
+          <div className="flex justify-between items-center mb-4">
+            <h1 className="text-xl font-bold">🔧 Painel Administrativo</h1>
+            <button onClick={logout} className="text-zinc-500"><LogOut size={20}/></button>
+          </div>
+          <p className="text-zinc-400 text-sm">Acesso restrito a desenvolvedores e donos do negócio</p>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+            <button 
+              onClick={() => setView('admin')} 
+              className="bg-gradient-to-r from-purple-600 to-purple-800 p-6 rounded-xl hover:scale-105 transition text-left"
+            >
+              <div className="text-3xl mb-2">📊</div>
+              <h3 className="font-bold text-lg">Validar Documentos</h3>
+              <p className="text-sm text-purple-200">Aprovar ou rejeitar documentos de barbeiros</p>
+            </button>
+
+            <div className="bg-gradient-to-r from-zinc-800 to-zinc-900 p-6 rounded-xl border border-zinc-700">
+              <div className="text-3xl mb-2">📈</div>
+              <h3 className="font-bold text-lg">Estatísticas</h3>
+              <p className="text-sm text-zinc-400">Em breve - Dashboard de métricas</p>
+            </div>
+
+            <div className="bg-gradient-to-r from-zinc-800 to-zinc-900 p-6 rounded-xl border border-zinc-700">
+              <div className="text-3xl mb-2">👥</div>
+              <h3 className="font-bold text-lg">Usuários</h3>
+              <p className="text-sm text-zinc-400">Em breve - Gerenciar usuários</p>
+            </div>
+
+            <div className="bg-gradient-to-r from-zinc-800 to-zinc-900 p-6 rounded-xl border border-zinc-700">
+              <div className="text-3xl mb-2">⚙️</div>
+              <h3 className="font-bold text-lg">Configurações</h3>
+              <p className="text-sm text-zinc-400">Split de pagamento e deposito da plataforma</p>
+            </div>
+          </div>
+
+          <div className="bg-zinc-900 border border-zinc-700 p-5 rounded-xl mb-6">
+            <h3 className="text-lg font-bold mb-1">Repasse e Deposito Barber Move</h3>
+            <p className="text-xs text-zinc-400 mb-4">Defina os percentuais de divisao e a conta de deposito da plataforma.</p>
+
+            {loadingSplit ? (
+              <p className="text-zinc-500 text-sm">Carregando configuracoes...</p>
+            ) : (
+              <>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-3">
+                  <label className="text-xs text-zinc-300">
+                    % Barbeiro
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={splitForm.percentual_barbeiro}
+                      onChange={(e) => setSplitForm((prev) => ({ ...prev, percentual_barbeiro: e.target.value }))}
+                      className="mt-1 w-full bg-black border border-zinc-700 rounded-lg px-3 py-2 text-sm"
+                    />
+                  </label>
+                  <label className="text-xs text-zinc-300">
+                    % Barbearia
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={splitForm.percentual_barbearia}
+                      onChange={(e) => setSplitForm((prev) => ({ ...prev, percentual_barbearia: e.target.value }))}
+                      className="mt-1 w-full bg-black border border-zinc-700 rounded-lg px-3 py-2 text-sm"
+                    />
+                  </label>
+                  <label className="text-xs text-zinc-300">
+                    % Barber Move
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={splitForm.percentual_barbermove}
+                      onChange={(e) => setSplitForm((prev) => ({ ...prev, percentual_barbermove: e.target.value }))}
+                      className="mt-1 w-full bg-black border border-zinc-700 rounded-lg px-3 py-2 text-sm"
+                    />
+                  </label>
+                </div>
+
+                <div className={`text-xs font-bold mb-4 ${Math.abs(totalSplit - 100) < 0.0001 ? 'text-green-400' : 'text-red-400'}`}>
+                  Soma atual: {totalSplit.toFixed(2)}%
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4">
+                  <label className="text-xs text-zinc-300">
+                    Nome do titular
+                    <input
+                      type="text"
+                      value={splitForm.deposito_nome}
+                      onChange={(e) => setSplitForm((prev) => ({ ...prev, deposito_nome: e.target.value }))}
+                      className="mt-1 w-full bg-black border border-zinc-700 rounded-lg px-3 py-2 text-sm"
+                      placeholder="Barber Move"
+                    />
+                  </label>
+                  <label className="text-xs text-zinc-300">
+                    Chave PIX
+                    <input
+                      type="text"
+                      value={splitForm.deposito_chave_pix}
+                      onChange={(e) => setSplitForm((prev) => ({ ...prev, deposito_chave_pix: e.target.value }))}
+                      className="mt-1 w-full bg-black border border-zinc-700 rounded-lg px-3 py-2 text-sm"
+                    />
+                  </label>
+                  <label className="text-xs text-zinc-300">
+                    Banco
+                    <input
+                      type="text"
+                      value={splitForm.deposito_banco}
+                      onChange={(e) => setSplitForm((prev) => ({ ...prev, deposito_banco: e.target.value }))}
+                      className="mt-1 w-full bg-black border border-zinc-700 rounded-lg px-3 py-2 text-sm"
+                    />
+                  </label>
+                  <label className="text-xs text-zinc-300">
+                    Agencia
+                    <input
+                      type="text"
+                      value={splitForm.deposito_agencia}
+                      onChange={(e) => setSplitForm((prev) => ({ ...prev, deposito_agencia: e.target.value }))}
+                      className="mt-1 w-full bg-black border border-zinc-700 rounded-lg px-3 py-2 text-sm"
+                    />
+                  </label>
+                  <label className="text-xs text-zinc-300 md:col-span-2">
+                    Conta
+                    <input
+                      type="text"
+                      value={splitForm.deposito_conta}
+                      onChange={(e) => setSplitForm((prev) => ({ ...prev, deposito_conta: e.target.value }))}
+                      className="mt-1 w-full bg-black border border-zinc-700 rounded-lg px-3 py-2 text-sm"
+                    />
+                  </label>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={salvarSplit}
+                  disabled={savingSplit}
+                  className="bg-orange-600 hover:bg-orange-700 disabled:opacity-60 text-white font-bold px-5 py-2 rounded-lg transition"
+                >
+                  {savingSplit ? 'Salvando...' : 'Salvar Configuracao'}
+                </button>
+              </>
+            )}
+          </div>
+
+          <div className="bg-orange-600/10 border border-orange-600/30 p-4 rounded-xl">
+            <h3 className="font-bold text-orange-500 mb-2">⚠️ Acesso Administrativo</h3>
+            <p className="text-sm text-zinc-400">Este painel é exclusivo para administradores do sistema. Não é acessível por clientes, barbeiros ou barbearias.</p>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  // ==================== ADMIN VALIDATION SCREEN ====================
+  const AdminValidationScreen = () => {
+    const [pendentes, setPendentes] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [selectedUser, setSelectedUser] = useState(null);
+
+    useEffect(() => {
+      const load = async () => {
+        try {
+          const res = await fetch(`${API_URL}/api/v1/documentos/admin/pendentes`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+          });
+          if (res.ok) {
+            const data = await res.json();
+            setPendentes(data.usuarios || []);
+          }
+        } catch (_err) {
+          notify('Erro ao carregar documentos pendentes', 'error');
+        } finally {
+          setLoading(false);
+        }
+      };
+      load();
+    }, []);
+
+    const aprovar = async (userId) => {
+      try {
+        const res = await fetch(`${API_URL}/api/v1/documentos/verificar`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+          body: JSON.stringify({ usuario_id: userId, aprovado: true })
+        });
+        if (res.ok) {
+          notify('✅ Documento aprovado!', 'success');
+          setPendentes(pendentes.filter(u => u.id !== userId));
+          setSelectedUser(null);
+        } else {
+          notify('Erro ao aprovar', 'error');
+        }
+      } catch (_err) {
+        notify('Erro na requisição', 'error');
+      }
+    };
+
+    const rejeitar = async (userId, motivo) => {
+      try {
+        const res = await fetch(`${API_URL}/api/v1/documentos/verificar`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+          body: JSON.stringify({ usuario_id: userId, aprovado: false, motivo_rejeicao: motivo })
+        });
+        if (res.ok) {
+          notify('❌ Documento rejeitado', 'success');
+          setPendentes(pendentes.filter(u => u.id !== userId));
+          setSelectedUser(null);
+        } else {
+          notify('Erro ao rejeitar', 'error');
+        }
+      } catch (_err) {
+        notify('Erro na requisição', 'error');
+      }
+    };
+
+    if (selectedUser) {
+      return (
+        <div className="fixed inset-0 bg-black/90 backdrop-blur-sm z-50 flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-zinc-900 rounded-2xl max-w-2xl w-full border border-zinc-800 p-8">
+            <div className="flex justify-between items-center mb-6">
+              <h2 className="text-2xl font-bold text-white">{selectedUser.nome}</h2>
+              <button onClick={() => setSelectedUser(null)} className="text-zinc-500"><X size={24}/></button>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+              <div>
+                <p className="text-zinc-400 text-sm">Email</p>
+                <p className="text-white font-mono text-sm">{selectedUser.email}</p>
+              </div>
+              <div>
+                <p className="text-zinc-400 text-sm">Tipo</p>
+                <p className="text-white capitalize">{selectedUser.tipo}</p>
+              </div>
+              <div>
+                <p className="text-zinc-400 text-sm">RG</p>
+                <p className="text-white font-mono">{selectedUser.rg || '-'}</p>
+              </div>
+            </div>
+
+            <div className="space-y-4 mb-6">
+              {selectedUser.documento_frente_url && (
+                <div>
+                  <p className="text-zinc-400 text-sm mb-2">📄 Documento - Frente</p>
+                  <img src={selectedUser.documento_frente_url} alt="Frente" className="w-full rounded-lg border border-zinc-700 max-h-64 object-cover"/>
+                </div>
+              )}
+              {selectedUser.documento_verso_url && (
+                <div>
+                  <p className="text-zinc-400 text-sm mb-2">📄 Documento - Verso</p>
+                  <img src={selectedUser.documento_verso_url} alt="Verso" className="w-full rounded-lg border border-zinc-700 max-h-64 object-cover"/>
+                </div>
+              )}
+              {selectedUser.selfie_documento_url && (
+                <div>
+                  <p className="text-zinc-400 text-sm mb-2">🤳 Selfie com Documento</p>
+                  <img src={selectedUser.selfie_documento_url} alt="Selfie" className="w-full rounded-lg border border-zinc-700 max-h-64 object-cover"/>
+                </div>
+              )}
+            </div>
+
+            <div className="flex gap-3">
+              <button
+                onClick={() => rejeitar(selectedUser.id, 'Documentos inválidos ou ilegíveis')}
+                className="flex-1 bg-red-600 hover:bg-red-700 text-white font-bold py-3 rounded-xl transition"
+              >
+                ❌ Rejeitar
+              </button>
+              <button
+                onClick={() => aprovar(selectedUser.id)}
+                className="flex-1 bg-green-600 hover:bg-green-700 text-white font-bold py-3 rounded-xl transition"
+              >
+                ✅ Aprovar
+              </button>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    return (
+      <div className="bg-black min-h-screen text-white p-6">
+        <div className="max-w-4xl mx-auto">
+          <button onClick={() => setView('dashboard')} className="mb-6 flex items-center gap-2 text-zinc-400 hover:text-white">
+            <ArrowRight size={20} className="rotate-180"/> Voltar
+          </button>
+
+          <h1 className="text-3xl font-bold mb-2">📋 Validar Documentos</h1>
+          <p className="text-zinc-400 mb-6">Pendentes de aprovação: {pendentes.length}</p>
+
+          {loading ? (
+            <div className="text-center py-12">
+              <div className="inline-block animate-spin rounded-full h-8 w-8 border-t-2 border-orange-600"></div>
+              <p className="text-zinc-400 mt-4">Carregando...</p>
+            </div>
+          ) : pendentes.length === 0 ? (
+            <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-8 text-center">
+              <p className="text-zinc-400">✅ Não há documentos pendentes!</p>
+            </div>
+          ) : (
+            <div className="grid gap-4">
+              {pendentes.map(user => (
+                <button
+                  key={user.id}
+                  onClick={() => setSelectedUser(user)}
+                  className="bg-zinc-900 border border-zinc-800 hover:border-orange-600 p-4 rounded-xl text-left transition"
+                >
+                  <div className="flex justify-between items-start">
+                    <div>
+                      <h3 className="font-bold text-white">{user.nome}</h3>
+                      <p className="text-sm text-zinc-400">{user.email}</p>
+                      <p className="text-xs text-zinc-500 capitalize mt-1">Tipo: {user.tipo}</p>
+                    </div>
+                    <ArrowRight size={20} className="text-zinc-500"/>
+                  </div>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
     );
   };
@@ -82,14 +609,27 @@ export default function App() {
     const [isLogin, setIsLogin] = useState(true);
     const [activeTab, setActiveTab] = useState('cliente');
     const [loading, setLoading] = useState(false);
-    const [formData, setFormData] = useState({ email: '', senha: '', nome: '', endereco: '', telefone: '', cpf: '', cnpj: '' });
+    const [formData, setFormData] = useState({ email: '', senha: '', nome: '', endereco: '', cep: '', telefone: '', cpf: '', cnpj: '', doc_frente: null, doc_verso: null, doc_selfie: null });
+    const [docFiles, setDocFiles] = useState({ frente: null, verso: null, selfie: null });
+    const [portfolioFiles, setPortfolioFiles] = useState([]);
 
     const validateForm = () => {
       if (!formData.email.includes('@')) throw new Error('Email inválido');
       if ((formData.senha || '').length < 6) throw new Error('Senha precisa ter 6 caracteres ou mais');
       if (!isLogin && (formData.nome || '').trim().length < 3) throw new Error('Informe o nome completo');
       if (!isLogin && activeTab !== 'cliente' && (formData.endereco || '').trim().length < 5) throw new Error('Endereço obrigatório para barbearia');
+      if (!isLogin && activeTab !== 'cliente' && (formData.cep || '').trim().length < 5) throw new Error('CEP obrigatório para barbearia');
       if (!isLogin && formData.telefone && formData.telefone.replace(/\D/g, '').length < 10) throw new Error('Telefone com DDD obrigatório');
+    };
+
+    const formatApiError = (data) => {
+      if (!data) return 'Erro na requisição';
+      const detail = data.detail ?? data.message ?? data.error;
+      if (typeof detail === 'string') return detail;
+      if (Array.isArray(detail)) return detail.map(d => d?.msg || d?.detail || d?.message || JSON.stringify(d)).join(' | ');
+      if (typeof detail === 'object') return detail.msg || detail.detail || detail.message || JSON.stringify(detail);
+      if (typeof data === 'string') return data;
+      return JSON.stringify(data);
     };
 
     const handleSubmit = async (e) => {
@@ -98,6 +638,21 @@ export default function App() {
 
       try {
         validateForm();
+        
+        // Validar documentos para barbeiro e barbearia
+        if (!isLogin && (activeTab === 'barbeiro' || activeTab === 'barbearia')) {
+          if (!docFiles.frente || !docFiles.verso || !docFiles.selfie) {
+            throw new Error('Envie os 3 documentos: frente, verso e selfie');
+          }
+        }
+        
+        // Validar portfólio para barbeiro
+        if (!isLogin && activeTab === 'barbeiro') {
+          if (portfolioFiles.length < 3) {
+            throw new Error('Envie no mínimo 3 fotos com você ao lado do corte para aprovação');
+          }
+        }
+        
         const endpoint = isLogin ? `login/${activeTab}/` : `${activeTab === 'cliente' ? 'clientes' : activeTab === 'barbeiro' ? 'barbeiros' : 'barbearias'}/`;
         const payload = isLogin ? 
           { email: formData.email, senha: formData.senha } : 
@@ -105,53 +660,124 @@ export default function App() {
             nome: formData.nome, 
             email: formData.email, 
             senha: formData.senha, 
-            endereco: formData.endereco, 
+            endereco: formData.endereco,
+            cep: formData.cep || undefined,
             telefone: formData.telefone,
             cpf: formData.cpf || undefined,
             cnpj: formData.cnpj || undefined
           };
 
+        const isLoginRequest = isLogin;
         const res = await fetch(`${API_URL}/api/v1/${endpoint}`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload)
+          headers: isLoginRequest
+            ? { 'Content-Type': 'application/x-www-form-urlencoded' }
+            : { 'Content-Type': 'application/json' },
+          body: isLoginRequest
+            ? new URLSearchParams({ username: formData.email, password: formData.senha })
+            : JSON.stringify(payload)
         });
         
         const data = await res.json();
         
-        if (!res.ok) throw new Error(data.detail || data.message || "Erro na requisição");
+        if (!res.ok) throw new Error(formatApiError(data));
 
         if (isLogin) {
           saveLogin(activeTab, data.access_token, data.user_id);
           notify(`Bem-vindo!`, 'success');
         } else {
+          // Se for barbeiro ou barbearia, upload de documentos
+          if ((activeTab === 'barbeiro' || activeTab === 'barbearia') && docFiles.frente && docFiles.verso && docFiles.selfie) {
+            try {
+              const formDataDocs = new FormData();
+              formDataDocs.append('documento_frente', docFiles.frente);
+              formDataDocs.append('documento_verso', docFiles.verso);
+              formDataDocs.append('selfie_documento', docFiles.selfie);
+              
+              const docRes = await fetch(`${API_URL}/api/v1/documentos/upload-files`, {
+                method: 'POST',
+                headers: { 'Authorization': `Bearer ${data.access_token}` },
+                body: formDataDocs
+              });
+
+              if (!docRes.ok) {
+                const errData = await docRes.json();
+                notify('Aviso: ' + (errData.detail || 'Documentos não foram salvos'), 'error');
+              } else {
+                await docRes.json();
+                notify('Documentos enviados para análise!', 'success');
+              }
+            } catch (_docErr) {
+              notify('Erro ao enviar documentos', 'error');
+            }
+          }
+          
+          // Se for barbeiro, upload de portfólio
+          if (activeTab === 'barbeiro' && portfolioFiles.length > 0) {
+            try {
+              for (let i = 0; i < portfolioFiles.length; i++) {
+                const file = portfolioFiles[i];
+                const formDataPortfolio = new FormData();
+                formDataPortfolio.append('file', file);
+                formDataPortfolio.append('pasta', 'portfolio');
+                
+                const portRes = await fetch(`${API_URL}/api/v1/upload/imagem`, {
+                  method: 'POST',
+                  headers: { 'Authorization': `Bearer ${data.access_token}` },
+                  body: formDataPortfolio
+                });
+                
+                if (portRes.ok) {
+                  const portData = await portRes.json();
+                  // Enviar para salvar no portfólio
+                  await fetch(`${API_URL}/api/v1/barbeiro/portfolio`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${data.access_token}` },
+                    body: JSON.stringify({
+                      url_imagem: portData.url,
+                      tipo_servico: 'corte',
+                      descricao: 'Portfólio de cadastro'
+                    })
+                  });
+                }
+              }
+            } catch (_portErr) {
+              // Erro ao fazer upload de portfólio
+            }
+          }
+          
           notify("Conta criada! Faça login.", 'success');
           setIsLogin(true);
+          setDocFiles({ frente: null, verso: null, selfie: null });
+          setPortfolioFiles([]);
         }
       } catch (err) {
-        notify(err.message === "Failed to fetch" ? `Erro de conexão com API - Verifique se o celular está na mesma rede Wi-Fi (${API_URL})` : err.message, 'error');
+        const message = err.message === 'Failed to fetch' 
+          ? `Erro de conexão com API - Verifique se o celular está na mesma rede Wi-Fi (${API_URL})`
+          : (err.message || 'Erro inesperado');
+        notify(message, 'error');
       } finally {
         setLoading(false);
       }
     };
 
     return (
-      <div className="flex flex-col items-center justify-center h-full p-6 text-white bg-black animate-in fade-in">
-        <div className="text-center mb-8">
-            <div className="flex justify-center mb-4">
-              <img src={BRAND_LOGO} alt="BarberMove" className="h-16 w-16 object-contain" onError={(e) => e.currentTarget.style.display='none'} />
+      <div className="flex flex-col items-center justify-start min-h-screen p-3 sm:p-6 text-white bg-black animate-in fade-in overflow-y-auto">
+        <div className="text-center mb-6 sm:mb-8">
+            <div className="flex justify-center mb-3 sm:mb-4">
+              <img src={BRAND_LOGO} alt="BarberMove" className="h-12 w-12 sm:h-16 sm:w-16 object-contain" onError={(e) => e.currentTarget.style.display='none'} />
             </div>
-            <h1 className="text-3xl font-extrabold mb-2 tracking-tighter">Barber<span className="text-orange-500">Move</span></h1>
-            <p className="text-zinc-500 text-xs uppercase tracking-widest font-bold">Agenda e gestão profissional</p>
+            <h1 className="text-xl sm:text-3xl font-extrabold mb-1 sm:mb-2 tracking-tighter">Barber<span className="text-orange-500">Move</span></h1>
+            <p className="text-zinc-500 text-[10px] sm:text-xs uppercase tracking-widest font-bold">Agenda e gestão profissional</p>
         </div>
         
-        <div className="bg-zinc-900/50 p-1 rounded-xl mb-6 flex border border-zinc-800 w-full relative">
+        <div className="bg-zinc-900/50 p-1 rounded-xl mb-4 sm:mb-6 flex border border-zinc-800 w-full relative">
             {['cliente', 'barbeiro', 'barbearia'].map(t => (
-                <button key={t} onClick={() => setActiveTab(t)} className={`flex-1 py-2.5 capitalize text-[11px] font-bold rounded-lg transition-all z-10 ${activeTab === t ? 'bg-zinc-800 text-white shadow-lg' : 'text-zinc-500 hover:text-zinc-300'}`}>{t}</button>
+                <button key={t} onClick={() => setActiveTab(t)} className={`flex-1 py-2 sm:py-2.5 capitalize text-[9px] sm:text-[11px] font-bold rounded-lg transition-all z-10 ${activeTab === t ? 'bg-zinc-800 text-white shadow-lg' : 'text-zinc-500 hover:text-zinc-300'}`}>{t}</button>
             ))}
         </div>
 
-        <form onSubmit={handleSubmit} className="space-y-3 w-full">
+        <form onSubmit={handleSubmit} className="space-y-2 sm:space-y-3 w-full">
             {!isLogin && <input name="nome" placeholder="Nome Completo" className="input-modern" onChange={e => setFormData({...formData, nome: e.target.value})} required />}
             {!isLogin && <input name="telefone" placeholder="Telefone com DDD" className="input-modern" onChange={e => setFormData({...formData, telefone: e.target.value})} />}
             {!isLogin && (activeTab === 'cliente' || activeTab === 'barbeiro') && (
@@ -202,9 +828,116 @@ export default function App() {
                 />
               </>
             )}
-            {!isLogin && activeTab !== 'cliente' && <input name="endereco" placeholder="Endereço da Loja/Base" className="input-modern" onChange={e => setFormData({...formData, endereco: e.target.value})} required />}
+            {!isLogin && activeTab !== 'cliente' && (
+              <>
+                <input 
+                  name="cep" 
+                  placeholder="CEP (ex: 12345-678)" 
+                  className="input-modern" 
+                  value={formData.cep}
+                  onChange={async (e) => {
+                    let value = e.target.value.replace(/\D/g, '');
+                    setFormData({...formData, cep: value});
+                    
+                    if (value.length === 8) {
+                      const cepFormatted = value.replace(/(\d{5})(\d{3})/, '$1-$2');
+                      try {
+                        const res = await fetch(`https://viacep.com.br/ws/${value}/json/`);
+                        const data = await res.json();
+                        if (!data.erro) {
+                          const endereco = `${data.logradouro}, ${data.bairro} - ${data.localidade}, ${data.uf}`;
+                          setFormData(prev => ({...prev, cep: cepFormatted, endereco: endereco}));
+                        }
+                      } catch (_err) {
+                        // Erro ao buscar CEP
+                      }
+                    }
+                  }} 
+                  required 
+                />
+                <input 
+                  name="endereco" 
+                  placeholder="Endereço da Loja/Base" 
+                  className="input-modern" 
+                  value={formData.endereco}
+                  onChange={e => setFormData({...formData, endereco: e.target.value})} 
+                  required 
+                />
+              </>
+            )}
             <input name="email" type="email" placeholder="Email" className="input-modern" onChange={e => setFormData({...formData, email: e.target.value})} required />
             <input name="senha" type="password" placeholder="Senha" className="input-modern" onChange={e => setFormData({...formData, senha: e.target.value})} required />
+            
+            {/* Documentos obrigatórios para barbeiro e barbearia */}
+            {!isLogin && (activeTab === 'barbeiro' || activeTab === 'barbearia') && (
+              <div className="bg-zinc-900/50 p-3 rounded-lg border border-zinc-800 mt-4">
+                <p className="text-yellow-400 text-xs font-bold mb-3">📄 Envie seus documentos (obrigatório)</p>
+                <div className="space-y-2">
+                  <label className="text-xs text-zinc-400 block">Frente do RG/CNH:</label>
+                  <input 
+                    type="file" 
+                    accept="image/*" 
+                    className="input-modern text-xs file:mr-3 file:bg-zinc-800 file:text-white file:border-0 file:rounded file:px-3 file:py-1" 
+                    onChange={e => setDocFiles({...docFiles, frente: e.target.files?.[0] || null})}
+                  />
+                  
+                  <label className="text-xs text-zinc-400 block mt-2">Verso do RG/CNH:</label>
+                  <input 
+                    type="file" 
+                    accept="image/*" 
+                    className="input-modern text-xs file:mr-3 file:bg-zinc-800 file:text-white file:border-0 file:rounded file:px-3 file:py-1"
+                    onChange={e => setDocFiles({...docFiles, verso: e.target.files?.[0] || null})}
+                  />
+                  
+                  <label className="text-xs text-zinc-400 block mt-2">Selfie com o documento:</label>
+                  <input 
+                    type="file" 
+                    accept="image/*" 
+                    className="input-modern text-xs file:mr-3 file:bg-zinc-800 file:text-white file:border-0 file:rounded file:px-3 file:py-1"
+                    onChange={e => setDocFiles({...docFiles, selfie: e.target.files?.[0] || null})}
+                  />
+                </div>
+              </div>
+            )}
+            
+            {/* Portfólio obrigatório para barbeiro */}
+            {!isLogin && activeTab === 'barbeiro' && (
+              <div className="bg-zinc-900/50 p-3 rounded-lg border border-zinc-800 mt-4">
+                <p className="text-orange-400 text-xs font-bold mb-3">⭐ Portfólio (obrigatório)</p>
+                <p className="text-zinc-400 text-xs mb-3">Envie no mínimo 3 fotos com você ao lado do corte para aprovação</p>
+                <div className="space-y-2">
+                  <label className="text-xs text-zinc-400 block">Fotos do corte/trabalho (mínimo 3, máximo 10):</label>
+                  <div className="flex gap-2 mb-2">
+                    {portfolioFiles.map((file, idx) => (
+                      <div key={idx} className="text-xs bg-zinc-800 px-2 py-1 rounded flex items-center gap-2">
+                        <span>{file.name}</span>
+                        <button
+                          type="button"
+                          onClick={() => setPortfolioFiles(portfolioFiles.filter((_, i) => i !== idx))}
+                          className="text-red-400 hover:text-red-500"
+                        >✕</button>
+                      </div>
+                    ))}
+                  </div>
+                  {portfolioFiles.length < 10 && (
+                    <input 
+                      type="file" 
+                      accept="image/*" 
+                      className="input-modern text-xs file:mr-3 file:bg-zinc-800 file:text-white file:border-0 file:rounded file:px-3 file:py-1"
+                      onChange={e => {
+                        const file = e.target.files?.[0];
+                        if (file && portfolioFiles.length < 10) {
+                          setPortfolioFiles([...portfolioFiles, file]);
+                        } else if (portfolioFiles.length >= 10) {
+                          notify('Máximo de 10 fotos no portfólio', 'error');
+                        }
+                      }}
+                    />
+                  )}
+                  <p className="text-zinc-500 text-[10px]">Você adicionou {portfolioFiles.length} foto(s)</p>
+                </div>
+              </div>
+            )}
             
             <button disabled={loading} className="w-full bg-white text-black py-4 rounded-xl font-bold mt-4 active:scale-95 transition-all hover:bg-zinc-200 disabled:opacity-50">
                 {loading ? 'Processando...' : (isLogin ? 'Entrar na Conta' : 'Criar Nova Conta')}
@@ -215,6 +948,10 @@ export default function App() {
             {isLogin ? 'Não tem uma conta? Cadastre-se' : 'Já possui conta? Faça login'}
         </button>
         <p className="mt-4 text-[10px] text-zinc-700">Sua conta será validada com email e senha fortes.</p>
+        <div className="mt-4 flex flex-col items-center gap-1 text-[11px] text-zinc-500">
+          <button type="button" className="hover:text-white underline" onClick={() => setShowTerms(true)}>Termos de Uso</button>
+          <button type="button" className="hover:text-white underline" onClick={() => setShowPrivacy(true)}>Política de Privacidade</button>
+        </div>
         
         <style>{`.input-modern { width: 100%; padding: 1rem; border-radius: 0.75rem; background-color: #18181b; color: white; border: 1px solid #27272a; outline: none; transition: all 0.2s; font-size: 0.9rem; } .input-modern:focus { border-color: #f97316; background-color: #000; }`}</style>
       </div>
@@ -222,9 +959,9 @@ export default function App() {
   };
 
   // ----------------------------------------------------------------------
-  // ARQUIVO: src/components/ClientDashboard.jsx
+  // ClientDashboard foi movido para src/components/ClientDashboard.jsx
   // ----------------------------------------------------------------------
-  const ClientDashboard = () => {
+  const ClientDashboard_OLD_REMOVED = () => {
     const [barbeiros, setBarbeiros] = useState([]);
     const [shops, setShops] = useState([]);
     const [tab, setTab] = useState('barbeiros'); // Mudado: inicia em barbeiros
@@ -237,6 +974,13 @@ export default function App() {
     const [services, setServices] = useState([]);
     const [myOrders, setMyOrders] = useState([]);
     const [userCoords, setUserCoords] = useState(null);
+    const [clientUser, setClientUser] = useState(null);
+    const [avaliacoesBarbeiro, setAvaliacoesBarbeiro] = useState([]);
+    const [avaliacoesShop, setAvaliacoesShop] = useState([]);
+    const [avaliarPedido, setAvaliarPedido] = useState({ id: null, alvo: null, nota: 5, comentario: '' });
+    const [selectedOrder, setSelectedOrder] = useState(null); // Novo estado para agendamento selecionado
+    const [_pagamentoSelecionado, setPagamentoSelecionado] = useState(null);
+    const [showAvailableOnly, setShowAvailableOnly] = useState(false); // 🔴 Filtro de disponibilidade
     const ETA_SPEED_KMH = 30; // velocidade média urbana para estimar chegada
 
     const toRad = (deg) => deg * (Math.PI / 180);
@@ -250,7 +994,7 @@ export default function App() {
       return R * 2 * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h));
     };
 
-    const formatDistanceEta = (shop) => {
+    const _formatDistanceEta = (shop) => {
       const hasShopCoords = shop.latitude !== null && shop.latitude !== undefined && shop.longitude !== null && shop.longitude !== undefined;
       if (!userCoords || !hasShopCoords) return null;
       const km = distanceKm(userCoords.lat, userCoords.lon, shop.latitude, shop.longitude);
@@ -265,28 +1009,94 @@ export default function App() {
       window.open(url, '_blank');
     };
 
+    const normalizePhone = (phone) => (phone || '').replace(/\D/g, '');
+
+    const handleCall = (phone) => {
+      const normalized = normalizePhone(phone);
+      if (!normalized) {
+        notify('Telefone nao informado.', 'error');
+        return;
+      }
+      window.open(`tel:${normalized}`);
+    };
+
+    const handleWhatsApp = (phone) => {
+      const normalized = normalizePhone(phone);
+      if (!normalized) {
+        notify('Telefone nao informado.', 'error');
+        return;
+      }
+      window.open(`https://wa.me/${normalized}`, '_blank');
+    };
+
     useEffect(() => {
         // Buscar barbeiros próximos se tiver geolocalização
         if (userCoords) {
+          console.log('🔄 Buscando barbeiros próximos com coords:', userCoords);
           fetch(`${API_URL}/api/v1/barbeiros/proximos?latitude=${userCoords.lat}&longitude=${userCoords.lon}&raio_km=5`)
             .then(async r => {
-              if (!r.ok) throw new Error('Erro ao listar barbeiros');
+              if (!r.ok) {
+                console.error('❌ Erro ao listar barbeiros:', r.status);
+                throw new Error('Erro ao listar barbeiros');
+              }
               return r.json();
             })
-            .then(setBarbeiros)
-            .catch(() => {
+            .then(data => {
+              console.log('✅ Barbeiros próximos recebidos:', data.length, data);
+              setBarbeiros(data);
+            })
+            .catch(err => {
+              console.warn('⚠️ Falha ao buscar barbeiros próximos, usando fallback:', err.message);
               // Fallback: buscar todos se geolocalização falhar
               fetch(`${API_URL}/api/v1/barbeiros/todos`)
                 .then(r => r.json())
-                .then(setBarbeiros)
-                .catch(() => setBarbeiros([]));
+                .then(data => {
+                  console.log('📍 Usando fallback - todos os barbeiros:', data.length);
+                  setBarbeiros(data);
+                })
+                .catch(err => {
+                  console.error('❌ Erro ao buscar barbeiros:', err);
+                  setBarbeiros([]);
+                });
+            });
+
+          // 🆕 Buscar barbearias próximas e aprovadas
+          fetch(`${API_URL}/api/v1/barbearias/proximas?raio_km=10`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+          })
+            .then(async r => {
+              if (!r.ok) throw new Error('Erro ao listar barbearias');
+              return r.json();
+            })
+            .then(data => setShops(data.barbearias || []))
+            .catch(() => {
+              // Fallback: buscar todas aprovadas
+              fetch(`${API_URL}/api/v1/barbearias/todas-aprovadas`, {
+                headers: { 'Authorization': `Bearer ${token}` }
+              })
+                .then(r => r.json())
+                .then(data => setShops(data.barbearias || []))
+                .catch(() => setShops([]));
             });
         } else {
-          // Sem geolocalização: buscar todos
+          console.log('📍 Sem geolocalização, buscando todos os barbeiros');
           fetch(`${API_URL}/api/v1/barbeiros/todos`)
             .then(r => r.json())
-            .then(setBarbeiros)
+            .then(data => {
+              console.log('📍 Todos os barbeiros:', data.length);
+              setBarbeiros(data);
+            })
             .catch(() => setBarbeiros([]));
+          
+          // 🆕 Buscar todas as barbearias aprovadas
+          if (token) {
+            fetch(`${API_URL}/api/v1/barbearias/todas-aprovadas`, {
+              headers: { 'Authorization': `Bearer ${token}` }
+            })
+              .then(r => r.json())
+              .then(data => setShops(data.barbearias || []))
+              .catch(() => setShops([]));
+          }
         }
 
         if (token) {
@@ -295,17 +1105,48 @@ export default function App() {
               if (!r.ok) throw new Error();
               return r.json();
             }).then(setMyOrders).catch(() => setMyOrders([]));
+          
+          // Status de verificação do usuário atual
+          const fetchUserStatus = () => {
+            fetch(`${API_URL}/api/v1/documentos/status`, { headers: {'Authorization': `Bearer ${token}`} })
+              .then(r => r.json())
+              .then(setClientUser)
+              .catch(() => {});
+          };
+          
+          fetchUserStatus();
+          
+          // Se email não está verificado, recarregar a cada 10 segundos
+          const interval = setInterval(() => {
+            if (!clientUser?.email_verificado) {
+              fetchUserStatus();
+            }
+          }, 10000);
+          
+          return () => clearInterval(interval);
         }
-    }, [token, userCoords]);
+    }, [userCoords, clientUser?.email_verificado]);
 
     useEffect(() => {
-      if (!navigator.geolocation) return;
+      if (!navigator.geolocation) {
+        console.warn('⚠️ Geolocalização não disponível no navegador');
+        return;
+      }
+      
+      console.log('🔍 Solicitando geolocalização...');
       navigator.geolocation.getCurrentPosition(
-        (pos) => setUserCoords({ lat: pos.coords.latitude, lon: pos.coords.longitude }),
-        () => {},
-        { enableHighAccuracy: false, timeout: 8000 }
+        (pos) => {
+          const coords = { lat: pos.coords.latitude, lon: pos.coords.longitude };
+          console.log('✅ Geolocalização obtida:', coords);
+          setUserCoords(coords);
+        },
+        (error) => {
+          console.error('❌ Erro de geolocalização:', error.code, error.message);
+          console.log('Caindo para fallback e buscando todos os barbeiros...');
+        },
+        { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
       );
-    }, [token]);
+    }, []);
 
     const handleSelectBarbeiro = async (barbeiro) => {
         setSelectedBarbeiro(barbeiro);
@@ -318,6 +1159,17 @@ export default function App() {
           notify('Erro ao carregar barbearias', 'error');
           setShops([]);
         }
+
+        // Avaliações do barbeiro
+        try {
+          const r = await fetch(`${API_URL}/api/v1/avaliacoes/freelancer/${barbeiro.id}/recebidas?limite=5`);
+          if (r.ok) {
+            const avs = await r.json();
+            setAvaliacoesBarbeiro(Array.isArray(avs) ? avs : []);
+          } else {
+            setAvaliacoesBarbeiro([]);
+          }
+        } catch { setAvaliacoesBarbeiro([]); }
     };
 
     const handleSelectShop = async (shop) => {
@@ -331,6 +1183,17 @@ export default function App() {
           notify('Erro ao carregar serviços', 'error');
           setServices([]);
         }
+
+        // Avaliações da barbearia
+        try {
+          const r = await fetch(`${API_URL}/api/v1/avaliacoes/barbearia/${shop.id}/recebidas?limite=5`);
+          if (r.ok) {
+            const avs = await r.json();
+            setAvaliacoesShop(Array.isArray(avs) ? avs : []);
+          } else {
+            setAvaliacoesShop([]);
+          }
+        } catch { setAvaliacoesShop([]); }
     };
 
     const handleBooking = async (service) => {
@@ -361,7 +1224,7 @@ export default function App() {
           body: JSON.stringify({ 
             servico_id: selectedService.id, 
             barbearia_id: selectedShop.id,
-            barbeiro_id: selectedBarbeiro.id,
+            barbeiro_id: selectedBarbeiro?.id || null,
             data_hora_inicio: dataHora.toISOString()
           })
         });
@@ -377,6 +1240,57 @@ export default function App() {
         setTab('pedidos');
       } catch (err) {
         notify(err.message || "Erro ao agendar. Verifique sua conexão.", "error");
+      }
+    };
+
+    const abrirPagamento = (pedido) => {
+      setPagamentoSelecionado(pedido);
+      setTab('pagamentos');
+    };
+
+    const enviarAvaliacao = async (pedido, alvo, nota, comentario) => {
+      try {
+        if (!pedido?.id) throw new Error('Pedido inválido');
+        const notaFinal = nota || avaliarPedido.nota || 5;
+        const comentarioFinal = comentario !== undefined ? comentario : avaliarPedido.comentario || '';
+        const campoAvaliado = alvo === 'freelancer'
+          ? 'avaliacao_freelancer_enviada'
+          : 'avaliacao_barbearia_enviada';
+
+        if (pedido?.[campoAvaliado]) {
+          notify('Essa avaliação já foi enviada.', 'info');
+          return;
+        }
+        
+        let url = '';
+        if (alvo === 'freelancer' && pedido.barbeiro_id) {
+          url = `${API_URL}/api/v1/avaliacoes/freelancer/${pedido.barbeiro_id}`;
+        } else if (alvo === 'barbearia' && pedido.barbearia_id) {
+          url = `${API_URL}/api/v1/avaliacoes/barbearia/${pedido.barbearia_id}`;
+        } else {
+          throw new Error('Dados do avaliando ausentes');
+        }
+        const r = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+          body: JSON.stringify({ chamado_id: pedido.id, nota: notaFinal, comentario: comentarioFinal })
+        });
+        const data = await r.json();
+        if (!r.ok) throw new Error(data.detail || 'Falha ao avaliar');
+        notify('Avaliação enviada!', 'success');
+        // Mantém o pedido visível e marca apenas o alvo avaliado para evitar
+        // que a seção de avaliações "desapareça" após o envio.
+        setMyOrders((prev) => prev.map((o) => {
+          if (o.id !== pedido.id) return o;
+          return { ...o, [campoAvaliado]: true };
+        }));
+        setSelectedOrder((prev) => {
+          if (!prev || prev.id !== pedido.id) return prev;
+          return { ...prev, [campoAvaliado]: true };
+        });
+        setAvaliarPedido({ id: null, alvo: null, nota: 5, comentario: '' });
+      } catch (err) {
+        notify(err.message || 'Erro ao enviar avaliação', 'error');
       }
     };
 
@@ -398,6 +1312,20 @@ export default function App() {
                         onClick={() => openMaps(selectedShop)}
                         className="px-3 py-1 rounded-full bg-white/90 text-black font-bold text-[10px] active:scale-95"
                       >Abrir no Maps</button>
+                    </div>
+                    <div className="flex flex-wrap gap-2 mt-3">
+                      <button
+                        onClick={() => handleCall(selectedBarbeiro?.telefone)}
+                        className="px-3 py-1 rounded-full bg-zinc-800 text-white text-[10px] font-bold"
+                      >Ligar Barbeiro</button>
+                      <button
+                        onClick={() => handleWhatsApp(selectedBarbeiro?.telefone)}
+                        className="px-3 py-1 rounded-full bg-green-600 text-white text-[10px] font-bold"
+                      >WhatsApp</button>
+                      <button
+                        onClick={() => handleCall(selectedShop?.telefone)}
+                        className="px-3 py-1 rounded-full bg-zinc-700 text-white text-[10px] font-bold"
+                      >Ligar Barbearia</button>
                     </div>
                 </div>
             </div>
@@ -497,30 +1425,63 @@ export default function App() {
           </>
         ) : (
           /* ETAPA 1: Selecionar Barbeiro */
-          <>
-            <div className="p-5 pt-8 sticky top-0 bg-black/80 backdrop-blur-md z-20 border-b border-zinc-800">
-                <div className="flex justify-between items-center mb-4">
-                    <h1 className="text-xl font-bold">Olá, Cliente</h1>
-                    <button onClick={logout} className="p-2 bg-zinc-900 rounded-full text-zinc-400 hover:text-white"><LogOut size={16}/></button>
-                </div>
-                {tab === 'barbeiros' && (
-                    <div className="relative">
-                        <Search className="absolute left-3 top-3 text-zinc-500" size={18} />
-                        <input placeholder="Buscar barbeiro..." className="w-full bg-zinc-900 pl-10 pr-4 py-3 rounded-xl border border-zinc-800 outline-none focus:border-orange-500 text-sm" />
-                    </div>
-                )}
-            </div>
+            <div className="flex flex-col h-full w-full bg-black">
+              {/* Header fixo no topo */}
+              <div className="p-5 pt-8 bg-black border-b border-zinc-800 shrink-0">
+                  <div className="flex justify-between items-center mb-4">
+                      <h1 className="text-xl font-bold">Olá, Cliente</h1>
+                      <div className="flex items-center">
+                        <button onClick={logout} className="p-2 bg-zinc-900 rounded-full text-zinc-400 hover:text-white ml-1"><LogOut size={16}/></button>
+                      </div>
+                  </div>
+                  {tab === 'barbeiros' && (
+                      <div className="space-y-3">
+                          <div className="relative">
+                              <Search className="absolute left-3 top-3 text-zinc-500" size={18} />
+                              <input placeholder="Buscar barbeiro..." className="w-full bg-zinc-900 pl-10 pr-4 py-3 rounded-xl border border-zinc-800 outline-none focus:border-orange-500 text-sm" />
+                          </div>
+                          <button 
+                            onClick={() => setShowAvailableOnly(!showAvailableOnly)}
+                            className={`w-full px-4 py-2 rounded-xl font-bold text-sm transition-all ${
+                              showAvailableOnly 
+                                ? 'bg-green-600 text-white' 
+                                : 'bg-zinc-900 text-zinc-300 border border-zinc-800'
+                            }`}
+                          >
+                            🟢 Mostrar apenas disponíveis ({barbeiros.filter(b => b.disponivel).length})
+                          </button>
+                      </div>
+                  )}
+              </div>
 
-            <div className="flex-1 overflow-y-auto p-4 space-y-4 pb-24">
-                {tab === 'barbeiros' ? barbeiros.map(barbeiro => (
+              {/* Conteúdo scrollável */}
+              <div className="flex-1 overflow-y-auto p-4 space-y-4 pb-24">
+                {tab === 'barbeiros' ? barbeiros.filter(b => !showAvailableOnly || b.disponivel).map(barbeiro => {
+                    const disponivelEmBarbearia = barbeiro.presente_em_local && barbeiro.barbearia_atual_nome;
+                    const statusTexto = disponivelEmBarbearia
+                      ? `🟢 Disponível em ${barbeiro.barbearia_atual_nome}`
+                      : (barbeiro.disponivel || barbeiro.online_regiao)
+                        ? '🟢 Disponível'
+                        : '⚫ Ocupado';
+                    const statusClass = (barbeiro.disponivel || barbeiro.online_regiao)
+                      ? 'bg-green-900/40 text-green-400'
+                      : 'bg-zinc-800/40 text-zinc-400';
+
+                    return (
                     <div key={barbeiro.id} onClick={() => handleSelectBarbeiro(barbeiro)} className="bg-zinc-900 rounded-2xl p-4 border border-zinc-800 active:scale-95 transition-transform cursor-pointer group flex items-center gap-4">
-                        <div className="h-16 w-16 rounded-full bg-gradient-to-br from-orange-500 to-orange-700 flex items-center justify-center text-white font-bold text-2xl">
-                          {barbeiro.nome.charAt(0).toUpperCase()}
+                        <div className="relative h-16 w-16">
+                          <div className="h-16 w-16 rounded-full bg-gradient-to-br from-orange-500 to-orange-700 flex items-center justify-center text-white font-bold text-2xl">
+                            {barbeiro.nome.charAt(0).toUpperCase()}
+                          </div>
+                          <div className={`absolute bottom-0 right-0 w-5 h-5 rounded-full border-2 border-zinc-900 ${barbeiro.disponivel ? 'bg-green-500 animate-pulse' : 'bg-zinc-700'}`}></div>
                         </div>
                         <div className="flex-1">
                           <h3 className="font-bold text-lg">{barbeiro.nome}</h3>
                           <p className="text-xs text-zinc-500">{barbeiro.telefone || 'Sem telefone'}</p>
-                          <div className="flex items-center gap-2 mt-1">
+                          <div className="flex items-center gap-2 mt-1 flex-wrap">
+                            <span className={`text-[10px] font-bold px-2 py-1 rounded-full ${statusClass}`}>
+                              {statusTexto}
+                            </span>
                             {barbeiro.documento_verificado && (
                               <span className="inline-flex items-center gap-1 text-[10px] text-blue-400"><CheckCircle size={12}/> Verificado</span>
                             )}
@@ -533,32 +1494,171 @@ export default function App() {
                         </div>
                         <ArrowRight className="text-zinc-600 group-hover:text-orange-500" size={20}/>
                     </div>
-                )) : (
+                    );
+                    }) : tab === 'barbearias' ? (
+                    <div className="space-y-3">
+                        <h2 className="font-bold text-sm text-zinc-400 uppercase tracking-widest mb-4">Barbearias Próximas ✅</h2>
+                        {shops.length === 0 ? (
+                            <p className="text-zinc-600 text-center py-10">Nenhuma barbearia disponível próxima.</p>
+                        ) : (
+                            shops.map(shop => (
+                                <div key={shop.id} onClick={() => openMaps(shop)} className="bg-zinc-900 rounded-2xl p-4 border border-zinc-800 active:scale-95 transition-transform cursor-pointer group">
+                                    <div className="flex items-start justify-between mb-2">
+                                        <div>
+                                            <h3 className="font-bold text-lg">{shop.nome}</h3>
+                                            <p className="text-xs text-zinc-500">{shop.bairro}, {shop.cidade}</p>
+                                        </div>
+                                        <div className="text-right">
+                                            {shop.distancia_km && (
+                                                <div className="flex items-center gap-1 text-orange-500 text-sm font-bold">
+                                                    <MapPin size={14}/> {shop.distancia_km} km
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+                                    <p className="text-xs text-zinc-400 mb-3">{shop.endereco}</p>
+                                    {shop.descricao && <p className="text-xs text-zinc-500 mb-2">{shop.descricao}</p>}
+                                    <div className="flex gap-2 text-[10px]">
+                                        {shop.telefone && <a href={`tel:${shop.telefone}`} className="flex-1 bg-blue-600/20 text-blue-400 px-3 py-2 rounded-lg">📞 {shop.telefone}</a>}
+                                        <a href={`mailto:${shop.email}`} className="flex-1 bg-purple-600/20 text-purple-400 px-3 py-2 rounded-lg">📧 Email</a>
+                                    </div>
+                                </div>
+                            ))
+                        )}
+                    </div>
+                ) : tab === 'perfil' ? (
+                    <div className="space-y-4 pb-24">
+                      <TelaPerfilUsuario userType="cliente" token={token} onLogout={logout} onNotify={notify} />
+                    </div>
+                ) : tab === 'pedidos' ? (
                     <div className="space-y-3">
                         <h2 className="font-bold text-sm text-zinc-400 uppercase tracking-widest mb-4">Meus Agendamentos</h2>
-                        {myOrders.length === 0 && <p className="text-zinc-600 text-center py-10">Nenhum agendamento.</p>}
-                        {myOrders.map((p) => (
-                          <div key={p.id} className="bg-zinc-900 p-4 rounded-xl border border-zinc-800 flex gap-4 items-center">
-                            <div className="h-10 w-10 rounded-full bg-orange-600/20 flex items-center justify-center text-orange-500"><Calendar size={18}/></div>
-                            <div className="flex-1">
-                              <h3 className="font-bold text-sm">{p.descricao || "Serviço"}</h3>
-                              <p className="text-xs text-zinc-500">{p.nome_barbearia || "Barbearia"}</p>
+                        {!Array.isArray(myOrders) || myOrders.length === 0 ? (
+                          <p className="text-zinc-600 text-center py-10">Nenhum agendamento.</p>
+                        ) : myOrders.map((p) => (
+                          <div key={p.id} onClick={() => setSelectedOrder(selectedOrder?.id === p.id ? null : p)} className={`bg-zinc-900 p-4 rounded-xl border cursor-pointer transition-all ${selectedOrder?.id === p.id ? 'border-orange-500 bg-zinc-800 shadow-lg shadow-orange-500/20' : 'border-zinc-800 hover:border-orange-500/50'}`}>
+                            <div className="flex gap-4 items-center">
+                              <div className="h-10 w-10 rounded-full bg-orange-600/20 flex items-center justify-center text-orange-500"><Calendar size={18}/></div>
+                              <div className="flex-1">
+                                <h3 className="font-bold text-sm">{p.descricao || "Serviço"}</h3>
+                                <p className="text-xs text-zinc-500">{p.nome_barbearia || "Barbearia"}</p>
+                                {p.status === 'concluido' && (
+                                  <p className="text-xs text-yellow-400 font-bold mt-1">👆 Clique para avaliar</p>
+                                )}
+                              </div>
+                              <div className="text-right">
+                                <span className="block text-green-400 font-bold text-sm">R$ {p.valor || 0}</span>
+                                <span className={`text-[10px] font-bold ${p.status === 'concluido' ? 'text-yellow-400' : 'text-zinc-500'}`}>{p.status === 'concluido' ? '✅ CONCLUÍDO' : p.status || "AGENDADO"}</span>
+                              </div>
                             </div>
-                            <div className="text-right">
-                              <span className="block text-green-400 font-bold text-sm">R$ {p.valor || 0}</span>
-                              <span className="text-[10px] text-zinc-500">{p.status || "AGENDADO"}</span>
+                            <div className="mt-3">
+                              <button
+                                onClick={(e) => { e.stopPropagation(); abrirPagamento(p); }}
+                                className="w-full bg-white text-black py-2 rounded-lg font-bold text-xs active:scale-95"
+                              >Pagar</button>
                             </div>
+                            
+                            {/* Expandir ao clicar */}
+                            {selectedOrder?.id === p.id && p.status === 'concluido' && (
+                              <div className="mt-3 grid grid-cols-1 gap-3 animate-in fade-in">
+                                <div className="bg-gradient-to-br from-yellow-500/10 to-orange-500/10 p-4 rounded-lg border border-yellow-500/30">
+                                  <p className="text-xs text-yellow-400 mb-2 font-bold flex items-center gap-2">⭐ Avaliar Barbeiro/Freelancer</p>
+                                  <div className="mb-3 bg-black/30 p-2 rounded-lg border border-yellow-500/20">
+                                    <p className="text-xs text-zinc-400">Avaliando:</p>
+                                    <p className="font-bold text-sm text-white">{p.nome_barbeiro || 'Barbeiro'}</p>
+                                  </div>
+                                  <div className="flex items-center gap-3 mb-3">
+                                    {[1,2,3,4,5].map(n => (
+                                      <button key={n} onClick={() => setAvaliarPedido({ ...avaliarPedido, id: p.id, alvo: 'freelancer', nota: n })} className={`text-2xl transition-all ${avaliarPedido.id===p.id && avaliarPedido.alvo==='freelancer' && avaliarPedido.nota>=n ? 'text-yellow-400 scale-125' : 'text-zinc-700 hover:text-yellow-400'}`}>★</button>
+                                    ))}
+                                  </div>
+                                  <input className="bg-black/40 rounded-lg p-3 border border-zinc-700 text-xs w-full placeholder-zinc-600 focus:border-yellow-400 outline-none" placeholder="Deixe um comentário... (opcional)" value={avaliarPedido.id===p.id && avaliarPedido?.alvo==='freelancer' ? avaliarPedido?.comentario || '' : ''} onChange={e=> setAvaliarPedido({ ...avaliarPedido, id: p.id, alvo: 'freelancer', comentario: e.target.value }) } />
+                                  <button
+                                    onClick={() => enviarAvaliacao(p, 'freelancer')}
+                                    disabled={Boolean(p.avaliacao_freelancer_enviada || p.avaliado_freelancer)}
+                                    className="mt-3 w-full bg-gradient-to-r from-yellow-500 to-orange-500 text-black px-4 py-2 rounded-lg text-xs font-bold hover:shadow-lg hover:shadow-yellow-500/30 transition-all disabled:opacity-60 disabled:cursor-not-allowed"
+                                  >
+                                    {Boolean(p.avaliacao_freelancer_enviada || p.avaliado_freelancer) ? '✅ Avaliação Enviada' : '✅ Enviar Avaliação'}
+                                  </button>
+                                </div>
+                                <div className="bg-gradient-to-br from-blue-500/10 to-cyan-500/10 p-4 rounded-lg border border-blue-500/30">
+                                  <p className="text-xs text-blue-400 mb-2 font-bold flex items-center gap-2">🏪 Avaliar Barbearia</p>
+                                  <div className="mb-3 bg-black/30 p-2 rounded-lg border border-blue-500/20">
+                                    <p className="text-xs text-zinc-400">Avaliando:</p>
+                                    <p className="font-bold text-sm text-white">{p.nome_barbearia || 'Barbearia'}</p>
+                                  </div>
+                                  <div className="flex items-center gap-3 mb-3">
+                                    {[1,2,3,4,5].map(n => (
+                                      <button key={n} onClick={() => setAvaliarPedido({ ...avaliarPedido, id: p.id, alvo: 'barbearia', nota: n })} className={`text-2xl transition-all ${avaliarPedido.id===p.id && avaliarPedido.alvo==='barbearia' && avaliarPedido.nota>=n ? 'text-blue-400 scale-125' : 'text-zinc-700 hover:text-blue-400'}`}>★</button>
+                                    ))}
+                                  </div>
+                                  <input className="bg-black/40 rounded-lg p-3 border border-zinc-700 text-xs w-full placeholder-zinc-600 focus:border-blue-400 outline-none" placeholder="Deixe um comentário... (opcional)" value={avaliarPedido.id===p.id && avaliarPedido?.alvo==='barbearia' ? avaliarPedido?.comentario || '' : ''} onChange={e=> setAvaliarPedido({ ...avaliarPedido, id: p.id, alvo: 'barbearia', comentario: e.target.value }) } />
+                                  <button
+                                    onClick={() => enviarAvaliacao(p, 'barbearia')}
+                                    disabled={Boolean(p.avaliacao_barbearia_enviada || p.avaliado_barbearia)}
+                                    className="mt-3 w-full bg-gradient-to-r from-blue-500 to-cyan-500 text-black px-4 py-2 rounded-lg text-xs font-bold hover:shadow-lg hover:shadow-blue-500/30 transition-all disabled:opacity-60 disabled:cursor-not-allowed"
+                                  >
+                                    {Boolean(p.avaliacao_barbearia_enviada || p.avaliado_barbearia) ? '✅ Avaliação Enviada' : '✅ Enviar Avaliação'}
+                                  </button>
+                                </div>
+                              </div>
+                            )}
+                            
+                            {selectedOrder?.id === p.id && p.status !== 'concluido' && (
+                              <div className="mt-3 p-3 bg-black/40 rounded-lg border border-zinc-800/50 text-xs text-zinc-400">
+                                <p>Agendamento será concluído para avaliar após o atendimento</p>
+                              </div>
+                            )}
                           </div>
                         ))}
                     </div>
-                )}
-            </div>
+                ) : null}
+              </div>
 
-            <div className="absolute bottom-0 left-0 w-full bg-zinc-950/90 backdrop-blur-lg border-t border-zinc-800 p-2 pb-6 flex justify-around items-center z-50">
-              <button onClick={() => setTab('barbeiros')} className={`flex flex-col items-center gap-1 p-2 w-20 ${tab === 'barbeiros' ? 'text-orange-500' : 'text-zinc-600'}`}><Search size={20} /><span className="text-[10px] font-bold">Barbeiros</span></button>
-              <button onClick={() => setTab('pedidos')} className={`flex flex-col items-center gap-1 p-2 w-20 ${tab === 'pedidos' ? 'text-orange-500' : 'text-zinc-600'}`}><History size={20} /><span className="text-[10px] font-bold">Agenda</span></button>
+              {/* Avaliações do perfil selecionado */}
+              {selectedBarbeiro && (
+                <div className="p-4 pb-24">
+                  <h3 className="text-zinc-500 text-xs font-bold uppercase mb-2">Avaliações do Barbeiro</h3>
+                  <div className="space-y-2">
+                    {avaliacoesBarbeiro.map(av => (
+                      <div key={av.id} className="bg-zinc-900 p-3 rounded-lg border border-zinc-800/50 flex items-center justify-between">
+                        <div>
+                          <p className="text-sm font-bold">{av.avaliador_nome || 'Usuário'}</p>
+                          <p className="text-xs text-zinc-400">{av.comentario || 'Sem comentário'}</p>
+                        </div>
+                        <div className="text-yellow-400 font-bold text-sm">{'★'.repeat(av.nota)}</div>
+                      </div>
+                    ))}
+                    {avaliacoesBarbeiro.length === 0 && <p className="text-zinc-600 text-xs">Sem avaliações ainda.</p>}
+                  </div>
+                </div>
+              )}
+
+              {selectedShop && (
+                <div className="p-4 pb-24">
+                  <h3 className="text-zinc-500 text-xs font-bold uppercase mb-2">Avaliações da Barbearia</h3>
+                  <div className="space-y-2">
+                    {avaliacoesShop.map(av => (
+                      <div key={av.id} className="bg-zinc-900 p-3 rounded-lg border border-zinc-800/50 flex items-center justify-between">
+                        <div>
+                          <p className="text-sm font-bold">{av.avaliador_nome || 'Usuário'}</p>
+                          <p className="text-xs text-zinc-400">{av.comentario || 'Sem comentário'}</p>
+                        </div>
+                        <div className="text-yellow-400 font-bold text-sm">{'★'.repeat(av.nota)}</div>
+                      </div>
+                    ))}
+                    {avaliacoesShop.length === 0 && <p className="text-zinc-600 text-xs">Sem avaliações ainda.</p>}
+                  </div>
+                </div>
+              )}
+
+            <div className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-[400px] h-16 bg-zinc-950/95 backdrop-blur-lg border-t border-zinc-800 flex justify-around items-center z-30 px-2">
+              <button onClick={() => setTab('barbeiros')} className={`flex flex-col items-center gap-0 p-1 w-12 ${tab === 'barbeiros' ? 'text-red-500' : 'text-zinc-600'}`}><Search size={16} /><span className="text-[8px] font-bold">Buscar</span></button>
+              <button onClick={() => setTab('barbearias')} className={`flex flex-col items-center gap-0 p-1 w-12 ${tab === 'barbearias' ? 'text-red-500' : 'text-zinc-600'}`}><Store size={16} /><span className="text-[8px] font-bold">Lojas</span></button>
+              <button onClick={() => setTab('pedidos')} className={`flex flex-col items-center gap-0 p-1 w-12 ${tab === 'pedidos' ? 'text-red-500' : 'text-zinc-600'}`}><History size={16} /><span className="text-[8px] font-bold">Agenda</span></button>
+              <button onClick={() => setTab('perfil')} className={`flex flex-col items-center gap-0 p-1 w-12 ${tab === 'perfil' ? 'text-red-500' : 'text-zinc-600'}`}><User size={16} /><span className="text-[8px] font-bold">Perfil</span></button>
             </div>
-          </>
+          </div>
         )}
       </div>
     );
@@ -569,31 +1669,286 @@ export default function App() {
   // ----------------------------------------------------------------------
   const BarberDashboard = () => {
     const [user, setUser] = useState(null);
-    
+    const [, setMinhasAvaliacoes] = useState(null);
+    const [meusAgendamentos, setMeusAgendamentos] = useState([]);
+    const [_avaliarComoBarbeiro, _setAvaliarComoBarbeiro] = useState({ chamadoId: null, alvo: null, nota: 5, comentario: '' });
+    const [cadeirasDisponiveis, setCadeirasDisponiveis] = useState([]);
+    const [assumindoCadeiraId, setAssumindoCadeiraId] = useState(null);
+    const [, setSelectedAgendamento] = useState(null); // Novo estado para agendamento selecionado
+    const [tabBarbeiro, setTabBarbeiro] = useState('inicio'); // Tab: inicio | agenda | ganhos | avaliar | perfil
+    const [disponivel, setDisponivel] = useState(false); // Estado para disponibilidade
+    const [clientePerfil, setClientePerfil] = useState(null);
+    const [clientePerfilLoading, setClientePerfilLoading] = useState(false);
+    const [clienteFotoModal, setClienteFotoModal] = useState(null);
+    const [, setClienteHistorico] = useState([]);
+    const [, setClienteAvaliacoes] = useState([]);
+    const [clienteAvaliacaoMedia, setClienteAvaliacaoMedia] = useState(null);
+    const isConcluido = (status = '') => (status || '').toString().toLowerCase().includes('conclu');
+
     // Usar hook de sincronização em tempo real para jobs
-    const { jobs, loading, isConnected } = useLiveJobs(token, API_URL);
+    const { jobs, loading: _loading, isConnected } = useLiveJobs(token, API_URL);
+
+    const carregarMeusAgendamentos = useCallback(async () => {
+      try {
+        const r = await fetch(`${API_URL}/api/v1/barbeiro/agendamentos/meus`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (r.ok) {
+          const data = await r.json();
+          setMeusAgendamentos(Array.isArray(data) ? data : []);
+        } else {
+          setMeusAgendamentos([]);
+        }
+      } catch {
+        setMeusAgendamentos([]);
+      }
+    }, []);
 
     useEffect(() => {
       // Buscar status de verificação
-      fetch(`${API_URL}/api/v1/documentos/status`, {
-        headers: {'Authorization': `Bearer ${token}`}
-      })
-      .then(r => r.json())
-      .then(data => setUser(data))
-      .catch(() => {});
-    }, [token]);
+      const fetchUserStatus = () => {
+        fetch(`${API_URL}/api/v1/documentos/status`, {
+          headers: {'Authorization': `Bearer ${token}`}
+        })
+        .then(r => r.json())
+        .then(data => {
+          setUser(data);
+          // Inicializar estado de disponibilidade com valor do backend
+          if (data.disponivel !== undefined) {
+            setDisponivel(data.disponivel);
+          }
+        })
+        .catch(() => setUser(null));
+      };
+      
+      fetchUserStatus();
+      
+      // Se email não está verificado, recarregar a cada 10 segundos
+      const interval = setInterval(() => {
+        if (!user?.email_verificado) {
+          fetchUserStatus();
+        }
+      }, 10000);
+      
+      return () => clearInterval(interval);
+    }, [user?.email_verificado]);
+
+    useEffect(() => {
+      if (!clientePerfil) return;
+      const onKeyDown = (event) => {
+        if (event.key === 'Escape') {
+          setClientePerfil(null);
+        }
+      };
+      window.addEventListener('keydown', onKeyDown);
+      return () => window.removeEventListener('keydown', onKeyDown);
+    }, [clientePerfil]);
+
+    useEffect(() => {
+      // Agendamentos do barbeiro (usado para avaliar cliente/barbearia após conclusão)
+      carregarMeusAgendamentos();
+
+      // Buscar cadeiras acionadas próximas
+      (async () => {
+        try {
+          const r = await fetch(`${API_URL}/api/v1/cadeiras/acionadas/proximas`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+          });
+          if (r.ok) {
+            const data = await r.json();
+            setCadeirasDisponiveis(Array.isArray(data) ? data : []);
+          } else {
+            setCadeirasDisponiveis([]);
+          }
+        } catch {
+          setCadeirasDisponiveis([]);
+        }
+      })();
+
+      // Atualizar cadeiras a cada 30 segundos
+      const interval = setInterval(async () => {
+        try {
+          const r = await fetch(`${API_URL}/api/v1/cadeiras/acionadas/proximas`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+          });
+          if (r.ok) {
+            const data = await r.json();
+            setCadeirasDisponiveis(Array.isArray(data) ? data : []);
+          }
+        } catch (_err) {
+          setCadeirasDisponiveis([]);
+        }
+      }, 30000);
+
+      // Atualizar agendamentos periodicamente
+      const intervalAgendamentos = setInterval(carregarMeusAgendamentos, 10000);
+
+      return () => {
+        clearInterval(interval);
+        clearInterval(intervalAgendamentos);
+      };
+    }, [carregarMeusAgendamentos]);
+
+    useEffect(() => {
+      // Minhas avaliações recebidas (como freelancer)
+      (async () => {
+        try {
+          const r = await fetch(`${API_URL}/api/v1/avaliacoes/minhas-avaliacoes-recebidas`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+          });
+          if (r.ok) {
+            const data = await r.json();
+            setMinhasAvaliacoes(data);
+          }
+        } catch (_err) {
+          setMinhasAvaliacoes(null);
+        }
+      })();
+    }, []);
 
     const acceptJob = async (id) => {
       try {
-        const res = await fetch(`${API_URL}/api/v1/chamados/${id}/aceitar`, {
+        let res = await fetch(`${API_URL}/api/v1/chamados/${id}/aceitar`, {
           method: 'PUT',
           headers: { 'Authorization': `Bearer ${token}` }
         });
-        if (!res.ok) throw new Error();
-            notify("Trabalho aceito!", "success");
-            // Hook cuida de remover da lista automaticamente
-      } catch {
-        notify("Não foi possível aceitar o chamado.", "error");
+
+        if (!res.ok) {
+          res = await fetch(`${API_URL}/api/v1/chamados/${id}/aprovacao-barbeiro`, {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${token}` }
+          });
+        }
+
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          throw new Error(data.detail || 'Erro ao aceitar');
+        }
+
+        notify("Trabalho aceito!", "success");
+        await carregarMeusAgendamentos();
+      } catch (err) {
+        notify(err.message || "Não foi possível aceitar o chamado.", "error");
+      }
+    };
+
+    const assumirAtendimento = async (cadeiraId) => {
+      try {
+        setAssumindoCadeiraId(cadeiraId);
+        const res = await fetch(`${API_URL}/api/v1/cadeiras/${cadeiraId}/aceitar`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          }
+        });
+
+        if (!res.ok) {
+          const error = await res.json().catch(() => ({}));
+          notify(error.detail || 'Nao foi possivel assumir atendimento', 'error');
+          return;
+        }
+
+        const data = await res.json();
+        notify(data.message || 'Atendimento assumido com sucesso!', 'success');
+        setCadeirasDisponiveis((prev) => prev.filter((cadeira) => cadeira.id !== cadeiraId));
+      } catch (err) {
+        notify('Erro ao assumir atendimento: ' + err.message, 'error');
+      } finally {
+        setAssumindoCadeiraId(null);
+      }
+    };
+
+    const rejectJob = async (id) => {
+      try {
+        const res = await fetch(`${API_URL}/api/v1/chamados/${id}/rejeitar`, {
+          method: 'PUT',
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          throw new Error(data.detail || 'Erro ao recusar');
+        }
+
+        notify('Agendamento recusado', 'success');
+        setMeusAgendamentos((prev) => prev.filter((a) => a.id !== id));
+      } catch (err) {
+        notify(err.message || 'Erro ao recusar', 'error');
+      }
+    };
+
+    const abrirPerfilCliente = async (clienteId) => {
+      if (!clienteId) {
+        notify('Cliente nao identificado', 'error');
+        return;
+      }
+      setClientePerfilLoading(true);
+      try {
+        const res = await fetch(`${API_URL}/api/v1/usuario/${clienteId}`);
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          throw new Error(data.detail || 'Erro ao carregar perfil');
+        }
+        const data = await res.json();
+        setClientePerfil(data);
+
+        const historico = (meusAgendamentos || []).filter((ag) => ag.cliente_id === clienteId);
+        setClienteHistorico(historico);
+
+        try {
+          const [avsRes, mediaRes] = await Promise.all([
+            fetch(`${API_URL}/api/v1/usuario/${clienteId}/avaliacoes`),
+            fetch(`${API_URL}/api/v1/usuario/${clienteId}/media_avaliacao`)
+          ]);
+
+          const avsData = avsRes.ok ? await avsRes.json() : [];
+          const mediaData = mediaRes.ok ? await mediaRes.json() : null;
+
+          setClienteAvaliacoes(Array.isArray(avsData) ? avsData : []);
+          setClienteAvaliacaoMedia(mediaData);
+        } catch {
+          setClienteAvaliacoes([]);
+          setClienteAvaliacaoMedia(null);
+        }
+      } catch (err) {
+        notify(err.message || 'Erro ao carregar perfil', 'error');
+      } finally {
+        setClientePerfilLoading(false);
+      }
+    };
+
+    const finalizarAtendimento = async (agendamento) => {
+      try {
+        // 1. Finalizar o chamado
+        const res = await fetch(`${API_URL}/api/v1/chamados/${agendamento.id}/finalizar`, {
+          method: 'PUT',
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          throw new Error(data.detail || 'Erro ao finalizar o corte');
+        }
+
+        // 2. Marcar como disponível
+        try {
+          await fetch(`${API_URL}/api/v1/barbeiro/disponibilidade`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+            body: JSON.stringify({ disponivel: true })
+          });
+          setDisponivel(true);
+        } catch (err) {
+          console.error('Erro ao atualizar disponibilidade:', err);
+        }
+
+        // 3. Recarregar agendamentos
+        await carregarMeusAgendamentos();
+
+        setSelectedAgendamento(agendamento);
+        notify('✅ Corte finalizado! Avalie o cliente.', 'success');
+      } catch (err) {
+        notify(err.message || 'Erro ao finalizar o corte', 'error');
       }
     };
 
@@ -606,16 +1961,146 @@ export default function App() {
                         <CheckCircle size={20} className="text-blue-500 fill-blue-500" title="Verificado ✓" />
                     )}
                 </div>
-                <button onClick={logout} className="text-zinc-500"><LogOut size={20}/></button>
+                <div className="flex items-center gap-2">
+                  <button 
+                    onClick={async () => {
+                      try {
+                        const novoEstado = !disponivel;
+                        const res = await fetch(`${API_URL}/api/v1/barbeiro/disponibilidade`, {
+                          method: 'PUT',
+                          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                          body: JSON.stringify({ disponivel: novoEstado })
+                        });
+                        const data = await res.json();
+                        if (res.ok) {
+                          setDisponivel(novoEstado);
+                          notify(novoEstado ? 'Você agora está disponível! 🟢' : 'Você saiu do ar ✓', 'success');
+                        } else {
+                          notify(data.detail || 'Erro ao atualizar disponibilidade', 'error');
+                        }
+                      } catch (_err) {
+                        notify('Erro ao atualizar disponibilidade', 'error');
+                      }
+                    }}
+                    className={`px-4 py-2 rounded-lg font-bold text-sm transition-all ${disponivel ? 'bg-green-600 hover:bg-green-700' : 'bg-zinc-800 hover:bg-zinc-700'}`}
+                  >
+                    {disponivel ? '🟢 Disponível' : '⚫ Offline'}
+                  </button>
+                  <VerificationBadge user={user} onClick={() => {
+                    if (!user?.email_verificado) {
+                      notify('Verifique seu email para receber chamados.', 'info');
+                    }
+                  }} />
+                  <button onClick={logout} className="text-zinc-500"><LogOut size={20}/></button>
+                </div>
             </div>
-            {user && !user.documento_verificado && (
+            {user && !user.email_verificado && (
                 <div className="bg-yellow-600/10 border border-yellow-600/30 p-4 rounded-xl mb-4 flex items-center gap-3">
                     <AlertCircle size={20} className="text-yellow-500"/>
                     <div className="flex-1">
-                        <span className="text-yellow-500 font-bold text-sm block">Verificação Pendente</span>
-                        <span className="text-yellow-400 text-xs">Complete sua verificação para receber chamados</span>
+                  <span className="text-yellow-500 font-bold text-sm block">Verificação de email pendente</span>
+                  <span className="text-yellow-400 text-xs">Confirme seu email para receber chamados</span>
                     </div>
+                    <button 
+                      onClick={async () => {
+                        try {
+                          const r = await fetch(`${API_URL}/api/v1/reenviar_email_verificacao`, {
+                            method: 'POST',
+                            headers: { 'Authorization': `Bearer ${token}` }
+                          });
+                          const data = await r.json();
+                          if (r.ok) notify('Email reenviado! Verifique sua caixa de entrada 📧', 'success');
+                          else notify(data.detail || 'Erro ao reenviar', 'error');
+                        } catch (_e) {
+                          notify('Erro ao reenviar email', 'error');
+                        }
+                      }}
+                      className="px-4 py-2 bg-yellow-600 hover:bg-yellow-700 text-white text-sm rounded-lg font-bold whitespace-nowrap"
+                    >📧 Reenviar</button>
                 </div>
+            )}
+            {clientePerfil && (
+              <div
+                className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+                onClick={() => setClientePerfil(null)}
+              >
+                <div
+                  className="bg-zinc-900 rounded-2xl w-full max-w-sm border border-zinc-800 p-6 relative"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <button
+                    onClick={() => setClientePerfil(null)}
+                    className="absolute top-3 right-3 text-zinc-400 hover:text-white"
+                  >
+                    <X size={18} />
+                  </button>
+
+                  {/* Foto Grande */}
+                  <div className="flex justify-center mb-6">
+                    <button
+                      type="button"
+                      onClick={() => clientePerfil.foto_perfil && setClienteFotoModal(clientePerfil.foto_perfil)}
+                      className="h-20 w-20 rounded-full bg-orange-600 flex items-center justify-center font-bold overflow-hidden border-2 border-orange-500 hover:border-orange-400 transition-all cursor-pointer"
+                      title={clientePerfil.foto_perfil ? 'Clique para expandir' : 'Sem foto'}
+                    >
+                      {clientePerfil.foto_perfil ? (
+                        <img
+                          src={clientePerfil.foto_perfil}
+                          alt="Foto do cliente"
+                          className="h-20 w-20 object-cover"
+                        />
+                      ) : (
+                        <span className="text-3xl text-white">{(clientePerfil.nome || 'C')[0]}</span>
+                      )}
+                    </button>
+                  </div>
+
+                  {/* Informações */}
+                  <div className="text-center mb-6">
+                    <p className="text-xl font-bold">{clientePerfil.nome || 'Cliente'}</p>
+                    <p className="text-sm text-zinc-400 mt-1">{clientePerfil.email || 'Email não informado'}</p>
+                    {clienteAvaliacaoMedia && (
+                      <div className="mt-3 flex items-center justify-center gap-2">
+                        <span className="text-yellow-400 text-lg">{'★'.repeat(Math.round(clienteAvaliacaoMedia.media || 0))}</span>
+                        <p className="text-sm font-bold text-zinc-300">{clienteAvaliacaoMedia.media || 0} <span className="text-zinc-500">({clienteAvaliacaoMedia.total_avaliacoes || 0})</span></p>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Dados de Contato */}
+                  <div className="space-y-3 bg-black/40 rounded-lg p-4 border border-zinc-800/50">
+                    {clientePerfil.telefone && (
+                      <div className="flex items-center gap-2">
+                        <span className="text-zinc-500">📱</span>
+                        <div>
+                          <p className="text-xs text-zinc-400">Telefone</p>
+                          <p className="text-sm font-bold">{clientePerfil.telefone}</p>
+                        </div>
+                      </div>
+                    )}
+                    {clientePerfil.endereco && (
+                      <div className="flex items-center gap-2">
+                        <span className="text-zinc-500">📍</span>
+                        <div>
+                          <p className="text-xs text-zinc-400">Endereço</p>
+                          <p className="text-sm font-bold">{clientePerfil.endereco}</p>
+                        </div>
+                      </div>
+                    )}
+                    {!clientePerfil.telefone && !clientePerfil.endereco && (
+                      <p className="text-xs text-zinc-500 text-center">Sem informações de contato</p>
+                    )}
+                  </div>
+
+                  <p className="text-xs text-zinc-600 text-center mt-4">Clique fora ou pressione ESC para fechar</p>
+                </div>
+              </div>
+            )}
+
+            {clienteFotoModal && (
+              <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={() => setClienteFotoModal(null)}>
+                <img src={clienteFotoModal} alt="Foto do cliente" className="max-w-[90vw] max-h-[80vh] rounded-2xl border border-zinc-800" />
+              </div>
             )}
             <div className="bg-orange-600/10 border border-orange-600/30 p-4 rounded-xl mb-6 flex items-center justify-between">
                 <div className="flex items-center gap-3">
@@ -625,8 +2110,12 @@ export default function App() {
                 {isConnected && <span className="text-[10px] text-green-400 font-bold">🔴 Sincronizado</span>}
                 {!isConnected && <span className="text-[10px] text-yellow-400 font-bold">⚠️ Atualizando...</span>}
             </div>
-            <h3 className="text-zinc-500 text-xs font-bold uppercase mb-4">Novos Chamados {loading && '(atualizando...)'}</h3>
-            <div className="space-y-4">
+
+            {tabBarbeiro === 'inicio' && (
+              <div className="pb-24">
+                <h3 className="text-zinc-500 text-xs font-bold uppercase mb-4">Novos Chamados</h3>
+
+                <div className="space-y-4">
                 {jobs.map(job => (
                     <div key={job.id} className="bg-zinc-900 p-5 rounded-2xl border border-zinc-800 relative">
                         <div className="absolute top-0 right-0 bg-orange-500 text-white text-[10px] font-bold px-3 py-1 rounded-bl-xl">NOVO</div>
@@ -647,10 +2136,193 @@ export default function App() {
                           <span className="text-sm font-medium">{job.descricao || 'Serviço'}</span>
                           <span className="text-green-400 font-bold">R$ {job.valor || 0}</span>
                         </div>
-                        <button onClick={() => acceptJob(job.id)} className="w-full bg-white text-black py-3 rounded-xl font-bold text-sm hover:bg-zinc-200">ACEITAR AGENDAMENTO</button>
+                        <div className="grid grid-cols-2 gap-2">
+                          <button onClick={() => acceptJob(job.id)} className="bg-white text-black py-3 rounded-xl font-bold text-sm hover:bg-zinc-200">ACEITAR</button>
+                          <button onClick={() => rejectJob(job.id)} className="bg-red-600 text-white py-3 rounded-xl font-bold text-sm hover:bg-red-700">RECUSAR</button>
+                        </div>
+                        <button
+                          onClick={() => abrirPerfilCliente(job.cliente_id)}
+                          disabled={clientePerfilLoading}
+                          className="mt-2 w-full bg-zinc-800 text-white py-2 rounded-lg text-xs font-bold hover:bg-zinc-700 disabled:opacity-50"
+                        >
+                          {clientePerfilLoading ? 'Carregando...' : 'Ver perfil do cliente'}
+                        </button>
                     </div>
                 ))}
-                {jobs.length === 0 && <p className="text-zinc-600 text-center text-sm py-10">Procurando agendamentos próximos...</p>}
+                {jobs.length === 0 && <p className="text-zinc-600 text-center text-sm py-10"></p>}
+                </div>
+
+                {meusAgendamentos.filter(a => !isConcluido(a.status)).length > 0 && (
+                  <div className="bg-zinc-900/60 p-5 rounded-2xl border border-zinc-800 mt-6">
+                    <h3 className="font-bold mb-4 text-sm">Atendimentos em andamento</h3>
+                    <div className="space-y-3">
+                      {meusAgendamentos.filter(a => !isConcluido(a.status)).map((ag) => (
+                        <div key={ag.id} className="bg-black/40 p-4 rounded-lg border border-zinc-800/40">
+                          <div className="flex items-center justify-between gap-3">
+                            <div>
+                              <p className="font-bold text-sm">{ag.cliente_nome || 'Cliente'}</p>
+                              <p className="text-xs text-zinc-400">{ag.descricao || ag.servico || 'Serviço'}</p>
+                              {ag.data_hora_inicio && (
+                                <p className="text-xs text-orange-400 mt-1">
+                                  {new Date(ag.data_hora_inicio).toLocaleString('pt-BR', {
+                                    day: '2-digit',
+                                    month: '2-digit',
+                                    hour: '2-digit',
+                                    minute: '2-digit'
+                                  })}
+                                </p>
+                              )}
+                            </div>
+                            <span className="text-[10px] bg-yellow-600 text-white px-2 py-1 rounded font-bold">EM ANDAMENTO</span>
+                          </div>
+                          <button
+                            onClick={() => finalizarAtendimento(ag)}
+                            className="mt-3 w-full bg-green-600 hover:bg-green-700 text-white py-2 rounded-lg text-xs font-bold"
+                          >✅ Finalizar Corte</button>
+                          <button
+                            onClick={() => abrirPerfilCliente(ag.cliente_id)}
+                            disabled={clientePerfilLoading}
+                            className="mt-2 w-full bg-zinc-800 text-white py-2 rounded-lg text-xs font-bold hover:bg-zinc-700 disabled:opacity-50"
+                          >
+                            {clientePerfilLoading ? 'Carregando...' : 'Ver perfil do cliente'}
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Cadeiras Disponíveis Próximas */}
+                {cadeirasDisponiveis.length > 0 && (
+                  <div className="mt-8">
+                    <h3 className="text-zinc-500 text-xs font-bold uppercase mb-4 flex items-center gap-2">
+                      <span className="h-2 w-2 bg-blue-500 rounded-full animate-pulse"></span>
+                      Cadeiras Disponíveis Próximas ({cadeirasDisponiveis.length})
+                    </h3>
+                    <div className="space-y-3">
+                      {cadeirasDisponiveis.map((cadeira) => (
+                    <div key={cadeira.id} className="bg-zinc-900 p-4 rounded-xl border border-zinc-800/60">
+                      <div className="flex justify-between items-center mb-1">
+                        <h4 className="font-bold text-white text-base">{cadeira.barbearia_nome || 'Barbearia'}</h4>
+                      </div>
+                      <p className="text-xs text-zinc-400 flex items-center gap-1 mb-3">
+                        <MapPin size={12}/> {cadeira.barbearia_endereco || 'Endereço não disponível'}
+                      </p>
+                      <div className="bg-blue-900/20 border border-blue-600/30 rounded-lg p-3">
+                        <p className="text-xs text-blue-300 mb-2 font-semibold">Novo cliente aguardando na cadeira!</p>
+                        <button 
+                          onClick={() => assumirAtendimento(cadeira.id)}
+                          disabled={assumindoCadeiraId === cadeira.id}
+                          className="w-full bg-blue-600 hover:bg-blue-700 disabled:opacity-60 disabled:cursor-not-allowed text-white py-3 rounded-xl text-sm font-bold"
+                        >
+                          {assumindoCadeiraId === cadeira.id ? 'Assumindo...' : 'ASSUMIR ATENDIMENTO'}
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                    </div>
+                  </div>
+                )}
+
+
+                
+              </div>
+            )}
+
+            {tabBarbeiro === 'agenda' && (
+              <div className="pb-24">
+                <h3 className="text-zinc-500 text-xs font-bold uppercase mb-4">Minha agenda</h3>
+                {meusAgendamentos.length === 0 ? (
+                  <p className="text-zinc-600 text-center text-sm py-10">Nenhum agendamento no momento.</p>
+                ) : (
+                  <div className="space-y-3">
+                    {meusAgendamentos.map((ag) => (
+                      <div key={ag.id} className="bg-zinc-900 p-4 rounded-xl border border-zinc-800">
+                        <div className="flex items-center justify-between gap-3">
+                          <div>
+                            <p className="font-bold text-sm">{ag.cliente_nome || 'Cliente'}</p>
+                            <p className="text-xs text-zinc-400">{ag.descricao || ag.servico || 'Serviço'}</p>
+                            {ag.data_hora_inicio && (
+                              <p className="text-xs text-orange-400 mt-1">
+                                {new Date(ag.data_hora_inicio).toLocaleString('pt-BR', {
+                                  day: '2-digit',
+                                  month: '2-digit',
+                                  hour: '2-digit',
+                                  minute: '2-digit'
+                                })}
+                              </p>
+                            )}
+                          </div>
+                          <span className="text-[10px] bg-zinc-800 text-zinc-300 px-2 py-1 rounded font-bold">
+                            {String(ag.status || '').toUpperCase() || 'STATUS'}
+                          </span>
+                        </div>
+                        {!isConcluido(ag.status) && (
+                          <button
+                            onClick={() => finalizarAtendimento(ag)}
+                            className="mt-3 w-full bg-green-600 hover:bg-green-700 text-white py-2 rounded-lg text-xs font-bold"
+                          >✅ Finalizar Corte</button>
+                        )}
+                        <button
+                          onClick={() => abrirPerfilCliente(ag.cliente_id)}
+                          disabled={clientePerfilLoading}
+                          className="mt-2 w-full bg-zinc-800 text-white py-2 rounded-lg text-xs font-bold hover:bg-zinc-700 disabled:opacity-50"
+                        >
+                          {clientePerfilLoading ? 'Carregando...' : 'Ver perfil do cliente'}
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {tabBarbeiro === 'ganhos' && (
+              <div className="pb-24">
+                <PaymentSection userType="barbeiro" token={token} onNotify={notify} />
+              </div>
+            )}
+
+            {tabBarbeiro === 'avaliar' && (
+              <div className="pb-24">
+                <AbaPadronizadaAvaliacoes
+                  usuarioId={user?.id}
+                  tipoUsuario="barbeiro"
+                  nomeUsuario={user?.nome}
+                  API_URL={API_URL}
+                  token={token}
+                  notify={notify}
+                />
+              </div>
+            )}
+
+            {tabBarbeiro === 'perfil' && (
+              <div className="pb-24">
+                <TelaPerfilUsuario userType="barbeiro" token={token} onLogout={logout} onNotify={notify} />
+              </div>
+            )}
+
+            <div className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-[400px] h-16 bg-zinc-950/95 backdrop-blur-lg border-t border-zinc-800 flex justify-around items-center z-50 px-2">
+              <button onClick={() => setTabBarbeiro('inicio')} className={`flex flex-col items-center gap-0 p-1 flex-1 ${tabBarbeiro === 'inicio' ? 'text-red-500' : 'text-zinc-600'}`}>
+                <Calendar size={16} />
+                <span className="hidden sm:block text-[8px] font-bold leading-none">Inicio</span>
+              </button>
+              <button onClick={() => setTabBarbeiro('agenda')} className={`flex flex-col items-center gap-0 p-1 flex-1 ${tabBarbeiro === 'agenda' ? 'text-red-500' : 'text-zinc-600'}`}>
+                <History size={16} />
+                <span className="hidden sm:block text-[8px] font-bold leading-none">Agenda</span>
+              </button>
+              <button onClick={() => setTabBarbeiro('ganhos')} className={`flex flex-col items-center gap-0 p-1 flex-1 ${tabBarbeiro === 'ganhos' ? 'text-red-500' : 'text-zinc-600'}`}>
+                <CreditCard size={16} />
+                <span className="hidden sm:block text-[8px] font-bold leading-none">Ganhos</span>
+              </button>
+              <button onClick={() => setTabBarbeiro('avaliar')} className={`flex flex-col items-center gap-0 p-1 flex-1 ${tabBarbeiro === 'avaliar' ? 'text-red-500' : 'text-zinc-600'}`}>
+                <Star size={16} />
+                <span className="hidden sm:block text-[8px] font-bold leading-none">Avaliar</span>
+              </button>
+              <button onClick={() => setTabBarbeiro('perfil')} className={`flex flex-col items-center gap-0 p-1 flex-1 ${tabBarbeiro === 'perfil' ? 'text-red-500' : 'text-zinc-600'}`}>
+                <User size={16} />
+                <span className="hidden sm:block text-[8px] font-bold leading-none">Perfil</span>
+              </button>
             </div>
         </div>
     );
@@ -662,19 +2334,51 @@ export default function App() {
   const ShopDashboard = () => {
     const [services, setServices] = useState([]);
     const [agendamentos, setAgendamentos] = useState([]);
-    const [newService, setNewService] = useState({nome: '', valor: ''});
+    const [newService, setNewService] = useState({nome: '', valor: '', duracao_minutos: 30});
     const [barbeariaId, setBarbeariaId] = useState(null);
     const [user, setUser] = useState(null);
-
+    const [hideVerification, setHideVerification] = useState(false);
+    const [cadeiras, setCadeiras] = useState([]);
+    const [cadeirasLoading, setCadeirasLoading] = useState(false);
+    const [barbeirosPresentes, setBarbeirosPresentes] = useState([]);
+    const [_barbeirosLoading, _setBarbeirosLoading] = useState(false);
+    const [_freelancers, setFreelancers] = useState([]);
+    const [_freelancersLoading, setFreelancersLoading] = useState(false);
+    const [selectedFreelancerId, setSelectedFreelancerId] = useState('');
+    const [selectedCadeiraId, setSelectedCadeiraId] = useState('');
+    const [_presencaLoading, setPresencaLoading] = useState(false);
+    const [solicitarFreelancerId, setSolicitarFreelancerId] = useState('');
+    const [solicitarCadeiraId, setSolicitarCadeiraId] = useState('');
+    const [_solicitarLoading, setSolicitarLoading] = useState(false);
+    const [avaliacoesBarbearia, setAvaliacoesBarbearia] = useState([]);
+    const [avaliarComoBarbearia, setAvaliarComoBarbearia] = useState({ chamadoId: null, alvo: null, nota: 5, comentario: '' });
+    const [selectedAgendamentoShop, setSelectedAgendamentoShop] = useState(null); // Novo estado
+    const [tabShop, setTabShop] = useState('gestao'); // Tab: gestao | agendamentos | assinatura | avaliar | perfil
+    const isConcluidoShop = (status = '') => (status || '').toString().toLowerCase().includes('conclu');
+    const isCanceladoShop = (status = '') => (status || '').toString().toLowerCase().includes('cancel');
+    const agendamentosVisiveis = agendamentos.filter(a => !isCanceladoShop(a.status));
     useEffect(() => {
       // Buscar status de verificação
-      fetch(`${API_URL}/api/v1/documentos/status`, {
-        headers: {'Authorization': `Bearer ${token}`}
-      })
-      .then(r => r.json())
-      .then(data => setUser(data))
-      .catch(() => {});
-    }, [token]);
+      const fetchUserStatus = () => {
+        fetch(`${API_URL}/api/v1/documentos/status`, {
+          headers: {'Authorization': `Bearer ${token}`}
+        })
+        .then(r => r.json())
+        .then(data => setUser(data))
+        .catch(() => {});
+      };
+      
+      fetchUserStatus();
+      
+      // Se email não está verificado, recarregar a cada 10 segundos
+      const interval = setInterval(() => {
+        if (!user?.email_verificado) {
+          fetchUserStatus();
+        }
+      }, 10000);
+      
+      return () => clearInterval(interval);
+    }, [user?.email_verificado]);
 
     useEffect(() => {
       const load = async () => {
@@ -693,17 +2397,427 @@ export default function App() {
             const agendamentosData = await agendamentosRes.json();
             setAgendamentos(Array.isArray(agendamentosData) ? agendamentosData : []);
           }
-        } catch (err) {
+        } catch (_err) {
           notify('Erro ao carregar dados', 'error');
         }
       };
       load();
-    }, [token]);
+    }, []);
+
+    useEffect(() => {
+      if (!barbeariaId) return;
+      const loadCadeiras = async () => {
+        try {
+          const res = await fetch(`${API_URL}/api/v1/cadeiras/barbearia/${barbeariaId}`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+          });
+          if (res.ok) {
+            const data = await res.json();
+            setCadeiras(Array.isArray(data) ? data : []);
+          }
+        } catch (_err) {
+          // Erro ao carregar cadeiras
+        }
+      };
+
+      const loadBarbeirosPresentes = async () => {
+        try {
+          const res = await fetch(`${API_URL}/api/v1/barbearia/${barbeariaId}/barbeiros-presentes`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+          });
+          if (res.ok) {
+            const data = await res.json();
+            setBarbeirosPresentes(Array.isArray(data) ? data : []);
+          }
+        } catch (_err) {
+          // Erro ao carregar barbeiros presentes
+        }
+      };
+
+      loadCadeiras();
+      loadBarbeirosPresentes();
+
+      // Atualizar a cada 30 segundos
+      const interval = setInterval(() => {
+        loadCadeiras();
+        loadBarbeirosPresentes();
+      }, 30000);
+
+      return () => clearInterval(interval);
+    }, [barbeariaId]);
+
+    useEffect(() => {
+      if (!barbeariaId || tabShop !== 'gestao') return;
+      const loadFreelancers = async () => {
+        setFreelancersLoading(true);
+        try {
+          const res = await fetch(`${API_URL}/api/v1/barbeiros/todos`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+          });
+          if (res.ok) {
+            const data = await res.json();
+            setFreelancers(Array.isArray(data) ? data : []);
+          } else {
+            setFreelancers([]);
+          }
+        } catch {
+          setFreelancers([]);
+        } finally {
+          setFreelancersLoading(false);
+        }
+      };
+      loadFreelancers();
+    }, [barbeariaId, tabShop]);
+
+    useEffect(() => {
+      if (!barbeariaId) return;
+      const loadAvaliacoes = async () => {
+        try {
+          const r = await fetch(`${API_URL}/api/v1/avaliacoes/barbearia/${barbeariaId}/recebidas?limite=5`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+          });
+          if (r.ok) {
+            const avs = await r.json();
+            setAvaliacoesBarbearia(Array.isArray(avs) ? avs : []);
+          } else {
+            setAvaliacoesBarbearia([]);
+          }
+        } catch {
+          setAvaliacoesBarbearia([]);
+        }
+      };
+      loadAvaliacoes();
+    }, [barbeariaId]);
+
+    const enviarAvaliacaoBarbearia = async (chamadoId, avaliadoId, alvo, naoFechar = false) => {
+      try {
+        if (!chamadoId || !avaliadoId) throw new Error('Dados incompletos para avaliação');
+        const payload = {
+          chamado_id: chamadoId,
+          avaliado_id: avaliadoId,
+          nota: avaliarComoBarbearia.nota || 5,
+          comentario: avaliarComoBarbearia.comentario || ''
+        };
+        const res = await fetch(`${API_URL}/api/v1/avaliacoes/criar`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+          body: JSON.stringify(payload)
+        });
+
+        const raw = await res.text();
+        let data = {};
+        try {
+          data = raw ? JSON.parse(raw) : {};
+        } catch {
+          data = { detail: raw };
+        }
+
+        console.log('📝 Avaliacao barbearia', {
+          status: res.status,
+          ok: res.ok,
+          payload,
+          response: data
+        });
+
+        if (!res.ok) throw new Error(data.detail || 'Erro ao enviar avaliação');
+        notify('Avaliação enviada!', 'success');
+        // Remover o agendamento avaliado da lista
+        setAgendamentos(agendamentos.filter(a => a.id !== chamadoId));
+        setAvaliarComoBarbearia({ chamadoId: null, alvo: null, nota: 5, comentario: '' });
+        // Fechar o modal após sucesso
+        if (!naoFechar) {
+          setSelectedAgendamentoShop(null);
+        }
+      } catch (err) {
+        notify(err.message || 'Falha ao avaliar', 'error');
+      }
+    };
+
+    const acionarCadeira = async (cadeiraId) => {
+      try {
+        const res = await fetch(`${API_URL}/api/v1/cadeiras/${cadeiraId}/acionar`, {
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          throw new Error(err.detail || 'Não foi possível acionar a cadeira');
+        }
+        notify('Cadeira acionada! Barbeiros próximos foram notificados 📢', 'success');
+        // reload
+        const cadRes = await fetch(`${API_URL}/api/v1/cadeiras/barbearia/${barbeariaId}`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (cadRes.ok) {
+          const data = await cadRes.json();
+          setCadeiras(Array.isArray(data) ? data : []);
+        }
+      } catch (err) {
+        notify(err.message || 'Erro ao acionar cadeira', 'error');
+      }
+    };
+
+    const _desacionarCadeira = async (cadeiraId) => {
+      try {
+        const res = await fetch(`${API_URL}/api/v1/cadeiras/${cadeiraId}/desacionar-simples`, {
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (!res.ok) throw new Error('Não foi possível desacionar a cadeira');
+        notify('Cadeira desacionada', 'success');
+        const cadRes = await fetch(`${API_URL}/api/v1/cadeiras/barbearia/${barbeariaId}`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (cadRes.ok) {
+          const data = await cadRes.json();
+          setCadeiras(Array.isArray(data) ? data : []);
+        }
+      } catch (err) {
+        notify(err.message || 'Erro ao desacionar cadeira', 'error');
+      }
+    };
+
+    const acionarVagaRapida = async () => {
+      if (!barbeariaId || cadeirasLoading) return;
+      setCadeirasLoading(true);
+      try {
+        let lista = cadeiras;
+
+        if (!lista.length) {
+          // Garante pelo menos uma cadeira (número 1) para acionar
+          const resCriar = await fetch(`${API_URL}/api/v1/cadeiras/`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${token}`
+            },
+            body: JSON.stringify({ numero: 1 })
+          });
+
+          if (!resCriar.ok && resCriar.status !== 400) {
+            const body = await resCriar.json().catch(() => ({}));
+            throw new Error(body?.detail || 'Erro ao preparar vaga');
+          }
+
+          const cadRes = await fetch(`${API_URL}/api/v1/cadeiras/barbearia/${barbeariaId}`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+          });
+          if (cadRes.ok) {
+            const data = await cadRes.json();
+            lista = Array.isArray(data) ? data : [];
+            setCadeiras(lista);
+          }
+        }
+
+        const alvo = lista.find(c => c.status === 'disponivel') || lista[0];
+        if (!alvo) throw new Error('Nenhuma cadeira disponível');
+
+        await acionarCadeira(alvo.id);
+      } catch (err) {
+        notify(err.message || 'Não foi possível acionar a vaga', 'error');
+      } finally {
+        setCadeirasLoading(false);
+      }
+    };
+
+    const _marcarPresenca = async () => {
+      if (!selectedFreelancerId || !selectedCadeiraId) {
+        notify('Selecione freelancer e BRB', 'error');
+        return;
+      }
+      setPresencaLoading(true);
+      try {
+        const res = await fetch(`${API_URL}/api/v1/cadeiras/presenca`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          },
+          body: JSON.stringify({
+            freelancer_id: Number(selectedFreelancerId),
+            cadeira_id: Number(selectedCadeiraId)
+          })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || 'Erro ao marcar presença');
+        notify('Freelancer presente! BRB ocupada.', 'success');
+        setSelectedFreelancerId('');
+        setSelectedCadeiraId('');
+        const cadRes = await fetch(`${API_URL}/api/v1/cadeiras/barbearia/${barbeariaId}`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (cadRes.ok) {
+          const cadData = await cadRes.json();
+          setCadeiras(Array.isArray(cadData) ? cadData : []);
+        }
+      } catch (err) {
+        notify(err.message || 'Erro ao marcar presença', 'error');
+      } finally {
+        setPresencaLoading(false);
+      }
+    };
+
+    const encerrarPresenca = async (cadeiraId) => {
+      setPresencaLoading(true);
+      try {
+        const res = await fetch(`${API_URL}/api/v1/cadeiras/presenca/encerrar`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          },
+          body: JSON.stringify({ cadeira_id: Number(cadeiraId) })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || 'Erro ao encerrar presença');
+        notify('Presença encerrada. BRB liberada.', 'success');
+        const cadRes = await fetch(`${API_URL}/api/v1/cadeiras/barbearia/${barbeariaId}`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (cadRes.ok) {
+          const cadData = await cadRes.json();
+          setCadeiras(Array.isArray(cadData) ? cadData : []);
+        }
+      } catch (err) {
+        notify(err.message || 'Erro ao encerrar presença', 'error');
+      } finally {
+        setPresencaLoading(false);
+      }
+    };
+
+    const criarNovaCadeira = async () => {
+      console.log('🔍 criarNovaCadeira chamada', { barbeariaId, cadeiras });
+      if (!barbeariaId) {
+        console.error('❌ barbeariaId não encontrado!');
+        notify('❌ Erro: Barbearia não encontrada', 'error');
+        return;
+      }
+      setCadeirasLoading(true);
+      try {
+        // Encontrar próximo número disponível
+        const proximoNumero = cadeiras.length ? Math.max(...cadeiras.map(c => c.numero)) + 1 : 1;
+        
+        const res = await fetch(`${API_URL}/api/v1/cadeiras/`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          },
+          body: JSON.stringify({ numero: proximoNumero })
+        });
+        
+        console.log('📡 Resposta POST /cadeiras:', res.status, res.ok);
+        
+        if (!res.ok) {
+          const data = await res.json();
+          console.error('❌ Erro na resposta:', data);
+          throw new Error(data.detail || 'Erro ao criar cadeira');
+        }
+        
+        notify(`✅ Cadeira ${proximoNumero} criada com sucesso!`, 'success');
+        
+        // Recarregar lista
+        const cadRes = await fetch(`${API_URL}/api/v1/cadeiras/barbearia/${barbeariaId}`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (cadRes.ok) {
+          const cadData = await cadRes.json();
+          setCadeiras(Array.isArray(cadData) ? cadData : []);
+        }
+      } catch (err) {
+        console.error('❌ Erro ao criar cadeira:', err);
+        notify(err.message || 'Erro ao criar cadeira', 'error');
+      } finally {
+        setCadeirasLoading(false);
+      }
+    };
+
+    const toggleBloquearCadeira = async (cadeiraId, statusAtual) => {
+      console.log('🔍 toggleBloquearCadeira chamada', { cadeiraId, statusAtual });
+      setCadeirasLoading(true);
+      try {
+        const novoStatus = statusAtual === 'bloqueada' ? 'disponivel' : 'bloqueada';
+        
+        const res = await fetch(`${API_URL}/api/v1/cadeiras/${cadeiraId}`, {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          },
+          body: JSON.stringify({ status: novoStatus })
+        });
+        
+        console.log('📡 Resposta PATCH /cadeiras:', res.status, res.ok, novoStatus);
+        
+        if (!res.ok) {
+          const data = await res.json();
+          console.error('❌ Erro na resposta:', data);
+          throw new Error(data.detail || 'Erro ao atualizar status');
+        }
+        
+        notify(
+          novoStatus === 'bloqueada' 
+            ? '🔒 Cadeira bloqueada' 
+            : '✅ Cadeira desbloqueada',
+          'success'
+        );
+        
+        // Recarregar lista
+        const cadRes = await fetch(`${API_URL}/api/v1/cadeiras/barbearia/${barbeariaId}`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (cadRes.ok) {
+          const cadData = await cadRes.json();
+          setCadeiras(Array.isArray(cadData) ? cadData : []);
+        }
+      } catch (err) {
+        console.error('❌ Erro ao bloquear/desbloquear:', err);
+        notify(err.message || 'Erro ao atualizar status da cadeira', 'error');
+      } finally {
+        setCadeirasLoading(false);
+      }
+    };
+
+    const _solicitarFreelancer = async () => {
+      if (!solicitarFreelancerId) {
+        notify('Selecione o barbeiro', 'error');
+        return;
+      }
+      setSolicitarLoading(true);
+      try {
+        const payload = {
+          freelancer_id: Number(solicitarFreelancerId)
+        };
+        if (solicitarCadeiraId) {
+          payload.cadeira_id = Number(solicitarCadeiraId);
+        }
+
+        const res = await fetch(`${API_URL}/api/v1/freelancer/solicitar`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          },
+          body: JSON.stringify(payload)
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          throw new Error(data.detail || 'Erro ao solicitar barbeiro');
+        }
+        notify('Solicitacao enviada ao barbeiro!', 'success');
+        setSolicitarFreelancerId('');
+        setSolicitarCadeiraId('');
+      } catch (err) {
+        notify(err.message || 'Erro ao solicitar barbeiro', 'error');
+      } finally {
+        setSolicitarLoading(false);
+      }
+    };
 
     const addService = async (e) => {
       e.preventDefault();
-      if (!newService.nome.trim() || Number(newService.valor) <= 0) {
-        notify('Preencha nome e valor válidos.', 'error');
+      if (!newService.nome.trim() || Number(newService.valor) <= 0 || Number(newService.duracao_minutos) <= 0) {
+        notify('Preencha nome, valor e duração válidos.', 'error');
         return;
       }
       try {
@@ -722,17 +2836,16 @@ export default function App() {
             valor: Number(newService.valor),
             categoria: 'outros',
             descricao: '',
-            duracao_minutos: 30
+            duracao_minutos: Number(newService.duracao_minutos) || 30
           })
         });
         if (!res.ok) throw new Error();
         const created = await res.json();
         setServices([...services, created]);
-        setNewService({nome: '', valor: ''});
+        setNewService({nome: '', valor: '', duracao_minutos: 30});
         notify("Serviço adicionado!", "success");
-      } catch (err) {
+      } catch (_err) {
         notify('Não foi possível adicionar o serviço.', 'error');
-        console.error(err);
       }
     };
 
@@ -745,43 +2858,82 @@ export default function App() {
                         <CheckCircle size={20} className="text-blue-500 fill-blue-500" title="Verificado ✓" />
                     )}
                 </div>
-                <button onClick={logout} className="text-zinc-500"><LogOut size={20}/></button>
-            </div>
-            {user && !user.documento_verificado && (
-                <div className="bg-yellow-600/10 border border-yellow-600/30 p-4 rounded-xl mb-4 flex items-center gap-3">
-                    <AlertCircle size={20} className="text-yellow-500"/>
-                    <div className="flex-1">
-                        <span className="text-yellow-500 font-bold text-sm block">Verificação Pendente</span>
-                        <span className="text-yellow-400 text-xs">Complete sua verificação para ativar a loja</span>
-                    </div>
+                <div className="flex items-center">
+                  <VerificationBadge user={user} onClick={() => {
+                    if (!user?.email_verificado) {
+                      notify('Verifique seu email para liberar recursos.', 'info');
+                    } else if (!user?.documento_verificado) {
+                      notify('Envie seus documentos no perfil para concluir a verificacao.', 'info');
+                    }
+                  }} />
+                  <button onClick={logout} className="text-zinc-500 ml-1"><LogOut size={20}/></button>
                 </div>
+            </div>
+            {user && !user.email_verificado && !hideVerification && (
+              <div className="bg-yellow-600/10 border border-yellow-600/30 p-4 rounded-xl mb-4">
+                <div className="flex items-center gap-3 mb-3">
+                  <AlertCircle size={20} className="text-yellow-500"/>
+                  <div className="flex-1">
+                    <span className="text-yellow-500 font-bold text-sm block">Verificação de email pendente</span>
+                    <span className="text-yellow-400 text-xs">Confirme seu email para liberar todos os recursos</span>
+                  </div>
+                  <button 
+                    onClick={async () => {
+                      try {
+                        const r = await fetch(`${API_URL}/api/v1/reenviar_email_verificacao`, {
+                          method: 'POST',
+                          headers: { 'Authorization': `Bearer ${token}` }
+                        });
+                        const data = await r.json();
+                        if (r.ok) notify('Email reenviado! Verifique sua caixa de entrada 📧', 'success');
+                        else notify(data.detail || 'Erro ao reenviar', 'error');
+                      } catch (_e) {
+                        notify('Erro ao reenviar email', 'error');
+                      }
+                    }}
+                    className="px-3 py-1 bg-yellow-600 hover:bg-yellow-700 text-white text-xs rounded font-bold mr-2"
+                  >📧 Reenviar</button>
+                  <button onClick={() => setHideVerification(true)} className="text-yellow-400 text-xs font-bold">Fechar</button>
+                </div>
+                <div className="text-zinc-400 text-xs">Acesse seu email e confirme o link enviado.</div>
+              </div>
             )}
 
             <div className="bg-zinc-900 p-5 rounded-2xl border border-zinc-800 mb-6">
                 <h3 className="font-bold mb-4 text-sm">Adicionar Serviço</h3>
-                <form onSubmit={addService} className="flex gap-2 mb-4">
-                    <input className="flex-1 bg-black rounded-lg p-3 border border-zinc-800 text-sm outline-none focus:border-orange-500" placeholder="Nome (ex: Barba)" value={newService.nome} onChange={e => setNewService({...newService, nome: e.target.value})} required/>
-                    <input className="w-20 bg-black rounded-lg p-3 border border-zinc-800 text-sm outline-none focus:border-orange-500 text-center" type="number" placeholder="R$" value={newService.valor} onChange={e => setNewService({...newService, valor: e.target.value})} required/>
-                    <button className="bg-white text-black w-10 rounded-lg font-bold text-xl flex items-center justify-center hover:bg-zinc-200">+</button>
+                <form onSubmit={addService} className="flex flex-wrap gap-2 mb-4">
+                  <input className="flex-1 min-w-[160px] bg-black rounded-lg p-3 border border-zinc-800 text-sm outline-none focus:border-orange-500" placeholder="Nome (ex: Barba)" value={newService.nome} onChange={e => setNewService({...newService, nome: e.target.value})} required/>
+                  <input className="w-20 bg-black rounded-lg p-3 border border-zinc-800 text-sm outline-none focus:border-orange-500 text-center" type="number" placeholder="R$" value={newService.valor} onChange={e => setNewService({...newService, valor: e.target.value})} required/>
+                  <input className="w-24 bg-black rounded-lg p-3 border border-zinc-800 text-sm outline-none focus:border-orange-500 text-center" type="number" placeholder="Min" value={newService.duracao_minutos} onChange={e => setNewService({...newService, duracao_minutos: e.target.value})} required/>
+                  <button className="bg-white text-black w-10 rounded-lg font-bold text-xl flex items-center justify-center hover:bg-zinc-200">+</button>
                 </form>
                 <div className="space-y-2">
                     {services.map(s => (
-                        <div key={s.id} className="flex justify-between items-center bg-black/40 p-3 rounded-lg border border-zinc-800/50">
-                            <span className="text-sm">{s.nome}</span>
-                            <span className="font-bold text-green-400">R$ {s.valor}</span>
+                      <div key={s.id} className="flex justify-between items-center bg-black/40 p-3 rounded-lg border border-zinc-800/50">
+                        <span className="text-sm">{s.nome}</span>
+                        <div className="text-right">
+                          <span className="block text-green-400 font-bold">R$ {s.valor}</span>
+                          <span className="block text-[10px] text-zinc-500">{s.duracao_minutos || 30} min</span>
                         </div>
+                      </div>
                     ))}
                 </div>
             </div>
 
-            {/* Notificações de Agendamentos */}
-            {agendamentos.length > 0 && (
+            {/* Notificações de Agendamentos - Preview */}
+            {tabShop === 'gestao' && agendamentos.length > 0 && (
               <div className="bg-blue-600/10 border border-blue-600/30 p-4 rounded-xl mb-4">
-                <h3 className="font-bold text-sm text-blue-400 mb-3 flex items-center gap-2">
-                  <Calendar size={16}/> Próximos Agendamentos
+                <h3 className="font-bold text-sm text-blue-400 mb-3 flex items-center gap-2 justify-between">
+                  <span><Calendar size={16}/> Próximos Agendamentos</span>
+                  <button 
+                    onClick={() => setTabShop('agendamentos')}
+                    className="text-xs bg-blue-600 px-2 py-1 rounded text-white"
+                  >
+                    Ver todos
+                  </button>
                 </h3>
                 <div className="space-y-2">
-                  {agendamentos.slice(0, 5).map(ag => (
+                  {agendamentos.slice(0, 3).filter(a => !isConcluidoShop(a.status)).map(ag => (
                     <div key={ag.id} className="bg-black/40 p-3 rounded-lg border border-blue-800/30 text-xs">
                       <div className="flex justify-between items-start mb-1">
                         <span className="font-bold text-white">{ag.nome_cliente}</span>
@@ -802,81 +2954,392 @@ export default function App() {
                           </p>
                         )}
                       </div>
-                      {ag.status === 'confirmado' && (
-                        <div className="mt-2 flex gap-2">
-                          <button 
-                            onClick={async () => {
-                              try {
-                                const res = await fetch(`${API_URL}/api/v1/chamados/${ag.id}/barbearia/aceitar`, {
-                                  method: 'PUT',
-                                  headers: { 'Authorization': `Bearer ${token}` }
-                                });
-                                if (res.ok) {
-                                  notify('Agendamento confirmado!', 'success');
-                                  // Recarregar agendamentos
-                                  const agRes = await fetch(`${API_URL}/api/v1/barbearia/${data.id}/agendamentos`, { 
-                                    headers: { 'Authorization': `Bearer ${token}` } 
-                                  });
-                                  if (agRes.ok) {
-                                    const agData = await agRes.json();
-                                    setAgendamentos(Array.isArray(agData) ? agData : []);
-                                  }
-                                } else {
-                                  notify('Erro ao confirmar', 'error');
-                                }
-                              } catch {
-                                notify('Erro ao confirmar', 'error');
-                              }
-                            }}
-                            className="flex-1 bg-green-600 text-white py-2 rounded-lg font-bold text-[10px] hover:bg-green-500"
-                          >
-                            ✓ CONFIRMAR CADEIRA
-                          </button>
-                          <button 
-                            onClick={async () => {
-                              try {
-                                const res = await fetch(`${API_URL}/api/v1/chamados/${ag.id}/barbearia/recusar`, {
-                                  method: 'PUT',
-                                  headers: { 'Authorization': `Bearer ${token}` }
-                                });
-                                if (res.ok) {
-                                  notify('Agendamento recusado', 'success');
-                                  // Recarregar agendamentos
-                                  const agRes = await fetch(`${API_URL}/api/v1/barbearia/${data.id}/agendamentos`, { 
-                                    headers: { 'Authorization': `Bearer ${token}` } 
-                                  });
-                                  if (agRes.ok) {
-                                    const agData = await agRes.json();
-                                    setAgendamentos(Array.isArray(agData) ? agData : []);
-                                  }
-                                } else {
-                                  notify('Erro ao recusar', 'error');
-                                }
-                              } catch {
-                                notify('Erro ao recusar', 'error');
-                              }
-                            }}
-                            className="flex-1 bg-red-600 text-white py-2 rounded-lg font-bold text-[10px] hover:bg-red-500"
-                          >
-                            ✗ RECUSAR
-                          </button>
-                        </div>
-                      )}
                     </div>
                   ))}
                 </div>
               </div>
             )}
 
-            <div className="grid grid-cols-2 gap-4">
-                <div className="bg-zinc-900 p-4 rounded-xl border border-zinc-800 text-center">
-                    <h4 className="text-zinc-500 text-[10px] uppercase font-bold mb-2">Faturamento Hoje</h4>
-                    <p className="text-2xl font-bold text-green-500">R$ 450</p>
+            {tabShop === 'gestao' && (
+              <>
+                {/* Barbeiros Presentes no Local */}
+                {barbeirosPresentes.length > 0 && (
+                  <div className="bg-blue-600/10 border border-blue-600/30 p-4 rounded-2xl mb-6">
+                    <h3 className="text-blue-400 font-bold text-sm mb-4 flex items-center gap-2">
+                      👥 Barbeiros Presentes ({barbeirosPresentes.length})
+                    </h3>
+                    <div className="space-y-3">
+                      {barbeirosPresentes.map(barbeiro => (
+                        <div key={barbeiro.id} className="bg-zinc-900/80 p-3 rounded-xl border border-zinc-800">
+                          <div className="flex items-center gap-3">
+                            <div className="w-12 h-12 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center">
+                              {barbeiro.foto_perfil ? (
+                                <img src={barbeiro.foto_perfil} alt={barbeiro.nome} className="w-full h-full rounded-full object-cover" />
+                              ) : (
+                                <span className="text-white font-bold text-lg">{barbeiro.nome.charAt(0)}</span>
+                              )}
+                            </div>
+                            <div className="flex-1">
+                              <p className="font-bold text-white text-sm">{barbeiro.nome}</p>
+                              {barbeiro.cadeira_numero && (
+                                <p className="text-xs text-purple-400">📍 Cadeira {barbeiro.cadeira_numero}</p>
+                              )}
+                              {barbeiro.tempo_presente && (
+                                <p className="text-xs text-zinc-400">⏱️ Há {barbeiro.tempo_presente}</p>
+                              )}
+                            </div>
+                            <div className="text-right">
+                              {barbeiro.atendendo_cliente ? (
+                                <div className="bg-orange-600/20 border border-orange-600/50 px-2 py-1 rounded text-xs">
+                                  <p className="text-orange-400 font-bold">🔵 Ocupado</p>
+                                  <p className="text-zinc-400 text-[10px] mt-1">{barbeiro.atendendo_cliente}</p>
+                                  {barbeiro.servico && (
+                                    <p className="text-zinc-500 text-[10px]">{barbeiro.servico}</p>
+                                  )}
+                                </div>
+                              ) : (
+                                <div className="bg-green-600/20 border border-green-600/50 px-2 py-1 rounded text-xs">
+                                  <p className="text-green-400 font-bold">🟢 Disponível</p>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                <div className="bg-purple-600/10 border border-purple-600/30 p-4 rounded-2xl mb-6">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-purple-400 font-bold text-sm flex items-center gap-2">
+                  <Navigation size={16}/> 💺 Suas Cadeiras ({cadeiras.length})
+                </h3>
+                <button
+                  onClick={criarNovaCadeira}
+                  disabled={cadeirasLoading}
+                  className="bg-purple-600 hover:bg-purple-700 disabled:opacity-50 text-white px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1"
+                  title="Adicionar nova cadeira"
+                >
+                  <span className="text-lg leading-none">+</span> Nova
+                </button>
+              </div>
+
+              {cadeiras.length === 0 ? (
+                <div className="bg-zinc-900/80 p-4 rounded-xl border border-zinc-800 text-sm text-zinc-300">
+                  <p className="mb-3">Nenhuma cadeira cadastrada ainda.</p>
+                  <button
+                    onClick={criarNovaCadeira}
+                    disabled={cadeirasLoading}
+                    className="w-full bg-purple-600 hover:bg-purple-700 disabled:opacity-50 text-white px-4 py-2 rounded-lg font-bold text-xs"
+                  >
+                    {cadeirasLoading ? 'Criando...' : '➕ Criar Primeira Cadeira'}
+                  </button>
                 </div>
+              ) : (
+                <div className="space-y-3">
+                  {cadeiras.map(cadeira => (
+                    <div key={cadeira.id} className={`bg-zinc-900/80 p-3 rounded-xl border-2 transition-all ${
+                      cadeira.status === 'disponivel' ? 'border-green-800/50' :
+                      cadeira.status === 'ocupada' ? 'border-blue-800/50' :
+                      'border-red-800/50'
+                    }`}>
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="flex-1">
+                          <p className="font-bold text-sm text-white">Cadeira {cadeira.numero}</p>
+                          <p className="text-xs mt-1">
+                            {cadeira.status === 'disponivel' && (
+                              <span className="text-green-400 font-bold">🟢 Disponível</span>
+                            )}
+                            {cadeira.status === 'ocupada' && (
+                              <span className="text-blue-400 font-bold">🔵 Ocupada {cadeira.freelancer_nome ? `por ${cadeira.freelancer_nome}` : ''}</span>
+                            )}
+                            {cadeira.status === 'bloqueada' && (
+                              <span className="text-red-400 font-bold">🔒 Bloqueada</span>
+                            )}
+                          </p>
+                        </div>
+                        <div className="flex gap-2">
+                          {cadeira.status === 'disponivel' && (
+                            <>
+                              <button 
+                                onClick={() => acionarCadeira(cadeira.id)}
+                                disabled={cadeirasLoading}
+                                className="bg-purple-600 hover:bg-purple-700 disabled:opacity-50 text-white px-3 py-2 rounded-lg text-xs font-bold"
+                              >
+                                📢 Acionar
+                              </button>
+                              <button 
+                                onClick={() => toggleBloquearCadeira(cadeira.id, cadeira.status)}
+                                disabled={cadeirasLoading}
+                                className="bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white px-3 py-2 rounded-lg text-xs font-bold"
+                                title="Bloquear cadeira"
+                              >
+                                🔒
+                              </button>
+                            </>
+                          )}
+                          {cadeira.status === 'ocupada' && (
+                            <button 
+                              onClick={() => encerrarPresenca(cadeira.id)}
+                              disabled={cadeirasLoading}
+                              className="bg-orange-600 hover:bg-orange-700 disabled:opacity-50 text-white px-3 py-2 rounded-lg text-xs font-bold"
+                            >
+                              ⏹️ Desligar
+                            </button>
+                          )}
+                          {cadeira.status === 'bloqueada' && (
+                            <button 
+                              onClick={() => toggleBloquearCadeira(cadeira.id, cadeira.status)}
+                              disabled={cadeirasLoading}
+                              className="bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white px-3 py-2 rounded-lg text-xs font-bold"
+                              title="Desbloquear cadeira"
+                            >
+                              🔓 Desbloquear
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                  <button
+                    onClick={acionarVagaRapida}
+                    disabled={cadeirasLoading}
+                    className="w-full bg-purple-700 hover:bg-purple-800 disabled:opacity-50 text-white px-4 py-2 rounded-lg font-bold text-xs"
+                  >
+                    {cadeirasLoading ? 'Acionando...' : '⚡ Liberar Próxima Vaga Disponível'}
+                  </button>
+                </div>
+              )}
+              <div className="bg-zinc-900/50 p-3 rounded-lg mt-3 border border-zinc-800">
+                <p className="text-zinc-400 text-xs mb-1">💡 <strong>Dicas:</strong></p>
+                <ul className="text-zinc-500 text-[10px] space-y-1 ml-4">
+                  <li>• Use <strong>"Acionar"</strong> para notificar barbeiros próximos</li>
+                  <li>• <strong>Bloqueie</strong> cadeiras em manutenção ou reservadas</li>
+                  <li>• Adicione mais cadeiras para barbearias grandes</li>
+                </ul>
+              </div>
+            </div>
+              </>
+            )}
+
+            <div className="grid grid-cols-1 gap-4 mb-6">
                 <div className="bg-zinc-900 p-4 rounded-xl border border-zinc-800 text-center">
                     <h4 className="text-zinc-500 text-[10px] uppercase font-bold mb-2">Agendamentos</h4>
-                    <p className="text-2xl font-bold text-white">{agendamentos.length}</p>
+                <p className="text-2xl font-bold text-white">{agendamentosVisiveis.length}</p>
                 </div>
+            </div>
+
+            {tabShop === 'gestao' && avaliacoesBarbearia.length > 0 && (
+              <div className="bg-zinc-900 p-5 rounded-2xl border border-zinc-800">
+                <h3 className="font-bold mb-4 text-sm">Avaliações Recentes</h3>
+                <div className="space-y-3">
+                  {avaliacoesBarbearia.map((av) => (
+                    <div key={av.id} className="bg-black/40 p-3 rounded-lg border border-zinc-800/40 flex items-center justify-between">
+                      <div>
+                        <p className="text-sm font-bold">{av.avaliador_nome || 'Usuário'}</p>
+                        <p className="text-xs text-zinc-400">{av.comentario || 'Sem comentário'}</p>
+                      </div>
+                      <div className="text-yellow-400 font-bold text-sm">{'★'.repeat(av.nota)}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {tabShop === 'agendamentos' && (
+              <div className="pb-24">
+                <h2 className="font-bold text-lg mb-4 flex items-center gap-2">
+                  <Calendar size={20} className="text-red-500" />
+                  Gerenciar Agendamentos
+                </h2>
+
+                {/* Notificações de Agendamentos */}
+                {agendamentosVisiveis.length > 0 && (
+                  <div className="bg-blue-600/10 border border-blue-600/30 p-4 rounded-xl mb-4">
+                    <h3 className="font-bold text-sm text-blue-400 mb-3 flex items-center gap-2">
+                      <Calendar size={16}/> Próximos Agendamentos ({agendamentosVisiveis.filter(a => !isConcluidoShop(a.status)).length})
+                    </h3>
+                    <div className="space-y-2">
+                      {agendamentosVisiveis.filter(a => !isConcluidoShop(a.status)).map(ag => (
+                        <div key={ag.id} className="bg-black/40 p-3 rounded-lg border border-blue-800/30 text-xs">
+                          <div className="flex justify-between items-start mb-1">
+                            <span className="font-bold text-white">{ag.nome_cliente}</span>
+                            <span className={`text-[10px] font-bold ${
+                              ag.status === 'confirmado' ? 'text-green-400' : 'text-yellow-400'
+                            }`}>{ag.status.toUpperCase()}</span>
+                          </div>
+                          <div className="text-zinc-400">
+                            <p>Barbeiro: {ag.nome_barbeiro}</p>
+                            {ag.data_hora_inicio && (
+                              <p className="text-orange-400 mt-1">
+                                {new Date(ag.data_hora_inicio).toLocaleString('pt-BR', { 
+                                  day: '2-digit', 
+                                  month: '2-digit', 
+                                  hour: '2-digit', 
+                                  minute: '2-digit' 
+                                })}
+                              </p>
+                            )}
+                          </div>
+                          {ag.status === 'confirmado' && (
+                            <div className="mt-2 bg-green-600/10 border border-green-600/30 text-green-400 rounded-lg py-2 px-3 text-[10px] font-bold">
+                              ✓ Agendamento confirmado
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Modal de Avaliação - renderizado em qualquer aba */}
+                {selectedAgendamentoShop && (
+                  <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center p-4">
+                    <div className="bg-zinc-900 rounded-2xl w-full max-w-lg p-6 border border-zinc-800 max-h-[90vh] overflow-y-auto animate-in slide-in-from-bottom">
+                      <div className="flex justify-between items-center mb-6">
+                        <h2 className="text-xl font-bold">Avaliar Agendamento</h2>
+                        <button onClick={() => setSelectedAgendamentoShop(null)} className="text-zinc-400 hover:text-white text-2xl">×</button>
+                      </div>
+
+                      <div className="space-y-6">
+                        {/* Avaliação do Cliente */}
+                        <div className="bg-gradient-to-br from-orange-500/20 to-orange-600/20 p-5 rounded-xl border border-orange-500/40">
+                          <p className="text-sm font-bold text-orange-400 mb-3">👤 Avaliar Cliente</p>
+                          <div className="mb-4 bg-black/30 p-3 rounded-lg border border-orange-500/20">
+                            <p className="text-xs text-zinc-400">Cliente:</p>
+                            <p className="font-bold text-sm text-white">{selectedAgendamentoShop.nome_cliente || 'Cliente'}</p>
+                          </div>
+                          <div className="flex items-center gap-2 mb-4">
+                            {[1,2,3,4,5].map(n => (
+                              <button
+                                key={n}
+                                onClick={() => setAvaliarComoBarbearia({ ...avaliarComoBarbearia, chamadoId: selectedAgendamentoShop.id, alvo: 'cliente', nota: n })}
+                                className={`text-3xl transition-all ${avaliarComoBarbearia.chamadoId===selectedAgendamentoShop.id && avaliarComoBarbearia.alvo==='cliente' && avaliarComoBarbearia.nota>=n ? 'text-orange-400 scale-125' : 'text-zinc-700 hover:text-orange-400'}`}
+                              >★</button>
+                            ))}
+                          </div>
+                          <input
+                            className="bg-black/40 rounded-lg p-3 border border-orange-500/30 text-xs w-full placeholder-zinc-600 focus:border-orange-400 outline-none mb-3"
+                            placeholder="Comentário (opcional)"
+                            value={avaliarComoBarbearia.chamadoId===selectedAgendamentoShop.id && avaliarComoBarbearia.alvo==='cliente' ? (avaliarComoBarbearia.comentario || '') : ''}
+                            onChange={e => setAvaliarComoBarbearia({ ...avaliarComoBarbearia, chamadoId: selectedAgendamentoShop.id, alvo: 'cliente', comentario: e.target.value })}
+                          />
+                          <button
+                            onClick={() => enviarAvaliacaoBarbearia(selectedAgendamentoShop.id, selectedAgendamentoShop.cliente_id, 'cliente', false)}
+                            className="w-full bg-gradient-to-r from-orange-500 to-orange-600 text-black px-3 py-2 rounded-lg text-xs font-bold hover:shadow-lg hover:shadow-orange-500/30"
+                          >✅ Enviar Avaliação</button>
+                        </div>
+
+                        {/* Avaliação do Barbeiro */}
+                        {selectedAgendamentoShop.barbeiro_id && (
+                          <div className="bg-gradient-to-br from-orange-500/20 to-orange-600/20 p-5 rounded-xl border border-orange-500/40">
+                            <p className="text-sm font-bold text-orange-400 mb-3">✂️ Avaliar Barbeiro</p>
+                            <div className="mb-4 bg-black/30 p-3 rounded-lg border border-orange-500/20">
+                              <p className="text-xs text-zinc-400">Barbeiro:</p>
+                              <p className="font-bold text-sm text-white">{selectedAgendamentoShop.nome_barbeiro || 'Barbeiro'}</p>
+                            </div>
+                            <div className="flex items-center gap-2 mb-4">
+                              {[1,2,3,4,5].map(n => (
+                                <button
+                                  key={n}
+                                  onClick={() => setAvaliarComoBarbearia({ ...avaliarComoBarbearia, chamadoId: selectedAgendamentoShop.id, alvo: 'barbeiro', nota: n })}
+                                  className={`text-3xl transition-all ${avaliarComoBarbearia.chamadoId===selectedAgendamentoShop.id && avaliarComoBarbearia.alvo==='barbeiro' && avaliarComoBarbearia.nota>=n ? 'text-orange-400 scale-125' : 'text-zinc-700 hover:text-orange-400'}`}
+                                >★</button>
+                              ))}
+                            </div>
+                            <input
+                              className="bg-black/40 rounded-lg p-3 border border-orange-500/30 text-xs w-full placeholder-zinc-600 focus:border-orange-400 outline-none mb-3"
+                              placeholder="Comentário (opcional)"
+                              value={avaliarComoBarbearia.chamadoId===selectedAgendamentoShop.id && avaliarComoBarbearia.alvo==='barbeiro' ? (avaliarComoBarbearia.comentario || '') : ''}
+                              onChange={e => setAvaliarComoBarbearia({ ...avaliarComoBarbearia, chamadoId: selectedAgendamentoShop.id, alvo: 'barbeiro', comentario: e.target.value })}
+                            />
+                            <button
+                              onClick={() => enviarAvaliacaoBarbearia(selectedAgendamentoShop.id, selectedAgendamentoShop.barbeiro_id, 'barbeiro', false)}
+                              className="w-full bg-gradient-to-r from-orange-500 to-orange-600 text-black px-3 py-2 rounded-lg text-xs font-bold hover:shadow-lg hover:shadow-orange-500/30"
+                            >✅ Enviar Avaliação</button>
+                          </div>
+                        )}
+                      </div>
+
+                      <button
+                        onClick={() => setSelectedAgendamentoShop(null)}
+                        className="w-full mt-6 bg-zinc-800 text-white px-4 py-3 rounded-lg font-bold text-sm"
+                      >Fechar</button>
+                    </div>
+                  </div>
+                )}
+
+                {agendamentos.length === 0 && (
+                  <div className="text-center py-10 text-zinc-600">
+                    <p>Nenhum agendamento no momento</p>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {tabShop === 'assinatura' && (
+              <AssinaturaPage 
+                token={token} 
+                notify={notify} 
+              />
+            )}
+
+            {tabShop === 'avaliar' && (
+              <div className="p-4 pb-24">
+                {agendamentos.filter(a => isConcluidoShop(a.status)).length > 0 ? (
+                  <div className="space-y-4">
+                    <h2 className="text-lg font-bold mb-4">⭐ Avaliar Agendamentos Concluídos</h2>
+                    <div className="space-y-3">
+                      {agendamentos.filter(a => isConcluidoShop(a.status)).map(ag => (
+                        <div key={ag.id} onClick={() => setSelectedAgendamentoShop(ag)} className="p-4 rounded-lg border border-orange-500/30 bg-black/30 hover:border-orange-500/60 cursor-pointer">
+                          <div className="flex justify-between items-start gap-3">
+                            <div className="flex-1">
+                              <p className="font-bold text-sm">{ag.nome_cliente || 'Cliente'}</p>
+                              <p className="text-xs text-zinc-400">{ag.descricao || 'Serviço'}</p>
+                              <p className="text-xs text-orange-400 font-bold mt-2">👆 Clique para avaliar</p>
+                            </div>
+                            <span className="text-[10px] bg-green-600 text-white px-2 py-1 rounded font-bold">✓ CONCLUÍDO</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="text-center py-12 text-zinc-600">
+                    <p>Nenhum agendamento concluído para avaliar</p>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {tabShop === 'perfil' && (
+              <div className="pb-24">
+                <TelaPerfilUsuario userType="barbearia" token={token} onLogout={logout} onNotify={notify} />
+              </div>
+            )}
+
+            <div className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-[400px] h-16 bg-zinc-950/95 backdrop-blur-lg border-t border-zinc-800 flex justify-around items-center z-30 px-2">
+              <button onClick={() => setTabShop('gestao')} className={`flex flex-col items-center gap-0 p-1 flex-1 ${tabShop === 'gestao' ? 'text-red-500' : 'text-zinc-600'}`}>
+                <Store size={16} />
+                <span className="hidden sm:block text-[8px] font-bold leading-none">Gestão</span>
+              </button>
+              <button onClick={() => setTabShop('agendamentos')} className={`flex flex-col items-center gap-0 p-1 flex-1 ${tabShop === 'agendamentos' ? 'text-red-500' : 'text-zinc-600'}`}>
+                <Calendar size={16} />
+                <span className="hidden sm:block text-[8px] font-bold leading-none">Agend.</span>
+              </button>
+              <button onClick={() => setTabShop('assinatura')} className={`flex flex-col items-center gap-0 p-1 flex-1 ${tabShop === 'assinatura' ? 'text-red-500' : 'text-zinc-600'}`}>
+                <CreditCard size={16} />
+                <span className="hidden sm:block text-[8px] font-bold leading-none">Assinar</span>
+              </button>
+              <button onClick={() => setTabShop('avaliar')} className={`flex flex-col items-center gap-0 p-1 flex-1 ${tabShop === 'avaliar' ? 'text-red-500' : 'text-zinc-600'}`}>
+                <Star size={16} />
+                <span className="hidden sm:block text-[8px] font-bold leading-none">Avaliar</span>
+              </button>
+              <button onClick={() => setTabShop('perfil')} className={`flex flex-col items-center gap-0 p-1 flex-1 ${tabShop === 'perfil' ? 'text-red-500' : 'text-zinc-600'}`}>
+                <User size={16} />
+                <span className="hidden sm:block text-[8px] font-bold leading-none">Perfil</span>
+              </button>
             </div>
         </div>
     );
@@ -885,16 +3348,39 @@ export default function App() {
   // --- RENDERIZADOR PRINCIPAL ---
   return (
     <div className="min-h-screen bg-zinc-950 flex justify-center sm:items-center sm:py-8 font-sans">
-      <div className="w-full sm:max-w-[400px] bg-black h-screen sm:h-[800px] sm:max-h-[90vh] sm:rounded-[2.5rem] sm:border-[8px] sm:border-zinc-800 sm:shadow-2xl relative overflow-hidden flex flex-col pt-12">
+      <div className="w-full sm:max-w-[400px] bg-black h-screen sm:h-[800px] sm:max-h-[90vh] sm:rounded-[2.5rem] sm:border-[8px] sm:border-zinc-800 sm:shadow-2xl relative overflow-y-auto flex flex-col pt-12">
         {/* Dynamic Notch */}
         <div className="hidden sm:block absolute top-0 left-1/2 -translate-x-1/2 w-1/3 h-7 bg-zinc-800 rounded-b-xl z-50 pointer-events-none"></div>
         
         <Toast />
         
+        {/* ⏳ MOSTRAR TELA DE APROVAÇÃO PENDENTE SE NÃO APROVADO */}
+        {!userApproved && <PendingApprovalScreen />}
+        
         {view === 'login' && <LoginScreen />}
-        {view === 'dashboard' && userType === 'cliente' && <ClientDashboard />}
-        {view === 'dashboard' && userType === 'barbeiro' && <BarberDashboard />}
-        {view === 'dashboard' && userType === 'barbearia' && <ShopDashboard />}
+        {view === 'dashboard' && userType === 'cliente' && userApproved && <ClientDashboard token={token} logout={logout} API_URL={API_URL} notify={notify} />}
+        {view === 'dashboard' && userType === 'barbeiro' && userApproved && <BarberDashboard token={token} logout={logout} API_URL={API_URL} notify={notify} />}
+        {view === 'dashboard' && userType === 'barbearia' && userApproved && <ShopDashboard token={token} logout={logout} API_URL={API_URL} notify={notify} />}
+        {view === 'dashboard' && userType === 'admin' && userApproved && <AdminDashboard token={token} logout={logout} API_URL={API_URL} notify={notify} />}
+        {view === 'admin' && userType === 'admin' && userApproved && <AdminValidationScreen token={token} logout={logout} API_URL={API_URL} notify={notify} />}
+
+        {showTerms && (
+          <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-[80] flex items-center justify-center p-4">
+            <div className="bg-zinc-900 rounded-2xl max-h-[90vh] overflow-y-auto border border-zinc-800 w-full max-w-3xl relative">
+              <button className="absolute top-3 right-3 text-zinc-500 hover:text-white" onClick={() => setShowTerms(false)}><X size={18} /></button>
+              <TermosDeUso onVoltar={() => setShowTerms(false)} />
+            </div>
+          </div>
+        )}
+
+        {showPrivacy && (
+          <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-[80] flex items-center justify-center p-4">
+            <div className="bg-zinc-900 rounded-2xl max-h-[90vh] overflow-y-auto border border-zinc-800 w-full max-w-3xl relative">
+              <button className="absolute top-3 right-3 text-zinc-500 hover:text-white" onClick={() => setShowPrivacy(false)}><X size={18} /></button>
+              <PoliticaPrivacidade onVoltar={() => setShowPrivacy(false)} />
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

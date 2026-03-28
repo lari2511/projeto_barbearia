@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BarberMove - Perfil Aprovado!</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            margin: 0;
+            padding: 0;
+            background-color: #f5f5f5;
+        }
+        .container {
+            max-width: 600px;
+            margin: 0 auto;
+            background-color: #ffffff;
+            padding: 40px 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .logo {
+            font-size: 28px;
+            font-weight: bold;
+            color: #16a34a;
+            margin-bottom: 10px;
+        }
+        .celebration {
+            font-size: 48px;
+            margin: 20px 0;
+        }
+        .content {
+            text-align: center;
+        }
+        h2 {
+            color: #16a34a;
+            margin-top: 0;
+            font-size: 24px;
+        }
+        p {
+            color: #666;
+            margin: 15px 0;
+            font-size: 16px;
+        }
+        .success-box {
+            background-color: #dcfce7;
+            border-left: 4px solid #22c55e;
+            padding: 20px;
+            margin: 20px 0;
+            border-radius: 4px;
+        }
+        .success-box p {
+            color: #166534;
+            margin: 0;
+            font-weight: 500;
+        }
+        .cta-button {
+            display: inline-block;
+            background-color: #16a34a;
+            color: white;
+            padding: 14px 32px;
+            border-radius: 4px;
+            text-decoration: none;
+            font-weight: 600;
+            margin: 20px 0;
+            transition: background-color 0.3s ease;
+        }
+        .cta-button:hover {
+            background-color: #15803d;
+        }
+        .footer {
+            text-align: center;
+            margin-top: 30px;
+            padding-top: 20px;
+            border-top: 1px solid #eee;
+            font-size: 12px;
+            color: #999;
+        }
+        .highlight {
+            font-weight: 600;
+            color: #16a34a;
+        }
+        .tips {
+            background-color: #f0fdf4;
+            padding: 15px;
+            border-radius: 4px;
+            margin: 20px 0;
+            text-align: left;
+            font-size: 14px;
+        }
+        .tips li {
+            margin: 8px 0;
+            color: #166534;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <div class="celebration">🎉</div>
+            <div class="logo">BarberMove</div>
+            <p style="color: #999; margin: 0;">Sua jornada começa agora!</p>
+        </div>
+
+        <div class="content">
+            <h2>Parabéns, {{ user_name }}!</h2>
+            
+            <div class="success-box">
+                <p>✅ Seu perfil de {{ user_type }} foi aprovado com sucesso!</p>
+            </div>
+
+            <p>Você passou em nossa avaliação e agora está <span class="highlight">pronto para começar</span> a atender clientes na plataforma BarberMove.</p>
+
+            <p>Seu perfil foi validado e está visível para os clientes que buscam seus serviços.</p>
+
+            <div class="tips">
+                <strong>🚀 Próximas etapas:</strong>
+                <ul style="margin: 10px 0; padding-left: 20px;">
+                    <li>Faça login em sua conta</li>
+                    <li>Configure sua disponibilidade</li>
+                    <li>Receba chamados de clientes</li>
+                    <li>Comece a ganhar! 💰</li>
+                </ul>
+            </div>
+
+            <a href="{{ login_url }}" class="cta-button">Entrar na Plataforma</a>
+
+            <p style="font-size: 14px; color: #666; background-color: #f9f9f9; padding: 15px; border-radius: 4px; margin-top: 20px;">
+                <strong>Dicas para sucesso:</strong><br>
+                • Responda rapidamente aos chamados<br>
+                • Mantenha boas avaliações<br>
+                • Atualize seu portfólio regularmente<br>
+                • Seja profissional em todos os atendimentos
+            </p>
+        </div>
+
+        <div class="footer">
+            <p>Se tiver dúvidas, entre em contato: <a href="mailto:{{ support_email }}">{{ support_email }}</a></p>
+            <p>© 2026 BarberMove. Todos os direitos reservados.</p>
+        </div>
+    </div>
+</body>
+</html>

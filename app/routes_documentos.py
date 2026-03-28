@@ -1,15 +1,79 @@
 # --- ARQUIVO: app/routes_documentos.py ---
 # Endpoints para validação de documentos
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File
 from sqlalchemy.orm import Session
 from datetime import datetime
+import os
+import uuid
+from pathlib import Path
 
 from . import models, schemas
 from .database import get_db
 from .routes import get_current_user
 
 router = APIRouter()
+
+# Diretório para armazenar documentos
+DOCUMENTS_DIR = Path("uploads/documentos")
+DOCUMENTS_DIR.mkdir(parents=True, exist_ok=True)
+
+
+@router.post("/upload-files", status_code=status.HTTP_200_OK)
+async def upload_documento_files(
+    documento_frente: UploadFile = File(...),
+    documento_verso: UploadFile = File(...),
+    selfie_documento: UploadFile = File(...),
+    current_user: models.Usuario = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Upload de documentos como arquivos (RG/CNH frente, verso e selfie).
+    """
+    try:
+        # Salvar arquivo frente
+        frente_filename = f"{uuid.uuid4()}-{documento_frente.filename}"
+        frente_path = DOCUMENTS_DIR / frente_filename
+        with open(frente_path, "wb") as f:
+            f.write(await documento_frente.read())
+        frente_url = f"/uploads/documentos/{frente_filename}"
+        
+        # Salvar arquivo verso
+        verso_filename = f"{uuid.uuid4()}-{documento_verso.filename}"
+        verso_path = DOCUMENTS_DIR / verso_filename
+        with open(verso_path, "wb") as f:
+            f.write(await documento_verso.read())
+        verso_url = f"/uploads/documentos/{verso_filename}"
+        
+        # Salvar arquivo selfie
+        selfie_filename = f"{uuid.uuid4()}-{selfie_documento.filename}"
+        selfie_path = DOCUMENTS_DIR / selfie_filename
+        with open(selfie_path, "wb") as f:
+            f.write(await selfie_documento.read())
+        selfie_url = f"/uploads/documentos/{selfie_filename}"
+        
+        # Atualizar usuário com URLs dos documentos
+        current_user.documento_frente_url = frente_url
+        current_user.documento_verso_url = verso_url
+        current_user.selfie_documento_url = selfie_url
+        current_user.documento_verificado = False
+        current_user.documento_rejeitado_motivo = None
+        
+        db.commit()
+        db.refresh(current_user)
+        
+        return {
+            "message": "Documentos enviados com sucesso! Aguarde a verificação.",
+            "status": "aguardando_verificacao",
+            "documento_frente_url": frente_url,
+            "documento_verso_url": verso_url,
+            "selfie_documento_url": selfie_url,
+        }
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Erro ao fazer upload dos documentos: {str(e)}"
+        )
 
 
 @router.post("/upload", status_code=status.HTTP_200_OK)
@@ -58,13 +122,13 @@ def verificar_documento(
 ):
     """
     Admin/Barbearia verifica e aprova ou rejeita documentos.
-    Apenas barbearias podem verificar documentos.
+    Admin e barbearias podem verificar documentos.
     """
-    # Somente barbearias podem verificar documentos
-    if current_user.tipo != "barbearia":
+    # Admin e barbearias podem verificar documentos
+    if current_user.tipo not in ["barbearia", "admin"]:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Apenas barbearias podem verificar documentos"
+            detail="Apenas admins e barbearias podem verificar documentos"
         )
     
     # Busca o usuário a ser verificado
@@ -88,8 +152,12 @@ def verificar_documento(
     # Atualiza o status de verificação
     if verificacao.aprovado:
         usuario.documento_verificado = True
-        usuario.documento_verificado_em = datetime.utcnow()
+        usuario.documento_verificado_em = datetime.now()
         usuario.documento_rejeitado_motivo = None
+        # Marcar o perfil como aprovado para barbeiro/barbearia
+        if usuario.tipo in ['barbeiro', 'barbearia']:
+            usuario.perfil_aprovado = True
+            usuario.perfil_aprovado_em = datetime.now()
         message = "Documento aprovado com sucesso!"
     else:
         usuario.documento_verificado = False
@@ -143,5 +211,89 @@ def listar_documentos_pendentes(
                 "selfie_documento_url": u.selfie_documento_url,
             }
             for u in usuarios_pendentes
+        ]
+    }
+
+@router.get("/admin/pendentes", status_code=status.HTTP_200_OK)
+def listar_documentos_pendentes_admin(
+    current_user: models.Usuario = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Lista todos os usuários com documentos pendentes de verificação.
+    Apenas admins podem acessar.
+    """
+    if current_user.tipo != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Apenas admins podem listar documentos pendentes"
+        )
+    
+    # Busca usuários com documentos enviados mas não verificados
+    # Inclui: barbeiro e barbearia com documentos, ainda não verificados
+    usuarios_pendentes = db.query(models.Usuario).filter(
+        models.Usuario.documento_frente_url.isnot(None),
+        models.Usuario.documento_verificado == False,
+        models.Usuario.tipo.in_(['barbeiro', 'barbearia'])
+    ).all()
+    
+    return {
+        "total": len(usuarios_pendentes),
+        "usuarios": [
+            {
+                "id": u.id,
+                "nome": u.nome,
+                "email": u.email,
+                "tipo": u.tipo,
+                "cpf": u.cpf,
+                "documento_frente_url": u.documento_frente_url,
+                "documento_verso_url": u.documento_verso_url,
+                "selfie_documento_url": u.selfie_documento_url,
+                "documento_verificado": u.documento_verificado,
+                "documento_rejeitado_motivo": u.documento_rejeitado_motivo,
+            }
+            for u in usuarios_pendentes
+        ]
+    }
+
+
+@router.get("/admin/todos", status_code=status.HTTP_200_OK)
+def listar_todos_documentos_admin(
+    current_user: models.Usuario = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Lista TODOS os usuários com documentos (pendentes, aprovados e rejeitados).
+    Apenas admins podem acessar.
+    """
+    if current_user.tipo != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Apenas admins podem listar documentos"
+        )
+    
+    # Busca TODOS os usuários com documentos (barbeiro e barbearia)
+    usuarios_todos = db.query(models.Usuario).filter(
+        models.Usuario.documento_frente_url.isnot(None),
+        models.Usuario.tipo.in_(['barbeiro', 'barbearia'])
+    ).all()
+    
+    return {
+        "total": len(usuarios_todos),
+        "usuarios": [
+            {
+                "id": u.id,
+                "nome": u.nome,
+                "email": u.email,
+                "tipo": u.tipo,
+                "cpf": u.cpf,
+                "documento_frente_url": u.documento_frente_url,
+                "documento_verso_url": u.documento_verso_url,
+                "selfie_documento_url": u.selfie_documento_url,
+                "documento_verificado": u.documento_verificado,
+                "documento_rejeitado_motivo": u.documento_rejeitado_motivo,
+                "perfil_aprovado": u.perfil_aprovado,
+            }
+            for u in usuarios_todos
         ]
     }

@@ -14,7 +14,7 @@
  * 9. Serviço fica salvo com os valores personalizados dele
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import SeletorCategoria from './SeletorCategoria';
 
 export const CadastroServicosOnboarding = ({ barbearia_id, token, apiUrl }) => {
@@ -36,11 +36,13 @@ export const CadastroServicosOnboarding = ({ barbearia_id, token, apiUrl }) => {
     fetch(`${apiUrl}/templates/servicos`)
       .then(r => r.json())
       .then(data => setTemplates(data.templates))
-      .catch(console.error);
+      .catch(_err => {
+        // Erro ao carregar serviços
+      });
   }, [apiUrl]);
 
   // Carregar serviços existentes
-  const carregarServicos = async () => {
+  const carregarServicos = useCallback(async () => {
     try {
       const response = await fetch(
         `${apiUrl}/barbearias/${barbearia_id}/servicos`,
@@ -48,14 +50,14 @@ export const CadastroServicosOnboarding = ({ barbearia_id, token, apiUrl }) => {
       );
       const data = await response.json();
       setServicos(data.servicos);
-    } catch (error) {
-      console.error('Erro ao carregar serviços:', error);
+    } catch (_error) {
+      // Erro ao carregar serviços
     }
-  };
+  }, [apiUrl, barbearia_id, token]);
 
   useEffect(() => {
     carregarServicos();
-  }, [barbearia_id, token, apiUrl]);
+  }, [carregarServicos]);
 
   // ✅ Usuário clica em um template
   const handleSelecionarTemplate = (template) => {

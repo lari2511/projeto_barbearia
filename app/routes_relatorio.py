@@ -149,14 +149,14 @@ def registrar_pagamento_recebido(
     ).first()
     
     if pagamento:
-        pagamento.pago_em = datetime.utcnow()
+        pagamento.pago_em = datetime.now()
     else:
         pagamento = models.Pagamento(
             chamado_id=chamado_id,
             valor_total=valor_total,
             taxa_plataforma=taxa_plataforma,
             valor_barbeiro=valor_para_barbeiro,
-            pago_em=datetime.utcnow()
+            pago_em=datetime.now()
         )
         db.add(pagamento)
     

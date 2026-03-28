@@ -298,8 +298,8 @@ export const HorariosDisponiveis = ({ barbeiro_id, data, token, apiUrl }) => {
         const dados = await response.json();
         setHorarios(dados.horarios || []);
       }
-    } catch (error) {
-      console.error('Erro ao buscar horários:', error);
+    } catch (_error) {
+      // Erro ao buscar horários
     } finally {
       setLoading(false);
     }

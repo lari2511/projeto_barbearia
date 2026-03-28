@@ -8,15 +8,21 @@ from datetime import datetime, timedelta
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File
+from fastapi.responses import HTMLResponse
+from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 from sqlalchemy import func, and_, or_
 
 from . import models, schemas
 from .database import get_db
 from .email_utils import send_email
-from .routes import get_current_user, oauth2_scheme, get_password_hash
+from .email_send import send_verification_email, send_welcome_email
+from .routes import get_current_user, oauth2_scheme, get_password_hash, create_email_verification_token, verify_email_token
 
 router = APIRouter()
+
+# Templates para páginas HTML
+templates = Jinja2Templates(directory="app/templates")
 
 VERIFICATION_LINK_BASE = os.getenv(
     "VERIFICATION_LINK_BASE",
@@ -30,9 +36,156 @@ DEBUG_EMAIL_TOKENS = os.getenv("DEBUG_EMAIL_TOKENS", "0") == "1"
 
 # ==================== AVALIAÇÕES ====================
 
+@router.post("/avaliacoes/criar", response_model=dict)
+def criar_avaliacao_bidirecional(
+    avaliacao: schemas.AvaliacaoCreate, 
+    token: str = Depends(oauth2_scheme), 
+    db: Session = Depends(get_db)
+):
+    """
+    Sistema unificado de avaliações bidirecionais.
+    
+    ✅ CLIENTE avalia:
+    - BARBEIRO (após serviço concluído)
+    - BARBEARIA (após serviço concluído)
+    
+    ✅ BARBEIRO avalia:
+    - CLIENTE (após serviço concluído)
+    - BARBEARIA (após trabalho realizado)
+    
+    ✅ BARBEARIA avalia:
+    - CLIENTE (após serviço concluído)
+    - BARBEIRO (após trabalho realizado)
+    """
+    user = get_current_user(token=token, db=db)
+    
+    # Buscar o chamado
+    chamado = db.query(models.Chamado).filter(models.Chamado.id == avaliacao.chamado_id).first()
+    if not chamado:
+        raise HTTPException(status_code=404, detail="Chamado não encontrado")
+    
+    # Validar que apenas participantes do chamado podem avaliar
+    eh_cliente = chamado.cliente_id == user.id
+    eh_barbeiro = chamado.barbeiro_id == user.id
+    eh_barbearia = chamado.barbearia_id and db.query(models.Barbearia).filter(
+        models.Barbearia.id == chamado.barbearia_id,
+        models.Barbearia.usuario_id == user.id
+    ).first() is not None
+    
+    if not (eh_cliente or eh_barbeiro or eh_barbearia):
+        raise HTTPException(
+            status_code=403, 
+            detail="Apenas participantes do agendamento podem avaliar"
+        )
+    
+    # Obter usuário a ser avaliado
+    if not avaliacao.avaliado_id:
+        raise HTTPException(status_code=400, detail="avaliado_id é obrigatório")
+    
+    avaliado = db.query(models.Usuario).filter(models.Usuario.id == avaliacao.avaliado_id).first()
+    if not avaliado:
+        raise HTTPException(status_code=404, detail="Usuário a avaliar não encontrado")
+    
+    # Impedir autoavaliação
+    if user.id == avaliacao.avaliado_id:
+        raise HTTPException(status_code=400, detail="Você não pode avaliar a si mesmo")
+    
+    # Validar permissões específicas
+    if eh_cliente:
+        # Cliente pode avaliar barbeiro ou barbearia
+        if avaliado.tipo not in ["barbeiro", "barbearia"]:
+            raise HTTPException(
+                status_code=403, 
+                detail="Cliente só pode avaliar barbeiro ou barbearia"
+            )
+        if avaliado.tipo == "barbeiro" and avaliado.id != chamado.barbeiro_id:
+            raise HTTPException(status_code=403, detail="Barbeiro não é participante deste chamado")
+        if avaliado.tipo == "barbearia" and avaliado.id != db.query(models.Barbearia).filter(
+            models.Barbearia.id == chamado.barbearia_id
+        ).first().usuario_id:
+            raise HTTPException(status_code=403, detail="Barbearia não é participante deste chamado")
+    
+    elif eh_barbeiro:
+        # Barbeiro pode avaliar cliente ou barbearia
+        if avaliado.tipo not in ["cliente", "barbearia"]:
+            raise HTTPException(
+                status_code=403, 
+                detail="Barbeiro só pode avaliar cliente ou barbearia"
+            )
+        if avaliado.tipo == "cliente" and avaliado.id != chamado.cliente_id:
+            raise HTTPException(status_code=403, detail="Cliente não é participante deste chamado")
+        if avaliado.tipo == "barbearia" and avaliado.id != db.query(models.Barbearia).filter(
+            models.Barbearia.id == chamado.barbearia_id
+        ).first().usuario_id:
+            raise HTTPException(status_code=403, detail="Barbearia não é participante deste chamado")
+    
+    elif eh_barbearia:
+        # Barbearia pode avaliar cliente ou barbeiro
+        if avaliado.tipo not in ["cliente", "barbeiro"]:
+            raise HTTPException(
+                status_code=403, 
+                detail="Barbearia só pode avaliar cliente ou barbeiro"
+            )
+        if avaliado.tipo == "cliente" and avaliado.id != chamado.cliente_id:
+            raise HTTPException(status_code=403, detail="Cliente não é participante deste chamado")
+        if avaliado.tipo == "barbeiro" and avaliado.id != chamado.barbeiro_id:
+            raise HTTPException(status_code=403, detail="Barbeiro não é participante deste chamado")
+    
+    # Verificar duplicação de avaliação
+    avaliacao_existente = db.query(models.Avaliacao).filter(
+        and_(
+            models.Avaliacao.chamado_id == avaliacao.chamado_id,
+            models.Avaliacao.avaliador_id == user.id,
+            models.Avaliacao.avaliado_id == avaliacao.avaliado_id
+        )
+    ).first()
+    if avaliacao_existente:
+        raise HTTPException(status_code=400, detail="Você já avaliou este usuário neste chamado")
+    
+    # Criar avaliação
+    nova_avaliacao = models.Avaliacao(
+        chamado_id=avaliacao.chamado_id,
+        avaliador_id=user.id,
+        avaliado_id=avaliacao.avaliado_id,
+        nota=avaliacao.nota,
+        comentario=avaliacao.comentario
+    )
+    db.add(nova_avaliacao)
+    
+    # Adicionar pontos de fidelidade para o avaliador (cliente ganha pontos)
+    if eh_cliente:
+        pontos = db.query(models.PontosFidelidade).filter(
+            models.PontosFidelidade.usuario_id == user.id
+        ).first()
+        if not pontos:
+            pontos = models.PontosFidelidade(usuario_id=user.id, pontos=10)
+            db.add(pontos)
+        else:
+            pontos.pontos += 10
+            # Atualizar nível
+            if pontos.pontos >= 1000:
+                pontos.nivel = "PLATINA"
+            elif pontos.pontos >= 500:
+                pontos.nivel = "OURO"
+            elif pontos.pontos >= 200:
+                pontos.nivel = "PRATA"
+    
+    db.commit()
+    db.refresh(nova_avaliacao)
+    
+    return {
+        "id": nova_avaliacao.id,
+        "nota": nova_avaliacao.nota,
+        "comentario": nova_avaliacao.comentario,
+        "avaliador_tipo": user.tipo,
+        "avaliado_tipo": avaliado.tipo,
+        "criado_em": nova_avaliacao.criado_em
+    }
+
+
 @router.post("/avaliacoes/", response_model=schemas.AvaliacaoResponse)
 def criar_avaliacao(avaliacao: schemas.AvaliacaoCreate, token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
-    """Cliente avalia barbeiro/barbearia após serviço concluído"""
+    """Cliente avalia barbeiro/barbearia após serviço concluído (LEGADO - usar /avaliacoes/criar)"""
     user = get_current_user(token=token, db=db)
     
     # Verificar se chamado existe e foi concluído
@@ -99,6 +252,47 @@ def media_avaliacao_usuario(usuario_id: int, db: Session = Depends(get_db)):
     return {
         "media": round(media, 2) if media else 0,
         "total_avaliacoes": total or 0
+    }
+
+
+@router.get("/usuario/{usuario_id}/fotos", response_model=List[schemas.FotoResponse])
+def listar_fotos_usuario(usuario_id: int, db: Session = Depends(get_db)):
+    """Listar fotos de um barbeiro/barbearia"""
+    fotos = db.query(models.Foto).filter(models.Foto.usuario_id == usuario_id).all()
+    return fotos
+
+
+@router.get("/usuario/{usuario_id}")
+def obter_usuario_publico(usuario_id: int, db: Session = Depends(get_db)):
+    """Retorna dados publicos de um usuario para exibicao de perfil."""
+    usuario = db.query(models.Usuario).filter(models.Usuario.id == usuario_id).first()
+    if not usuario:
+        raise HTTPException(status_code=404, detail="Usuário não encontrado")
+
+    fotos = db.query(models.Foto).filter(models.Foto.usuario_id == usuario.id).all()
+
+    barbearia_atual_nome = None
+    if usuario.barbearia_atual_id:
+        barbearia = db.query(models.Barbearia).filter(
+            models.Barbearia.id == usuario.barbearia_atual_id
+        ).first()
+        if barbearia:
+            barbearia_atual_nome = barbearia.nome
+
+    return {
+        "id": usuario.id,
+        "nome": usuario.nome,
+        "tipo": usuario.tipo,
+        "telefone": usuario.telefone,
+        "endereco": usuario.endereco,
+        "email": usuario.email,
+        "foto_perfil": usuario.foto_perfil,
+        "disponivel": usuario.disponivel,
+        "presente_em_local": usuario.presente_em_local or False,
+        "online_regiao": usuario.online_regiao or False,
+        "barbearia_atual_id": usuario.barbearia_atual_id,
+        "barbearia_atual_nome": barbearia_atual_nome,
+        "portfolio_fotos": [f.url for f in fotos if f.url]
     }
 
 
@@ -197,7 +391,7 @@ def validar_cupom(cupom: schemas.CupomValidar, db: Session = Depends(get_db)):
     if not cupom_db.ativo:
         raise HTTPException(status_code=400, detail="Cupom inativo")
     
-    if cupom_db.valido_ate and cupom_db.valido_ate < datetime.utcnow():
+    if cupom_db.valido_ate and cupom_db.valido_ate < datetime.now():
         raise HTTPException(status_code=400, detail="Cupom expirado")
     
     if cupom_db.uso_maximo and cupom_db.uso_atual >= cupom_db.uso_maximo:
@@ -215,7 +409,7 @@ def listar_cupons(db: Session = Depends(get_db)):
     """Listar cupons ativos"""
     cupons = db.query(models.Cupom).filter(
         and_(models.Cupom.ativo == True,
-             or_(models.Cupom.valido_ate == None, models.Cupom.valido_ate > datetime.utcnow()))
+             or_(models.Cupom.valido_ate == None, models.Cupom.valido_ate > datetime.now()))
     ).all()
     return cupons
 
@@ -257,13 +451,6 @@ def adicionar_foto(foto: schemas.FotoCreate, token: str = Depends(oauth2_scheme)
     return nova_foto
 
 
-@router.get("/usuario/{usuario_id}/fotos", response_model=List[schemas.FotoResponse])
-def listar_fotos_usuario(usuario_id: int, db: Session = Depends(get_db)):
-    """Listar fotos de um barbeiro/barbearia"""
-    fotos = db.query(models.Foto).filter(models.Foto.usuario_id == usuario_id).all()
-    return fotos
-
-
 # ==================== GEOLOCALIZAÇÃO ====================
 
 def calcular_distancia(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
@@ -281,9 +468,181 @@ def calcular_distancia(lat1: float, lon1: float, lat2: float, lon2: float) -> fl
     return R * c
 
 
+@router.post("/barbeiros/proximos")
+def buscar_barbeiros_proximos(localizacao: schemas.BarbeariasProximasRequest, db: Session = Depends(get_db)):
+    """Buscar barbeiros próximos à localização do cliente"""
+    barbeiros = db.query(models.Usuario).filter(
+        and_(
+            models.Usuario.tipo == "barbeiro",
+            models.Usuario.latitude != None,
+            models.Usuario.longitude != None
+        )
+    ).all()
+    
+    barbeiros_com_distancia = []
+    for barbeiro in barbeiros:
+        distancia = calcular_distancia(
+            localizacao.latitude,
+            localizacao.longitude,
+            barbeiro.latitude,
+            barbeiro.longitude
+        )
+        
+        if distancia <= localizacao.raio_km:
+            barbeiros_com_distancia.append({
+                "id": barbeiro.id,
+                "tipo": "barbeiro",
+                "nome": barbeiro.nome,
+                "endereco": barbeiro.endereco or "Atende em barbearias parceiras",
+                "distancia_km": round(distancia, 2),
+                "telefone": barbeiro.telefone,
+                "usuario_id": barbeiro.id
+            })
+    
+    # Ordenar por distância (mais próximos primeiro)
+    barbeiros_com_distancia.sort(key=lambda x: x["distancia_km"])
+    
+    return barbeiros_com_distancia
+
+
+@router.get("/barbeiro/{barbeiro_id}/barbearias", operation_id="listar_barbearias_do_barbeiro_extras")
+def listar_barbearias_do_barbeiro(barbeiro_id: int, db: Session = Depends(get_db)):
+    """Listar barbearias onde o barbeiro pode atender (parceiras ou todas próximas)"""
+    # Verificar se barbeiro existe
+    barbeiro = db.query(models.Usuario).filter(
+        models.Usuario.id == barbeiro_id,
+        models.Usuario.tipo == "barbeiro"
+    ).first()
+    
+    if not barbeiro:
+        raise HTTPException(status_code=404, detail="Barbeiro não encontrado")
+    
+    # Por enquanto, retornar todas as barbearias cadastradas
+    # TODO: Futuramente, implementar sistema de "barbearias parceiras" do barbeiro
+    barbearias = db.query(models.Barbearia).filter(
+        and_(
+            models.Barbearia.latitude != None,
+            models.Barbearia.longitude != None
+        )
+    ).all()
+    
+    # Se barbeiro tem localização, ordenar por proximidade
+    if barbeiro.latitude and barbeiro.longitude:
+        barbearias_com_distancia = []
+        for barbearia in barbearias:
+            cadeira_disponivel = db.query(models.Cadeira).filter(
+                models.Cadeira.barbearia_id == barbearia.id,
+                models.Cadeira.status == models.StatusCadeira.DISPONIVEL
+            ).first()
+            if not cadeira_disponivel:
+                continue
+
+            distancia = calcular_distancia(
+                barbeiro.latitude,
+                barbeiro.longitude,
+                barbearia.latitude,
+                barbearia.longitude
+            )
+            barbearias_com_distancia.append({
+                "id": barbearia.id,
+                "nome": barbearia.nome,
+                "endereco": barbearia.endereco,
+                "telefone": barbearia.telefone,
+                "distancia_km": round(distancia, 2),
+                "cadeira_livre": True,
+                "cadeira_disponivel": True
+            })
+        
+        barbearias_com_distancia.sort(key=lambda x: x["distancia_km"])
+        return barbearias_com_distancia
+    else:
+        # Sem geolocalização do barbeiro, retornar todas com cadeira disponível
+        resultado = []
+        for b in barbearias:
+            cadeira_disponivel = db.query(models.Cadeira).filter(
+                models.Cadeira.barbearia_id == b.id,
+                models.Cadeira.status == models.StatusCadeira.DISPONIVEL
+            ).first()
+            if not cadeira_disponivel:
+                continue
+            resultado.append({
+                "id": b.id,
+                "nome": b.nome,
+                "endereco": b.endereco,
+                "telefone": b.telefone,
+                "cadeira_livre": True,
+                "cadeira_disponivel": True
+            })
+        return resultado
+
+
+@router.post("/profissionais/proximos")
+def buscar_profissionais_proximos(localizacao: schemas.BarbeariasProximasRequest, db: Session = Depends(get_db)):
+    """Buscar barbearias E barbeiros próximos à localização do cliente"""
+    profissionais = []
+    
+    # 1. Buscar BARBEARIAS próximas
+    barbearias = db.query(models.Barbearia).filter(
+        and_(models.Barbearia.latitude != None,
+             models.Barbearia.longitude != None)
+    ).all()
+    
+    for barbearia in barbearias:
+        distancia = calcular_distancia(
+            localizacao.latitude,
+            localizacao.longitude,
+            barbearia.latitude,
+            barbearia.longitude
+        )
+        
+        if distancia <= localizacao.raio_km:
+            profissionais.append({
+                "id": barbearia.id,
+                "tipo": "barbearia",
+                "nome": barbearia.nome,
+                "endereco": barbearia.endereco,
+                "distancia_km": round(distancia, 2),
+                "cadeira_livre": barbearia.cadeira_livre,
+                "usuario_id": barbearia.usuario_id
+            })
+    
+    # 2. Buscar BARBEIROS autônomos próximos
+    barbeiros = db.query(models.Usuario).filter(
+        and_(
+            models.Usuario.tipo == "barbeiro",
+            models.Usuario.latitude != None,
+            models.Usuario.longitude != None
+        )
+    ).all()
+    
+    for barbeiro in barbeiros:
+        distancia = calcular_distancia(
+            localizacao.latitude,
+            localizacao.longitude,
+            barbeiro.latitude,
+            barbeiro.longitude
+        )
+        
+        if distancia <= localizacao.raio_km:
+            profissionais.append({
+                "id": barbeiro.id,
+                "tipo": "barbeiro",
+                "nome": barbeiro.nome,
+                "endereco": barbeiro.endereco or "Atendimento em domicílio",
+                "distancia_km": round(distancia, 2),
+                "cadeira_livre": True,  # Barbeiros autônomos geralmente disponíveis
+                "usuario_id": barbeiro.id
+            })
+    
+    # Ordenar por distância (mais próximos primeiro)
+    profissionais.sort(key=lambda x: x["distancia_km"])
+    
+    return profissionais
+
+
 @router.post("/barbearias/proximas")
 def buscar_barbearias_proximas(localizacao: schemas.BarbeariasProximasRequest, db: Session = Depends(get_db)):
-    """Buscar barbearias próximas à localização do cliente"""
+    """Buscar barbearias próximas à localização do cliente (compatibilidade)"""
     barbearias = db.query(models.Barbearia).filter(
         and_(models.Barbearia.latitude != None,
              models.Barbearia.longitude != None)
@@ -380,7 +739,11 @@ def obter_historico_chamado(chamado_id: int, db: Session = Depends(get_db)):
 
 # ==================== NOTIFICAÇÕES ====================
 
-@router.get("/notificacoes/", response_model=List[schemas.NotificacaoResponse])
+@router.get(
+    "/notificacoes/",
+    response_model=List[schemas.NotificacaoResponse],
+    operation_id="listar_notificacoes_extras"
+)
 def listar_notificacoes(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
     """Listar notificações do usuário"""
     user = get_current_user(token=token, db=db)
@@ -460,55 +823,188 @@ def listar_mensagens_chat(chamado_id: int, token: str = Depends(oauth2_scheme), 
 
 # ==================== VERIFICAÇÃO DE EMAIL ====================
 
-@router.get("/email/verificar")
-def verificar_email(token: str, db: Session = Depends(get_db)):
-    """Confirmar email a partir do token enviado ao usuário"""
-    user = db.query(models.Usuario).filter(models.Usuario.token_verificacao == token).first()
+@router.get("/email/verificar", response_class=HTMLResponse)
+async def verificar_email(token: str, db: Session = Depends(get_db)):
+    """
+    Confirmar email a partir do token JWT enviado ao usuário
+    
+    O usuário recebe um link como:
+    http://localhost:8000/api/v1/email/verificar?token=<JWT_TOKEN>
+    
+    Query params:
+        token: JWT token de verificação de email
+        
+    Returns:
+        Página HTML de sucesso ou erro
+    """
+    # Validar e decodificar o token JWT
+    email = verify_email_token(token)
+    
+    if not email:
+        return HTMLResponse(
+            content="""
+            <!DOCTYPE html>
+            <html lang="pt-BR">
+            <head>
+                <meta charset="UTF-8">
+                <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                <title>Erro - BarberMove</title>
+                <style>
+                    * { margin: 0; padding: 0; box-sizing: border-box; }
+                    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #000; 
+                           display: flex; align-items: center; justify-content: center; min-height: 100vh; color: white; padding: 20px; }
+                    .container { background: rgba(24, 24, 27, 0.9); border: 1px solid rgba(255, 255, 255, 0.1); 
+                                border-radius: 24px; padding: 48px 32px; max-width: 480px; text-align: center; }
+                    h1 { color: #ef4444; margin-bottom: 16px; font-size: 24px; }
+                    p { color: #a1a1aa; margin-bottom: 24px; line-height: 1.6; }
+                    .btn { background: white; color: black; padding: 16px 32px; border-radius: 12px; 
+                          text-decoration: none; display: inline-block; font-weight: 700; }
+                </style>
+            </head>
+            <body>
+                <div class="container">
+                    <h1>⚠️ Token Inválido</h1>
+                    <p>O link de verificação é inválido ou expirou. Por favor, solicite um novo link de verificação.</p>
+                    <a href="/" class="btn">Voltar ao App</a>
+                </div>
+            </body>
+            </html>
+            """,
+            status_code=400
+        )
+    
+    # Procurar pelo usuário com esse email
+    user = db.query(models.Usuario).filter(models.Usuario.email == email).first()
+    
+    if not user:
+        return HTMLResponse(
+            content="""
+            <!DOCTYPE html>
+            <html lang="pt-BR">
+            <head>
+                <meta charset="UTF-8">
+                <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                <title>Usuário não encontrado - BarberMove</title>
+                <style>
+                    * { margin: 0; padding: 0; box-sizing: border-box; }
+                    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #000; 
+                           display: flex; align-items: center; justify-content: center; min-height: 100vh; color: white; padding: 20px; }
+                    .container { background: rgba(24, 24, 27, 0.9); border: 1px solid rgba(255, 255, 255, 0.1); 
+                                border-radius: 24px; padding: 48px 32px; max-width: 480px; text-align: center; }
+                    h1 { color: #ef4444; margin-bottom: 16px; font-size: 24px; }
+                    p { color: #a1a1aa; margin-bottom: 24px; line-height: 1.6; }
+                    .btn { background: white; color: black; padding: 16px 32px; border-radius: 12px; 
+                          text-decoration: none; display: inline-block; font-weight: 700; }
+                </style>
+            </head>
+            <body>
+                <div class="container">
+                    <h1>❌ Usuário não encontrado</h1>
+                    <p>Não foi possível encontrar o usuário associado a este link.</p>
+                    <a href="/" class="btn">Voltar ao App</a>
+                </div>
+            </body>
+            </html>
+            """,
+            status_code=404
+        )
+    
+    # Se já foi verificado, apenas retornar sucesso
+    if user.email_verificado:
+        # Ler o template HTML
+        with open("app/templates/email_verificado.html", "r", encoding="utf-8") as f:
+            html_content = f.read()
+        
+        # Substituir a variável de email
+        html_content = html_content.replace("{{ email }}", email)
+        
+        return HTMLResponse(content=html_content)
+    
+    # Marcar como verificado
+    user.email_verificado = True
+    user.token_verificacao = None  # Limpar token
+    db.commit()
+    
+    # Ler o template HTML
+    with open("app/templates/email_verificado.html", "r", encoding="utf-8") as f:
+        html_content = f.read()
+    
+    # Substituir a variável de email
+    html_content = html_content.replace("{{ email }}", email)
+    
+    return HTMLResponse(content=html_content)
+
+
+@router.get("/email/debug-token/{email}")
+def debug_token_email(email: str, db: Session = Depends(get_db)):
+    """
+    [DEBUG] Retorna o token JWT de verificação de um email (apenas para desenvolvimento)
+    
+    Útil para testar o fluxo de verificação sem Configurar SMTP real.
+    """
+    user = db.query(models.Usuario).filter(models.Usuario.email == email).first()
 
     if not user:
-        raise HTTPException(status_code=400, detail="Token inválido ou expirado")
+        raise HTTPException(status_code=404, detail="Usuário não encontrado")
 
-    user.email_verificado = True
-    user.token_verificacao = None
-    db.commit()
+    if user.email_verificado:
+        raise HTTPException(status_code=400, detail="Email já verificado")
 
-    return {"detail": "Email verificado com sucesso"}
+    # Gerar novo token JWT se não tiver um válido
+    if not user.token_verificacao:
+        user.token_verificacao = create_email_verification_token(email)
+        db.commit()
+
+    verification_url = f"http://localhost:8000/api/v1/email/verificar?token={user.token_verificacao}"
+    
+    return {
+        "email": email,
+        "token": user.token_verificacao,
+        "verification_link": verification_url,
+        "message": "Clique no link acima para verificar seu email",
+        "debug_note": "Este endpoint é apenas para desenvolvimento!",
+        "expires_in_hours": 24
+    }
 
 
 @router.post("/email/reenvio")
-def reenviar_email_verificacao(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
-    """Reenviar link de verificação para o usuário autenticado"""
+async def reenviar_email_verificacao(
+    token: str = Depends(oauth2_scheme), 
+    db: Session = Depends(get_db)
+):
+    """
+    Reenviar link de verificação para o usuário autenticado
+    
+    O novo link será enviado para o email cadastrado.
+    Útil se o usuário não recebeu o link original.
+    """
     user = get_current_user(token=token, db=db)
 
     if user.email_verificado:
-        return {"detail": "Email já verificado"}
+        return {
+            "detail": "Email já está verificado",
+            "status": "already_verified"
+        }
 
-    user.token_verificacao = secrets.token_urlsafe(32)
+    # Gerar novo token JWT
+    novo_token = create_email_verification_token(user.email)
+    user.token_verificacao = novo_token
     db.commit()
     db.refresh(user)
 
-    verification_url = f"{VERIFICATION_LINK_BASE}{user.token_verificacao}"
-    html_body = (
-        f"<p>Olá, {user.nome}!</p>"
-        f"<p>Confirme seu email para ativar a conta.</p>"
-        f"<p><a href='{verification_url}'>Verificar email</a></p>"
-        f"<p>Ou copie e cole no navegador: {verification_url}</p>"
-    )
-    text_body = (
-        f"Olá, {user.nome}!\n"
-        "Confirme seu email para ativar a conta.\n"
-        f"Link: {verification_url}\n"
-    )
-    send_email(
-        subject="Verifique seu email - BarberMove",
-        to_email=user.email,
-        html_body=html_body,
-        text_body=text_body,
-    )
+    # Enviar e-mail com fastapi-mail (assíncrono)
+    await send_verification_email(user.email, novo_token, user.nome)
 
-    response = {"detail": "Link de verificação reenviado"}
+    response = {
+        "detail": "Link de verificação reenviado com sucesso! Verifique seu email.",
+        "status": "resent"
+    }
+    
+    # Debug: retornar o token se configurado
     if DEBUG_EMAIL_TOKENS:
-        response["token_debug"] = user.token_verificacao
+        response["token_debug"] = novo_token
+        response["debug_message"] = "Token incluído para desenvolvimento"
+        
     return response
 
 
@@ -525,7 +1021,7 @@ def solicitar_recuperacao_senha(request: schemas.RecuperarSenhaRequest, db: Sess
     
     # Gerar token
     token = secrets.token_urlsafe(32)
-    expira_em = datetime.utcnow() + timedelta(hours=24)
+    expira_em = datetime.now() + timedelta(hours=24)
     
     token_recuperacao = models.TokenRecuperacao(
         usuario_id=usuario.id,
@@ -569,7 +1065,7 @@ def resetar_senha(request: schemas.ResetarSenhaRequest, db: Session = Depends(ge
     token_db = db.query(models.TokenRecuperacao).filter(
         and_(models.TokenRecuperacao.token == request.token,
              models.TokenRecuperacao.usado == False,
-             models.TokenRecuperacao.expira_em > datetime.utcnow())
+             models.TokenRecuperacao.expira_em > datetime.now())
     ).first()
     
     if not token_db:

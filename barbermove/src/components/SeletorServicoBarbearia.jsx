@@ -49,7 +49,6 @@ export const SeletorServicoBarbearia = ({
         }
       } catch (error) {
         setErro(error.message);
-        console.error('Erro:', error);
       } finally {
         setLoading(false);
       }

@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef, useCallback } from 'react';
 
 /**
  * Hook customizado para sincronização em tempo real via WebSocket
@@ -14,11 +14,11 @@ export function useRealTimeUpdates(token, onUpdate) {
 
     const connectWebSocket = () => {
       try {
-        const WS_URL = import.meta.env.VITE_WS_URL || "wss://localhost:8000/ws/notificacoes";
+        const defaultHost = typeof window !== "undefined" ? window.location.hostname : "localhost";
+        const WS_URL = import.meta.env.VITE_WS_URL || `ws://${defaultHost}:8000/ws/notificacoes`;
         const ws = new WebSocket(WS_URL);
 
         ws.onopen = () => {
-          console.log('✓ WebSocket conectado');
           setIsConnected(true);
           
           // Enviar token para autenticação
@@ -28,7 +28,6 @@ export function useRealTimeUpdates(token, onUpdate) {
         ws.onmessage = (event) => {
           try {
             const msg = JSON.parse(event.data);
-            console.log('📨 Mensagem recebida:', msg);
 
             // Notificar componentes quando há mudança
             if (msg.tipo === 'chamado_aceito' || msg.tipo === 'agendamento_atualizado') {
@@ -36,18 +35,16 @@ export function useRealTimeUpdates(token, onUpdate) {
                 onUpdate(msg);
               }
             }
-          } catch (e) {
-            console.error('Erro ao processar mensagem:', e);
+          } catch (_e) {
+            // Erro ao processar mensagem
           }
         };
 
-        ws.onerror = (error) => {
-          console.error('❌ WebSocket erro:', error);
+        ws.onerror = (_error) => {
           setIsConnected(false);
         };
 
         ws.onclose = () => {
-          console.log('🔌 WebSocket desconectado');
           setIsConnected(false);
           
           // Reconectar em 5 segundos
@@ -55,8 +52,7 @@ export function useRealTimeUpdates(token, onUpdate) {
         };
 
         wsRef.current = ws;
-      } catch (error) {
-        console.error('Erro ao conectar WebSocket:', error);
+      } catch (_error) {
         setIsConnected(false);
       }
     };
@@ -147,8 +143,8 @@ export function useWatchChamado(chamadoId, token, apiUrl) {
         if (!res.ok) throw new Error('Chamado não encontrado');
         const data = await res.json();
         setChamado(data);
-      } catch (err) {
-        console.error('Erro ao carregar chamado:', err);
+      } catch (_err) {
+        // Erro ao carregar chamado
       } finally {
         setLoading(false);
       }
@@ -177,7 +173,7 @@ export function useAutoRefreshList(token, apiUrl, endpoint, interval = 15000) {
   const [loading, setLoading] = useState(false);
   const lastFetchRef = useRef(Date.now());
 
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
     if (!token || Date.now() - lastFetchRef.current < 5000) return; // Evitar fetch rápido demais
     
     setLoading(true);
@@ -189,18 +185,18 @@ export function useAutoRefreshList(token, apiUrl, endpoint, interval = 15000) {
       const result = await res.json();
       setData(Array.isArray(result) ? result : []);
       lastFetchRef.current = Date.now();
-    } catch (err) {
-      console.error('Erro em fetch automático:', err);
+    } catch (_err) {
+      // Erro em fetch automático
     } finally {
       setLoading(false);
     }
-  };
+  }, [apiUrl, endpoint, token]);
 
   useEffect(() => {
     fetchData();
     const timer = setInterval(fetchData, interval);
     return () => clearInterval(timer);
-  }, [token, apiUrl, endpoint, interval]);
+  }, [fetchData, interval]);
 
   return { data, loading, refetch: fetchData };
 }

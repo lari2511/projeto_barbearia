@@ -1,4 +1,10 @@
 {
+  "scripts": {
+    "dev": "npm --prefix barbermove run dev",
+    "build": "npm --prefix barbermove run build",
+    "lint": "npm --prefix barbermove run lint",
+    "preview": "npm --prefix barbermove run preview"
+  },
   "dependencies": {
     "lucide-react": "^0.556.0"
   }

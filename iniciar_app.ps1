@@ -1,92 +1,120 @@
-# Script para iniciar BarberMove completo (Backend + Frontend)
-# Executa backend e frontend simultaneamente
+# Inicializa BarberMove completo com portas fixas:
+# - Backend FastAPI: 8000
+# - Frontend principal: 5173
+# - Painel admin: 5175
 
-Write-Host "🚀 INICIANDO BARBERMOVE - Sistema Completo" -ForegroundColor Cyan
+Write-Host "INICIANDO BARBERMOVE (backend + frontend + admin)" -ForegroundColor Cyan
 Write-Host ""
 
-# Verificar se está no diretório correto
-if (-not (Test-Path ".\app") -or -not (Test-Path ".\barbermove")) {
-    Write-Host "❌ Erro: Execute este script na raiz do projeto (c:\projeto_barbearia)" -ForegroundColor Red
+if (-not (Test-Path ".\app") -or -not (Test-Path ".\barbermove") -or -not (Test-Path ".\admin-panel")) {
+    Write-Host "Erro: execute este script na raiz do projeto (c:\projeto_barbearia)." -ForegroundColor Red
     exit 1
 }
 
-# Verificar ambiente virtual Python
-if (-not (Test-Path ".\venv\Scripts\python.exe")) {
-    Write-Host "❌ Ambiente virtual Python não encontrado!" -ForegroundColor Red
-    Write-Host "💡 Criando ambiente virtual..." -ForegroundColor Yellow
-    python -m venv venv
-    .\venv\Scripts\Activate.ps1
-    pip install -r requirements.txt
+$pythonExe = $null
+if (Test-Path ".\.venv\Scripts\python.exe") {
+    $pythonExe = (Resolve-Path ".\.venv\Scripts\python.exe").Path
+} elseif (Test-Path ".\venv\Scripts\python.exe") {
+    $pythonExe = (Resolve-Path ".\venv\Scripts\python.exe").Path
+} else {
+    Write-Host "Erro: ambiente virtual nao encontrado (.venv ou venv)." -ForegroundColor Red
+    Write-Host "Crie/ative o venv antes de iniciar os servicos." -ForegroundColor Yellow
+    exit 1
 }
 
-Write-Host "✅ Ambiente Python configurado" -ForegroundColor Green
+function Stop-PortListeners {
+    param([int[]]$Ports)
 
-# Verificar node_modules
-if (-not (Test-Path ".\barbermove\node_modules")) {
-    Write-Host "💡 Instalando dependências do frontend..." -ForegroundColor Yellow
-    Set-Location barbermove
-    npm install
-    Set-Location ..
+    foreach ($port in $Ports) {
+        $listeners = Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue
+        if ($listeners) {
+            foreach ($listener in $listeners) {
+                $processId = $listener.OwningProcess
+                if ($processId) {
+                    try {
+                        Stop-Process -Id $processId -Force -ErrorAction Stop
+                        Write-Host "Porta $port liberada (PID $processId encerrado)." -ForegroundColor Yellow
+                    } catch {
+                        Write-Host "Nao foi possivel encerrar PID $processId na porta $port (pode ja ter encerrado)." -ForegroundColor DarkYellow
+                    }
+                }
+            }
+        }
+    }
 }
 
-Write-Host "✅ Dependências do frontend instaladas" -ForegroundColor Green
+Write-Host "Limpando conflitos de porta (8000, 5173, 5174, 5175)..." -ForegroundColor Cyan
+Stop-PortListeners -Ports @(8000, 5173, 5174, 5175)
+
+$root = (Get-Location).Path
+
+$backendCommand = "& '$pythonExe' -m uvicorn app.main:app --app-dir '$root' --reload --host 0.0.0.0 --port 8000"
+$frontCommand = "cd '$root'; npm --prefix barbermove run dev -- --port 5173 --strictPort"
+$adminCommand = "cd '$root'; npm --prefix admin-panel run dev -- --port 5175 --strictPort"
+
 Write-Host ""
-
-# Criar script para backend
-$backendScript = @'
-Write-Host "🔧 Backend FastAPI iniciando..." -ForegroundColor Blue
-C:\projeto_barbearia\venv\Scripts\python.exe C:\projeto_barbearia\run.py
-'@
-
-$backendScript | Out-File -FilePath "temp_backend.ps1" -Encoding UTF8
-
-# Criar script para frontend
-$frontendScript = @'
-Write-Host "🎨 Frontend React iniciando..." -ForegroundColor Magenta
-Set-Location C:\projeto_barbearia\barbermove
-npm run dev
-'@
-
-$frontendScript | Out-File -FilePath "temp_frontend.ps1" -Encoding UTF8
-
-Write-Host "════════════════════════════════════════════════════════════" -ForegroundColor Cyan
-Write-Host "🚀 BARBERMOVE INICIADO!" -ForegroundColor Green
-Write-Host "════════════════════════════════════════════════════════════" -ForegroundColor Cyan
-Write-Host ""
-Write-Host "📍 Backend API:  http://localhost:8000" -ForegroundColor Yellow
-Write-Host "📍 API Docs:     http://localhost:8000/docs" -ForegroundColor Yellow
-Write-Host "📍 Frontend:     http://localhost:5173" -ForegroundColor Yellow
-Write-Host ""
-Write-Host "⚠️  Abrindo em 2 terminais separados..." -ForegroundColor Cyan
-Write-Host "⚠️  Para parar: CTRL+C em cada terminal" -ForegroundColor Cyan
-Write-Host ""
+Write-Host "Subindo backend na porta 8000..." -ForegroundColor Green
+Start-Process powershell -ArgumentList "-NoExit", "-Command", $backendCommand | Out-Null
 
 Start-Sleep -Seconds 2
 
-# Iniciar backend em novo terminal
-Start-Process powershell -ArgumentList "-NoExit", "-File", "temp_backend.ps1"
-
-Start-Sleep -Seconds 3
-
-# Iniciar frontend em novo terminal
-Start-Process powershell -ArgumentList "-NoExit", "-File", "temp_frontend.ps1"
+Write-Host "Subindo frontend principal na porta 5173..." -ForegroundColor Green
+Start-Process powershell -ArgumentList "-NoExit", "-Command", $frontCommand | Out-Null
 
 Start-Sleep -Seconds 2
 
-Write-Host "✅ Servidores iniciados!" -ForegroundColor Green
-Write-Host ""
-Write-Host "💡 Dica: Aguarde alguns segundos e acesse http://localhost:5173" -ForegroundColor Cyan
-Write-Host ""
-Write-Host "🎯 Contas de teste:" -ForegroundColor Yellow
-Write-Host "   Cliente: cliente@test.com / senha123" -ForegroundColor White
-Write-Host "   Barbeiro: barbeiro@test.com / senha123" -ForegroundColor White
-Write-Host "   Barbearia: barbearia@test.com / senha123" -ForegroundColor White
-Write-Host ""
+Write-Host "Subindo painel admin na porta 5175..." -ForegroundColor Green
+Start-Process powershell -ArgumentList "-NoExit", "-Command", $adminCommand | Out-Null
 
-# Aguardar 10 segundos e limpar arquivos temporários
-Start-Sleep -Seconds 10
-Remove-Item "temp_backend.ps1" -ErrorAction SilentlyContinue
-Remove-Item "temp_frontend.ps1" -ErrorAction SilentlyContinue
+function Invoke-BackendSmokeCheck {
+    param(
+        [int]$MaxAttempts = 6,
+        [int]$DelaySeconds = 2
+    )
 
-Write-Host "Pressione qualquer tecla para fechar esta janela..."
-$null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+    if (-not (Test-Path ".\smoke_backend.ps1")) {
+        Write-Host "Smoke script nao encontrado (smoke_backend.ps1)." -ForegroundColor DarkYellow
+        return
+    }
+
+    Write-Host "" 
+    Write-Host "Executando smoke test do backend..." -ForegroundColor Cyan
+    $artifactRelativePath = "artifacts/smoke-backend.json"
+    $artifactFullPath = Join-Path (Get-Location).Path $artifactRelativePath
+
+    for ($attempt = 1; $attempt -le $MaxAttempts; $attempt++) {
+        $jsonOutput = & .\smoke_backend.ps1 -BaseUrl "http://127.0.0.1:8000" -Json -OutputJsonPath $artifactRelativePath
+        $exitCode = $LASTEXITCODE
+
+        if ($exitCode -eq 0) {
+            $summary = $jsonOutput | ConvertFrom-Json
+            Write-Host "Smoke test backend: PASS" -ForegroundColor Green
+            foreach ($check in $summary.checks) {
+                Write-Host (" - {0} {1} => {2}" -f $check.Endpoint, $check.Status, $check.Result) -ForegroundColor DarkGreen
+            }
+            Write-Host ("Artifact JSON: " + $artifactFullPath) -ForegroundColor DarkGreen
+            return
+        }
+
+        if ($attempt -lt $MaxAttempts) {
+            Start-Sleep -Seconds $DelaySeconds
+        }
+    }
+
+    Write-Host "Smoke test backend: FAIL (servicos iniciaram, mas verificacao automatica falhou)." -ForegroundColor Yellow
+    if (Test-Path $artifactFullPath) {
+        Write-Host ("Artifact JSON: " + $artifactFullPath) -ForegroundColor DarkYellow
+    }
+    Write-Host "Rode manualmente: .\smoke_backend.ps1" -ForegroundColor DarkYellow
+}
+
+Invoke-BackendSmokeCheck
+
+Write-Host ""
+Write-Host "Servicos iniciados." -ForegroundColor Green
+Write-Host "Backend:  http://127.0.0.1:8000" -ForegroundColor White
+Write-Host "Docs:     http://127.0.0.1:8000/docs" -ForegroundColor White
+Write-Host "Front:    http://127.0.0.1:5173" -ForegroundColor White
+Write-Host "Admin:    http://127.0.0.1:5175" -ForegroundColor White
+Write-Host ""
+Write-Host "Para reiniciar tudo, rode novamente: .\iniciar_app.ps1" -ForegroundColor Cyan

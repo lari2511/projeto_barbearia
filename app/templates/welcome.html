@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bem-vindo ao BarberMove!</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            margin: 0;
+            padding: 0;
+            background-color: #f5f5f5;
+        }
+        .container {
+            max-width: 600px;
+            margin: 0 auto;
+            background-color: #ffffff;
+            padding: 40px 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .logo {
+            font-size: 28px;
+            font-weight: bold;
+            color: #1976d2;
+            margin-bottom: 10px;
+        }
+        .content {
+            text-align: center;
+        }
+        h2 {
+            color: #1976d2;
+            margin-top: 0;
+            font-size: 24px;
+        }
+        p {
+            color: #666;
+            margin: 15px 0;
+            font-size: 16px;
+        }
+        .welcome-box {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px;
+            border-radius: 8px;
+            margin: 20px 0;
+        }
+        .welcome-box h3 {
+            margin: 0 0 10px 0;
+            font-size: 20px;
+        }
+        .features {
+            text-align: left;
+            background-color: #f9f9f9;
+            padding: 20px;
+            border-radius: 4px;
+            margin: 20px 0;
+        }
+        .features h4 {
+            color: #1976d2;
+            margin-top: 0;
+        }
+        .features ul {
+            list-style: none;
+            padding: 0;
+            margin: 10px 0 0 0;
+        }
+        .features li {
+            padding: 8px 0;
+            color: #666;
+            font-size: 14px;
+        }
+        .features li:before {
+            content: "✓ ";
+            color: #4caf50;
+            font-weight: bold;
+            margin-right: 8px;
+        }
+        .login-button {
+            display: inline-block;
+            background-color: #4caf50;
+            color: white;
+            padding: 14px 28px;
+            text-align: center;
+            text-decoration: none;
+            border-radius: 4px;
+            margin: 20px 0;
+            font-size: 16px;
+            font-weight: 600;
+            transition: background-color 0.3s ease;
+        }
+        .login-button:hover {
+            background-color: #45a049;
+        }
+        .footer {
+            margin-top: 40px;
+            padding-top: 20px;
+            border-top: 1px solid #e0e0e0;
+            text-align: center;
+            font-size: 12px;
+            color: #999;
+        }
+        .button-container {
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <div class="logo">✂️ BarberMove</div>
+            <p style="color: #999; margin: 5px 0; font-size: 14px;">Plataforma de Barbearia</p>
+        </div>
+
+        <div class="content">
+            <div class="welcome-box">
+                <h3>🎉 Seu e-mail foi verificado com sucesso!</h3>
+                <p style="margin: 10px 0 0 0;">Bem-vindo à família BarberMove, {{ user_name }}!</p>
+            </div>
+
+            <p>Sua conta foi criada e já está pronta para usar.</p>
+
+            <div class="features">
+                <h4>✨ O que você pode fazer agora:</h4>
+                <ul>
+                    <li>Acessar seu painel pessoal</li>
+                    <li>Agendar serviços em barbearias</li>
+                    <li>Gerenciar seus agendamentos</li>
+                    <li>Ver histórico de serviços</li>
+                    <li>Avaliar profissionais</li>
+                </ul>
+            </div>
+
+            <p style="margin-top: 30px;">Clique no botão abaixo para fazer seu primeiro login:</p>
+
+            <div class="button-container">
+                <a href="{{ login_url }}" class="login-button">
+                    → Fazer Login
+                </a>
+            </div>
+
+            <p style="color: #999; font-size: 14px; margin-top: 25px;">
+                Se tiver dúvidas, nossa equipe de suporte está à disposição.
+            </p>
+        </div>
+
+        <div class="footer">
+            <p>© {{ app_name }} - Todos os direitos reservados</p>
+            <p style="margin: 5px 0;">Este é um e-mail automático, por favor não responda.</p>
+        </div>
+    </div>
+</body>
+</html>

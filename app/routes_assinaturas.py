@@ -104,6 +104,21 @@ def _calcular_novo_vencimento_assinatura(assinatura: models.AssinaturaBarbearia,
     return _proximo_vencimento_mensal(base, dia_vencimento)
 
 
+def _normalizar_vencimento_adiantado(assinatura: models.AssinaturaBarbearia, referencia: datetime) -> bool:
+    """Evita assinaturas com vencimento muito à frente por confirmações repetidas.
+
+    Em plano mensal, o limite saudável é no máximo o próximo ciclo mensal.
+    Retorna True quando houve ajuste.
+    """
+    dia_vencimento = assinatura.dia_vencimento or referencia.day
+    limite = _proximo_vencimento_mensal(referencia, dia_vencimento)
+    if assinatura.proximo_vencimento and assinatura.proximo_vencimento > limite:
+        assinatura.proximo_vencimento = limite
+        assinatura.ultima_atualizacao = referencia
+        return True
+    return False
+
+
 def calcular_valor_assinatura(num_cadeiras: int):
     """
     Calcula o valor total da assinatura baseado na tabela progressiva
@@ -490,6 +505,11 @@ def pagar_mensalidade(
         )
 
     metodo_pagamento = normalizar_metodo_pagamento(dados.metodo_pagamento)
+    hoje = datetime.now()
+
+    # Auto-correção para casos legados de vencimento adiantado em excesso.
+    _normalizar_vencimento_adiantado(assinatura, hoje)
+
     vencimento_referencia = assinatura.proximo_vencimento or datetime.now()
 
     # Exigir confirmacao explicita do PIX para evitar pagamento "automatico" sem etapa de QR
@@ -521,7 +541,6 @@ def pagar_mensalidade(
             )
 
     # Calcular novo vencimento mensal por mês de calendário.
-    hoje = datetime.now()
     novo_vencimento = _calcular_novo_vencimento_assinatura(assinatura, hoje)
 
     # Atualizar assinatura
@@ -669,6 +688,12 @@ def verificar_status_assinatura(
 
     # Calcular dias até vencimento
     hoje = datetime.now()
+
+    # Auto-correção para exibições incoerentes (ex.: 103+ dias em plano mensal)
+    if _normalizar_vencimento_adiantado(assinatura, hoje):
+        db.commit()
+        db.refresh(assinatura)
+
     dias_vencimento = (assinatura.proximo_vencimento - hoje).days
 
     # Verificar se está vencida

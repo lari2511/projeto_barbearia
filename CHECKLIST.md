@@ -34,6 +34,9 @@
 - [ ] Verificar notificações
 
 ### Fase 2: Ajustes Finais (1-2 dias)
+- [x] ✨ NOVO: Geolocalização para barbeiros e barbearias
+- [x] ✨ NOVO: Busca de barbearias por proximidade (raio 10km)
+- [x] ✨ NOVO: Exibir distância em km para o cliente
 - [ ] Personalizar logo (substitua `/public/brand-logo.png`)
 - [ ] Personalizar cores (edite `barbermove/src/App.css`)
 - [ ] Adicionar imagens reais de barbearias
