@@ -3,7 +3,6 @@ import { CreditCard, Calendar, AlertTriangle, CheckCircle, Loader, TrendingUp } 
 
 export default function TelaAssinaturaBarbearia({ token, onNotify }) {
   const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
-  const DEBUG_PIX = Boolean(import.meta.env.DEV);
 
   const normalizarPixPayload = (data) => {
     const payload = data?.pix || data?.dados_pix || data || {};
@@ -171,13 +170,7 @@ export default function TelaAssinaturaBarbearia({ token, onNotify }) {
       }
 
       const data = await res.json();
-      if (DEBUG_PIX) {
-        console.debug('[PIX][assinatura-barbearia] resposta bruta:', data);
-      }
       const pixNormalizado = normalizarPixPayload(data);
-      if (DEBUG_PIX) {
-        console.debug('[PIX][assinatura-barbearia] resposta normalizada:', pixNormalizado);
-      }
       if (!pixNormalizado.qrcode_base64 && !pixNormalizado.pix_copia_cola) {
         throw new Error('PIX gerado sem QR Code e sem codigo copia e cola');
       }
