@@ -58,10 +58,25 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="BarberMove API", lifespan=lifespan)
 
 # Configuração CORS - Lê do .env
-cors_origins = os.getenv("ALLOWED_ORIGINS", "http://localhost:5173,http://localhost:5175").split(",")
+origins_env = os.getenv("ALLOWED_ORIGINS", "http://localhost:5173,http://localhost:5175")
+cors_origins = [o.strip() for o in origins_env.split(",") if o and o.strip()]
+
+# Origens do app mobile (Capacitor) para evitar bloqueio CORS no APK.
+mobile_origins = [
+    "http://localhost",
+    "https://localhost",
+    "capacitor://localhost",
+    "ionic://localhost",
+]
+
+for origin in mobile_origins:
+    if origin not in cors_origins:
+        cors_origins.append(origin)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=cors_origins,
+    allow_origin_regex=r"https?://(localhost|127\.0\.0\.1|192\.168\.\d+\.\d+|10\.\d+\.\d+\.\d+|172\.(1[6-9]|2\d|3[0-1])\.\d+\.\d+)(:\d+)?$",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -100,9 +115,16 @@ app.include_router(router_pagamento_perfis)  # 💳 Configurações de pagamento
 # Rotas legais (Termos e Privacidade)
 app.include_router(router_legais, prefix="/api/v1")
 
-# Monta arquivos estáticos para download de APKs (porta 8000)
-if os.path.exists("barbermove"):
-    app.mount("/download", StaticFiles(directory="barbermove"), name="download")
+# Diretorio de distribuicao de APKs (configuravel por variavel de ambiente).
+apk_download_dir = pathlib.Path(os.getenv("APK_DOWNLOAD_DIR", "barbermove"))
+if not apk_download_dir.is_absolute():
+    apk_download_dir = pathlib.Path.cwd() / apk_download_dir
+apk_download_dir = apk_download_dir.resolve()
+apk_download_dir.mkdir(parents=True, exist_ok=True)
+
+# Rota principal para download e alias legado para manter compatibilidade.
+app.mount("/downloads", StaticFiles(directory=str(apk_download_dir)), name="downloads")
+app.mount("/download", StaticFiles(directory=str(apk_download_dir)), name="download")
 
 # Monta uploads de imagens (perfil, portfólio, etc.)
 uploads_dir = pathlib.Path("uploads")
@@ -127,32 +149,82 @@ async def websocket_notificacoes(websocket: WebSocket):
         except Exception:
             pass
 
-# Endpoint dedicado para baixar APK com cabeçalho correto
+def _list_apk_files() -> list[pathlib.Path]:
+    if not apk_download_dir.exists() or not apk_download_dir.is_dir():
+        return []
+    return [
+        file_path
+        for file_path in apk_download_dir.iterdir()
+        if file_path.is_file() and file_path.suffix.lower() == ".apk"
+    ]
+
+
+def _resolve_apk_file(filename: str) -> pathlib.Path:
+    file_path = (apk_download_dir / filename).resolve()
+
+    # Bloqueia path traversal para fora do diretorio de distribuicao.
+    if file_path != apk_download_dir and apk_download_dir not in file_path.parents:
+        raise HTTPException(status_code=400, detail="Nome de arquivo invalido")
+
+    if not file_path.exists() or not file_path.is_file():
+        raise HTTPException(status_code=404, detail="Arquivo nao encontrado")
+
+    if file_path.suffix.lower() != ".apk":
+        raise HTTPException(status_code=400, detail="Somente arquivos .apk sao permitidos")
+
+    return file_path
+
+
+# Endpoint dedicado para baixar APK com cabecalho correto.
 @app.get("/apk/latest")
 def download_latest_apk():
-    base_dir = "barbermove"
-    if not os.path.isdir(base_dir):
-        raise HTTPException(status_code=404, detail="Diretório de downloads não encontrado")
-    apks = [f for f in os.listdir(base_dir) if f.lower().endswith(".apk")]
+    apks = _list_apk_files()
     if not apks:
-        raise HTTPException(status_code=404, detail="Nenhum APK disponível")
-    latest = max(apks, key=lambda f: os.path.getmtime(os.path.join(base_dir, f)))
-    path = os.path.join(base_dir, latest)
+        raise HTTPException(status_code=404, detail="Nenhum APK disponivel")
+
+    latest = max(apks, key=lambda file_path: file_path.stat().st_mtime)
     return FileResponse(
-        path,
+        str(latest),
         media_type="application/vnd.android.package-archive",
-        filename=latest
+        filename=latest.name,
     )
+
+
+@app.get("/apk/info")
+def apk_info():
+    apks = _list_apk_files()
+    api_url = os.getenv("API_URL", "").rstrip("/")
+
+    if not apks:
+        return {
+            "status": "empty",
+            "apk_dir": str(apk_download_dir),
+            "downloads_path": "/downloads",
+            "latest_endpoint": "/apk/latest",
+            "message": "Nenhum APK publicado",
+        }
+
+    latest = max(apks, key=lambda file_path: file_path.stat().st_mtime)
+    latest_endpoint = f"/apk/{latest.name}"
+    latest_url = f"{api_url}{latest_endpoint}" if api_url else latest_endpoint
+
+    return {
+        "status": "ok",
+        "apk_dir": str(apk_download_dir),
+        "downloads_path": "/downloads",
+        "latest_filename": latest.name,
+        "latest_endpoint": latest_endpoint,
+        "latest_url": latest_url,
+    }
+
 
 @app.get("/apk/{filename}")
 def download_apk(filename: str):
-    path = os.path.join("barbermove", filename)
-    if not os.path.exists(path):
-        raise HTTPException(status_code=404, detail="Arquivo não encontrado")
+    file_path = _resolve_apk_file(filename)
     return FileResponse(
-        path,
+        str(file_path),
         media_type="application/vnd.android.package-archive",
-        filename=filename
+        filename=file_path.name,
     )
 
 @app.get("/")

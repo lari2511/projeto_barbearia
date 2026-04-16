@@ -92,6 +92,20 @@ Isso vai:
 - ✅ Gerar APK Android (opcional)
 - ✅ Criar cópia do APK na raiz
 
+## 🌐 APK em Rede Pública
+
+Para deixar o APK disponível para parceiros fora da sua rede local:
+
+```powershell
+# 1) Preparar arquivo estavel em APK_PRONTO/BarberMove.apk
+.\publicar_apk_publico.ps1 -ApiBaseUrl https://SEU-SERVICO.onrender.com
+```
+
+Depois do deploy no Render (ou outro servidor público), compartilhe um destes links:
+- `https://SEU-SERVICO.onrender.com/apk/latest`
+- `https://SEU-SERVICO.onrender.com/apk/BarberMove.apk`
+- `https://SEU-SERVICO.onrender.com/downloads/BarberMove.apk`
+
 ---
 
 ## 🎯 CONTAS DE TESTE

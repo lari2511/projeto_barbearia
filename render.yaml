@@ -9,7 +9,7 @@ services:
       - key: SECRET_KEY
         generateValue: true
       - key: ALLOWED_ORIGINS
-        value: https://barbermove-api.onrender.com,https://barbermove-pwa.onrender.com,http://localhost:5173
+        value: https://barbermove-api.onrender.com,https://barbermove-pwa.onrender.com,http://localhost:5173,http://localhost,https://localhost,capacitor://localhost,ionic://localhost
       - key: REQUIRE_EMAIL_VERIFIED
         value: "1"
       - key: VERIFICATION_LINK_BASE
@@ -28,10 +28,25 @@ services:
         value: https://barbermove-api.onrender.com
       - key: FRONTEND_URL
         value: https://barbermove-pwa.onrender.com
+      - key: APK_DOWNLOAD_DIR
+        value: APK_PRONTO
       - key: DATABASE_URL
         fromDatabase:
           name: barbermove-db
           property: connectionString
+
+  - type: web
+    name: barbermove-pwa
+    runtime: static
+    rootDir: barbermove
+    buildCommand: npm ci && npm run build
+    staticPublishPath: dist
+    pullRequestPreviewsEnabled: false
+    envVars:
+      - key: VITE_API_URL
+        value: https://barbermove-api.onrender.com
+      - key: VITE_WS_URL
+        value: wss://barbermove-api.onrender.com/ws/notificacoes
 
 databases:
   - name: barbermove-db
