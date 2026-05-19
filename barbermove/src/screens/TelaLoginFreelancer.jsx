@@ -129,16 +129,17 @@ const TelaLoginFreelancer = ({ navigation, onLoginSuccess }) => {
     setLoading(true);
 
     try {
-      // 1. Backend: validar credenciais
-      const responseLogin = await fetch(`${API_URL}/api/v1/login`, {
+      // 1. Backend: validar credenciais (form-urlencoded, endpoint por tipo)
+      const form = new URLSearchParams({
+        username: email,
+        password: senha,
+      });
+      const responseLogin = await fetch(`${API_URL}/api/v1/login/barbeiro/`, {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json'
+          'Content-Type': 'application/x-www-form-urlencoded'
         },
-        body: JSON.stringify({
-          email: email,
-          senha: senha
-        })
+        body: form.toString()
       });
 
       if (!responseLogin.ok) {
