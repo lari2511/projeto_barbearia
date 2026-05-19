@@ -1,0 +1,17 @@
+E2E test run summary (ngrok public)
+
+[19:35:29] TESTE E-TO-E: Status-Based Gating para Rastreamento
+✓ Cliente: lari.nascimento20148@gmail.com
+✓ Barbeiro: larissavideos2018@gmail.com
+
+STEP 1: Login do Cliente - token recebido
+STEP 2: Login do Barbeiro - token recebido
+STEP 3: Chamado criado: id=43 (coordenadas adicionadas)
+STEP 4: Cliente verifica status (ANTES): pendente -> mostrar_mapa: False
+STEP 5: Barbeiro ACEITA o chamado -> status confirmado
+STEP 6: WebSocket broadcast aguardado (500ms)
+STEP 7: Cliente verifica status (DEPOIS): confirmado -> mostrar_mapa: True
+STEP 8: Coordenadas validadas (cliente & barbeiro presentes)
+
+Resultado: 4/4 testes passaram
+🎉 TESTE E-TO-E PASSOU! Fluxo está funcionando corretamente.

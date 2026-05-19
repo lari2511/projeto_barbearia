@@ -1,0 +1,24 @@
+Uvicorn & ngrok logs snapshot
+
+⚠️ Aviso: Firebase não inicializado. [Errno 2] No such file or directory: 'firebase-credentials.json'
+INFO:     Started server process [20016]
+INFO:     Waiting for application startup.
+--- Banco de dados inicializado com sucesso ---
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://127.0.0.1:8000 (Press CTRL+C to quit)
+INFO:     POST /proxy/api/v1/login/cliente/ 405 Method Not Allowed
+INFO:     POST /api/v1/login/cliente/ 200 OK
+INFO:     POST /api/v1/login/barbeiro/ 200 OK
+INFO:     GET /api/v1/agendamento/42/status-rastreamento 200 OK
+🔐 get_current_user - Token recebido: <token redacted>
+📋 Token decodificado - User ID: 4
+✅ Usuário autenticado: larissavideos2018@gmail.com (tipo: barbeiro)
+INFO:     PATCH /api/v1/agendamento/42/aceitar 403 Forbidden
+... (retry) ...
+C:\projeto_barbearia\app\routes_extras.py:344: RuntimeWarning: coroutine 'broadcast_event' was never awaited
+  pass
+RuntimeWarning: Enable tracemalloc to get the object allocation traceback
+INFO:     PATCH /api/v1/agendamento/42/aceitar 200 OK
+INFO:     GET /api/v1/agendamento/42/status-rastreamento 200 OK
+
+(End of snapshot)
