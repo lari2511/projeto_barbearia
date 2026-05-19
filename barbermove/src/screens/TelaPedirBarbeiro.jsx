@@ -52,7 +52,9 @@ const TelaPedirBarbeiro = ({ route: _route, navigation }) => {
   const [_barbeariaSelecionada, _setBarbeariaSelecionada] = useState(null);
   const [solicitacaoEmAndamento, setSolicitacaoEmAndamento] = useState(false);
 
-  const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+  const defaultHost = typeof window !== 'undefined' ? window.location.hostname : 'localhost';
+  const defaultProtocol = typeof window !== 'undefined' && window.location.protocol === 'https:' ? 'https' : 'http';
+  const API_URL = import.meta.env.VITE_API_URL || `${defaultProtocol}://${defaultHost}:8000`;
 
   // Carrega dados ao montar
   useEffect(() => {
@@ -188,7 +190,7 @@ const TelaPedirBarbeiro = ({ route: _route, navigation }) => {
         console.log('✅ Solicitação enviada para barbeiros próximos');
         Alert.alert(
           '✅ Pedido enviado!',
-          `Aguardando resposta de barbeiros a ${barbeiro.distancia_km} km...`
+          `Aguardando resposta dos barbeiros — aproximadamente ${barbeiro.distancia_km} km.`
         );
         navigation.goBack();
       } else {

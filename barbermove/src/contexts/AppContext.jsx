@@ -1,7 +1,8 @@
 // Contexto de autenticação e estado global do BarberMovie
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import { getApiBaseUrl } from '../utils/api';
 
-const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
+const API_URL = getApiBaseUrl();
 
 // Função auxiliar para converter QUALQUER coisa para string legível
 function toReadableString(value) {
@@ -34,7 +35,7 @@ function toReadableString(value) {
   return 'Erro desconhecido';
 }
 
-const AppContext = createContext();
+export const AppContext = createContext();
 
 // eslint-disable-next-line react-refresh/only-export-components
 export const useApp = () => {

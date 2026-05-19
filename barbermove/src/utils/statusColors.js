@@ -13,7 +13,7 @@ export const STATUS_COLORS = {
     badge: 'bg-yellow-100 text-yellow-800 border-yellow-300',
     label: 'Pendente',
     icon: '⏳',
-    description: 'Aguardando aceite do barbeiro'
+    description: 'Aguardando aceitação do barbeiro'
   },
   
   'confirmado': {

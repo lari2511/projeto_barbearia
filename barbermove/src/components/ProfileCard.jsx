@@ -1,19 +1,33 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useContext } from 'react';
 import { Star, MapPin, Phone, Mail, Award, TrendingUp, MessageCircle } from 'lucide-react';
+import ChatRoom from './ChatRoom';
+import { AppContext } from '../contexts/AppContext';
 
-const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
+const DEFAULT_HOST = typeof window !== 'undefined' ? window.location.hostname : 'localhost';
+const DEFAULT_PROTOCOL = typeof window !== 'undefined' && window.location.protocol === 'https:' ? 'https' : 'http';
+const API_URL = import.meta.env.VITE_API_URL || `${DEFAULT_PROTOCOL}://${DEFAULT_HOST}:8000`;
 
 /**
  * Componente de Perfil Aprimorado com Design Melhorado
  * Exibe avaliações, estatísticas e informações principais
  */
-export default function ProfileCard({ usuarioId, userType, token, isOwnProfile: _isOwnProfile = false }) {
+export default function ProfileCard({ usuarioId, userType, token, isOwnProfile: _isOwnProfile = false, onNotify }) {
   const [profile, setProfile] = useState(null);
+  const [barbeariaProfile, setBarbeariaProfile] = useState(null);
+  const [cadeirasBarbearia, setCadeirasBarbearia] = useState([]);
+  const [carregandoBarbearia, setCarregandoBarbearia] = useState(false);
+  const [chatOpen, setChatOpen] = useState(false);
+  const [chatChamadoId, setChatChamadoId] = useState(null);
   const [avaliacoes, setAvaliacoes] = useState(null);
   const [loading, setLoading] = useState(true);
   const [erro, setErro] = useState('');
   const [portfolioFotos, setPortfolioFotos] = useState([]);
   const [zoomFoto, setZoomFoto] = useState(null);
+  const [chatLoading, setChatLoading] = useState(false);
+
+  const appContext = useContext(AppContext);
+  const { notify } = appContext || {};
+  const safeNotify = onNotify || notify || (() => {});
 
   const logErro = (mensagem, detalhe) => {
     if (import.meta.env.DEV) {
@@ -52,6 +66,41 @@ export default function ProfileCard({ usuarioId, userType, token, isOwnProfile: 
       if (data.portfolio_fotos && Array.isArray(data.portfolio_fotos)) {
         setPortfolioFotos(data.portfolio_fotos);
       }
+
+      if (userType === 'barbearia') {
+        setCarregandoBarbearia(true);
+        try {
+          const barbeariasRes = await fetch(`${API_URL}/api/v1/barbearias/todas-aprovadas`, {
+            headers: token ? { 'Authorization': `Bearer ${token}` } : {}
+          });
+
+          if (barbeariasRes.ok) {
+            const lista = await barbeariasRes.json();
+            const barbearias = Array.isArray(lista?.barbearias) ? lista.barbearias : [];
+            const encontrada = barbearias.find((item) => Number(item.usuario_id) === Number(usuarioId) || Number(item.id) === Number(usuarioId));
+
+            if (encontrada?.id) {
+              setBarbeariaProfile(encontrada);
+
+              const cadeirasRes = await fetch(`${API_URL}/api/v1/cadeiras/barbearia/${encontrada.id}`, {
+                headers: token ? { 'Authorization': `Bearer ${token}` } : {}
+              });
+
+              if (cadeirasRes.ok) {
+                const cadeirasData = await cadeirasRes.json();
+                setCadeirasBarbearia(Array.isArray(cadeirasData) ? cadeirasData : []);
+              } else {
+                setCadeirasBarbearia([]);
+              }
+            }
+          }
+        } catch (_err) {
+          setBarbeariaProfile(null);
+          setCadeirasBarbearia([]);
+        } finally {
+          setCarregandoBarbearia(false);
+        }
+      }
     } catch (err) {
       setErro('Perfil não encontrado. Tente novamente.');
       logErro('Erro ao carregar perfil:', err);
@@ -62,6 +111,36 @@ export default function ProfileCard({ usuarioId, userType, token, isOwnProfile: 
 
   useEffect(() => {
     carregarPerfil();
+    // verificar se há chamado ativo entre usuário atual e este perfil
+    const verificarChatExistente = async () => {
+      try {
+        const currentUserId = Number(localStorage.getItem('userId') || 0);
+        const currentUserType = localStorage.getItem('userType');
+        if (!token || !currentUserId || !currentUserType) return;
+
+        if (currentUserType === 'cliente') {
+          const res = await fetch(`${API_URL}/api/v1/cliente/meus_pedidos`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+          });
+          if (!res.ok) return;
+          const pedidos = await res.json();
+          const encontrado = (Array.isArray(pedidos) ? pedidos : []).find(p => Number(p.barbeiro_id) === Number(usuarioId) && ['confirmado','em_atendimento'].includes((p.status||'').toLowerCase()));
+          if (encontrado) setChatChamadoId(encontrado.id);
+        } else if (currentUserType === 'barbeiro') {
+          const res = await fetch(`${API_URL}/api/v1/barbeiro/agendamentos/meus`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+          });
+          if (!res.ok) return;
+          const ags = await res.json();
+          const encontrado = (Array.isArray(ags) ? ags : []).find(a => Number(a.cliente_id) === Number(usuarioId) && ['confirmado','em_atendimento'].includes((a.status||'').toLowerCase()));
+          if (encontrado) setChatChamadoId(encontrado.id);
+        }
+      } catch (_err) {
+        // ignore
+      }
+    };
+
+    verificarChatExistente();
   }, [carregarPerfil]);
 
   if (loading) {
@@ -93,6 +172,10 @@ export default function ProfileCard({ usuarioId, userType, token, isOwnProfile: 
     profile?.presente_em_local && profile?.barbearia_atual_nome
       ? `Disponível em ${profile.barbearia_atual_nome}`
       : 'Disponível';
+  const cadeirasDisponiveis = cadeirasBarbearia.filter((cadeira) => {
+    const status = String(cadeira?.status || cadeira?.status_atendimento || '').toLowerCase();
+    return status.includes('dispon') || status === 'livre' || status === 'ativo';
+  });
 
   return (
     <div className="space-y-6">
@@ -200,6 +283,61 @@ export default function ProfileCard({ usuarioId, userType, token, isOwnProfile: 
           </div>
 
           {/* Bot\u00e3o WhatsApp */}
+
+          {userType === 'barbearia' && (
+            <div className="mt-6 pt-6 border-t border-zinc-800 space-y-3">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-xs text-zinc-400 uppercase">Cadeiras da barbearia</p>
+                  <p className="text-sm font-bold text-white">
+                    {carregandoBarbearia ? 'Carregando...' : `${cadeirasBarbearia.length} cadeira(s) cadastrada(s)`}
+                  </p>
+                </div>
+                {barbeariaProfile?.cadeira_disponivel && (
+                  <span className="px-3 py-1 rounded-full text-[11px] font-bold bg-green-500/20 text-green-400 border border-green-500/30">
+                    Tem cadeira disponível
+                  </span>
+                )}
+              </div>
+
+              {!carregandoBarbearia && (
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="bg-black/40 border border-zinc-800 rounded-lg p-3">
+                    <p className="text-[11px] text-zinc-400">Disponíveis agora</p>
+                    <p className="text-xl font-bold text-green-400">{cadeirasDisponiveis.length}</p>
+                  </div>
+                  <div className="bg-black/40 border border-zinc-800 rounded-lg p-3">
+                    <p className="text-[11px] text-zinc-400">Total de cadeiras</p>
+                    <p className="text-xl font-bold text-white">{cadeirasBarbearia.length}</p>
+                  </div>
+                </div>
+              )}
+
+              {cadeirasBarbearia.length > 0 ? (
+                <div className="space-y-2 max-h-56 overflow-auto pr-1">
+                  {cadeirasBarbearia.map((cadeira) => {
+                    const status = String(cadeira?.status || cadeira?.status_atendimento || '').toLowerCase();
+                    const disponivel = status.includes('dispon') || status === 'livre' || status === 'ativo';
+                    return (
+                      <div key={cadeira.id} className="flex items-center justify-between gap-3 rounded-lg border border-zinc-800 bg-black/30 px-3 py-2">
+                        <div>
+                          <p className="text-sm font-bold text-white">Cadeira {cadeira.numero}</p>
+                          <p className="text-[11px] text-zinc-500">{cadeira.barbearia_nome || profile.nome}</p>
+                        </div>
+                        <span className={`px-2 py-1 rounded text-[10px] font-bold border ${disponivel ? 'bg-green-500/15 text-green-400 border-green-500/30' : 'bg-zinc-700/30 text-zinc-300 border-zinc-700'}`}>
+                          {disponivel ? 'DISPONÍVEL' : String(cadeira.status || 'OCUPADA').toUpperCase()}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                !carregandoBarbearia && (
+                  <p className="text-xs text-zinc-500">Nenhuma cadeira cadastrada ou disponível para essa barbearia.</p>
+                )
+              )}
+            </div>
+          )}
           {profile.telefone && userType === 'barbeiro' && (
             <div className="mt-6 pt-6 border-t border-zinc-800">
               <a
@@ -211,6 +349,32 @@ export default function ProfileCard({ usuarioId, userType, token, isOwnProfile: 
                 <MessageCircle size={20} />
                 Entrar em Contato via WhatsApp
               </a>
+            </div>
+          )}
+
+          {/* Botão Conversar (abre chat do chamado se existir) */}
+          {token && (
+            <div className="mt-3">
+              <button
+                onClick={async () => {
+                  if (chatLoading || !chatChamadoId) return;
+                  setChatLoading(true);
+                  try {
+                    setChatOpen(true);
+                  } catch (err) {
+                    console.error(err);
+                    safeNotify('Erro ao iniciar conversa', 'error');
+                  } finally {
+                    setChatLoading(false);
+                  }
+                }}
+                disabled={chatLoading || !chatChamadoId}
+                className={`w-full px-4 py-3 rounded-lg font-bold flex items-center justify-center gap-2 ${chatLoading ? 'bg-zinc-700 text-zinc-300' : chatChamadoId ? 'bg-orange-600 hover:bg-orange-700 text-white' : 'bg-zinc-800 text-zinc-500 cursor-not-allowed'}`}
+                title={chatChamadoId ? 'Abrir conversa do chamado confirmado' : 'Conversa liberada após o chamado ser confirmado'}
+              >
+                <MessageCircle size={18} />
+                {chatLoading ? 'Abrindo...' : chatChamadoId ? 'Conversar' : 'Aguardando confirmação'}
+              </button>
             </div>
           )}
         </div>
@@ -314,6 +478,27 @@ export default function ProfileCard({ usuarioId, userType, token, isOwnProfile: 
               alt="Zoom"
               className="max-w-[90vw] max-h-[85vh] object-contain rounded-lg"
             />
+          </div>
+        </div>
+      )}
+
+      {/* Modal de Chat (quando houver chamado entre usuários) */}
+      {chatOpen && (
+        <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-2 sm:p-4">
+          <div className="w-full max-w-[96vw] sm:max-w-5xl lg:max-w-6xl h-[92vh] bg-zinc-950 border border-zinc-800 rounded-2xl p-3 sm:p-5 flex flex-col shadow-2xl">
+            <div className="flex items-center justify-between gap-3 mb-4 pb-3 border-b border-zinc-800">
+              <div>
+                <h3 className="text-base sm:text-lg font-bold text-white">Chat com {profile.nome}</h3>
+                <p className="text-[11px] sm:text-xs text-zinc-400 mt-1">Conversa em tempo real com espaço maior para acompanhar a troca de mensagens</p>
+              </div>
+              <div className="flex items-center gap-2">
+                <button onClick={() => setChatOpen(false)} className="text-zinc-400 hover:text-white transition-colors text-lg leading-none">✕</button>
+              </div>
+            </div>
+            <div className="flex-1 min-h-0 overflow-hidden">
+              {/* Reutiliza ChatRoom em modo expandido */}
+              <ChatRoom chamadoId={chatChamadoId} token={token} API_URL={API_URL} compact={false} />
+            </div>
           </div>
         </div>
       )}

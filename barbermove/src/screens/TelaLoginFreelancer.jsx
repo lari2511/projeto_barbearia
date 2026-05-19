@@ -34,7 +34,9 @@ const TelaLoginFreelancer = ({ navigation, onLoginSuccess }) => {
   const [loading, setLoading] = useState(false);
   const [mostraSenha, setMostraSenha] = useState(false);
 
-  const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+  const defaultHost = typeof window !== 'undefined' ? window.location.hostname : 'localhost';
+  const defaultProtocol = typeof window !== 'undefined' && window.location.protocol === 'https:' ? 'https' : 'http';
+  const API_URL = import.meta.env.VITE_API_URL || `${defaultProtocol}://${defaultHost}:8000`;
 
   /**
    * Registra o device token no backend

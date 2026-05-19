@@ -12,6 +12,7 @@ class StatusAgendamento(str, enum.Enum):
     """Status possíveis de um agendamento"""
     PENDENTE = "pendente"      # Cliente pediu, aguardando aceite do barbeiro/dono
     CONFIRMADO = "confirmado"  # Barbeiro/Dono aceitou
+    EM_ATENDIMENTO = "em_atendimento"  # Corte em andamento
     CONCLUIDO = "concluido"    # Serviço foi realizado
     CANCELADO = "cancelado"    # Cliente ou barbeiro cancelou
 
@@ -182,6 +183,7 @@ class Chamado(Base):
     data_hora_inicio = Column(DateTime, nullable=True, index=True)  # Quando começa o serviço
     data_hora_fim = Column(DateTime, nullable=True)  # Quando termina (importante para liberar cadeira)
     data_agendamento = Column(DateTime, default=datetime.utcnow)  # Quando foi agendado
+    horario_match = Column(DateTime, nullable=True)  # Quando freelancer aceitou (inicia contagem de 5 min)
     
     # --- STATUS (Máquina de estados) ---
     status = Column(String, default=StatusAgendamento.PENDENTE)  # pendente, confirmado, concluído, cancelado
@@ -212,6 +214,10 @@ class Chamado(Base):
     criado_em = Column(DateTime, default=datetime.utcnow)
     atualizado_em = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     concluido_em = Column(DateTime, nullable=True)
+    cancelado_em = Column(DateTime, nullable=True)
+    tempo_cancelamento_minutos = Column(Integer, nullable=True)
+    valor_taxa_cancelamento = Column(Float, nullable=True)
+    motivo_cancelamento = Column(String, nullable=True)
     
     cliente = relationship("Usuario", foreign_keys=[cliente_id], back_populates="chamados_cliente")
     barbeiro = relationship("Usuario", foreign_keys=[barbeiro_id], back_populates="chamados_barbeiro")
@@ -221,6 +227,38 @@ class Chamado(Base):
     avaliacoes = relationship("Avaliacao", back_populates="chamado")
     historico = relationship("ChamadoHistorico", back_populates="chamado", order_by="ChamadoHistorico.criado_em")
     pagamento = relationship("Pagamento", back_populates="chamado", uselist=False)
+
+
+class AgendamentoAtivo(Base):
+    """
+    Snapshot de rastreamento em tempo real para um chamado ativo.
+
+    Armazena as coordenadas mais recentes do cliente e do barbeiro para
+    cálculo de ETA e atualização em tempo real na interface.
+    """
+    __tablename__ = "agendamentos_ativos"
+
+    id = Column(Integer, primary_key=True, index=True)
+    chamado_id = Column(Integer, ForeignKey("chamados.id"), unique=True, nullable=False, index=True)
+    cliente_id = Column(Integer, ForeignKey("usuarios.id"), nullable=False, index=True)
+    barbearia_id = Column(Integer, ForeignKey("barbearias.id"), nullable=False, index=True)
+    barbeiro_id = Column(Integer, ForeignKey("usuarios.id"), nullable=True, index=True)
+
+    cliente_lat = Column(Float, nullable=True)
+    cliente_lon = Column(Float, nullable=True)
+    barbeiro_lat = Column(Float, nullable=True)
+    barbeiro_lon = Column(Float, nullable=True)
+
+    cliente_localizacao_em = Column(DateTime, nullable=True)
+    barbeiro_localizacao_em = Column(DateTime, nullable=True)
+
+    criado_em = Column(DateTime, default=datetime.utcnow, nullable=False)
+    atualizado_em = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+    chamado = relationship("Chamado", foreign_keys=[chamado_id])
+    cliente = relationship("Usuario", foreign_keys=[cliente_id])
+    barbeiro = relationship("Usuario", foreign_keys=[barbeiro_id])
+    barbearia = relationship("Barbearia", foreign_keys=[barbearia_id])
 
 class Avaliacao(Base):
     __tablename__ = "avaliacoes"

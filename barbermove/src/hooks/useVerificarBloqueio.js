@@ -5,7 +5,9 @@ import { useState, useEffect, useCallback } from 'react';
  * e interceptar erros 402/403 da API
  */
 export function useVerificarBloqueio(token) {
-  const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+  const defaultHost = typeof window !== 'undefined' ? window.location.hostname : 'localhost';
+  const defaultProtocol = typeof window !== 'undefined' && window.location.protocol === 'https:' ? 'https' : 'http';
+  const API_URL = import.meta.env.VITE_API_URL || `${defaultProtocol}://${defaultHost}:8000`;
   
   const [statusBloqueio, setStatusBloqueio] = useState(null);
   const [estaCarregando, setEstaCarregando] = useState(true);

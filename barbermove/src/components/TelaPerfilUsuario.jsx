@@ -1,32 +1,130 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { User, Lock, Mail, Phone, MapPin, Camera, Save, X, Eye, EyeOff, LogOut, ToggleRight, MessageCircle, Wallet } from 'lucide-react';
 import { TabPortfolioBarbeiro, TabAvaliacoesBarbeiro } from './TabsPortfolioAvaliacoes';
+import { obterLocalizacaoAtual, obterPosicaoAltaPrecisa } from '../utils/location';
 
 const DEFAULT_HOST = typeof window !== "undefined" ? window.location.hostname : "localhost";
 const API_URL = import.meta.env.VITE_API_URL || `http://${DEFAULT_HOST}:8000`;
+const MIXED_CONTENT_RISK =
+  typeof window !== 'undefined' &&
+  window.location.protocol === 'https:' &&
+  API_URL.startsWith('http://');
+
+const pareceQrEmImagem = (valor) => {
+  if (!valor || typeof valor !== 'string') return false;
+  const conteudo = valor.trim();
+  if (!conteudo) return false;
+  if (conteudo.startsWith('data:image')) return true;
+  if (conteudo.startsWith('http://') || conteudo.startsWith('https://')) return true;
+  if (conteudo.startsWith('iVBORw0KGgo')) return true;
+  if (conteudo.startsWith('/9j/')) return true;
+  if (conteudo.startsWith('R0lGOD')) return true;
+  if (conteudo.startsWith('PHN2Zy')) return true;
+  if (conteudo.startsWith('000201')) return false;
+  if (conteudo.includes('BR.GOV.BCB.PIX')) return false;
+  return conteudo.length > 80 && /^[A-Za-z0-9+/=\s]+$/.test(conteudo);
+};
+
+const pareceCodigoPix = (valor) => {
+  if (!valor || typeof valor !== 'string') return false;
+  const conteudo = valor.trim();
+  if (!conteudo) return false;
+  if (conteudo.startsWith('000201')) return true;
+  return conteudo.includes('BR.GOV.BCB.PIX');
+};
 
 const normalizarPixPayload = (data) => {
   const payload = data?.pix || data?.dados_pix || data || {};
+  const nested = payload?.data || {};
+  const transactionData = payload?.point_of_interaction?.transaction_data || {};
+
+  const camposImagem = [
+    payload.qrcode_base64,
+    payload.qr_code_base64,
+    payload.qrCodeBase64,
+    payload.qrcode,
+    payload.qr_code,
+    nested.qrcode_base64,
+    nested.qr_code_base64,
+    nested.qrcode,
+    nested.qr_code,
+    transactionData.qr_code_base64,
+    transactionData.qr_code,
+  ];
+
+  const camposTexto = [
+    payload.pix_copia_cola,
+    payload.codigo_pix,
+    payload.copia_cola,
+    payload.emv,
+    payload.qrcode,
+    payload.qr_code,
+    nested.pix_copia_cola,
+    nested.codigo_pix,
+    nested.copia_cola,
+    nested.emv,
+    nested.qrcode,
+    nested.qr_code,
+    transactionData.qr_code,
+  ];
+
+  let qrcodeBase64 = null;
+  for (const campo of camposImagem) {
+    if (pareceQrEmImagem(campo)) {
+      qrcodeBase64 = campo;
+      break;
+    }
+  }
+
+  let pixCopiaCola = '';
+  for (const campo of camposTexto) {
+    if (pareceCodigoPix(campo)) {
+      pixCopiaCola = campo;
+      break;
+    }
+  }
+
+  if (!pixCopiaCola) {
+    pixCopiaCola =
+      camposTexto.find((item) => typeof item === 'string' && item.trim()) ||
+      payload.pix_copia_cola ||
+      '';
+  }
+
   return {
     ...payload,
-    qrcode_base64:
-      payload.qrcode_base64 ||
-      payload.qr_code_base64 ||
-      payload.qrcode ||
-      payload.qr_code ||
-      payload.qrCodeBase64 ||
-      null,
-    pix_copia_cola:
-      payload.pix_copia_cola ||
-      payload.codigo_pix ||
-      payload.copia_cola ||
-      payload.emv ||
-      '',
-    valor: payload.valor ?? payload.amount ?? payload.valor_mensalidade ?? 0,
+    qrcode_base64: qrcodeBase64,
+    pix_copia_cola: pixCopiaCola,
+    valor: payload.valor ?? payload.amount ?? payload.valor_mensalidade ?? nested.valor ?? nested.amount ?? 0,
   };
 };
 
-export default function TelaPerfilUsuario({ userType, token, onLogout, onNotify }) {
+const getPixQrSrc = (qrcodeBase64) => {
+  if (!qrcodeBase64) return '';
+  const conteudo = String(qrcodeBase64).trim();
+  if (!conteudo) return '';
+  if (conteudo.startsWith('data:image')) return conteudo;
+  if (conteudo.startsWith('http://') || conteudo.startsWith('https://')) {
+    if (MIXED_CONTENT_RISK && conteudo.startsWith('http://')) {
+      if (import.meta.env.DEV) {
+        console.warn('URL HTTP de QR bloqueada por mixed content. Usando fallback por copia e cola.');
+      }
+      return '';
+    }
+    return conteudo;
+  }
+
+  const conteudoLimpo = conteudo.replace(/\s/g, '');
+  if (!conteudoLimpo) return '';
+
+  let mime = 'image/png';
+  if (conteudoLimpo.startsWith('/9j/')) mime = 'image/jpeg';
+  if (conteudoLimpo.startsWith('R0lGOD')) mime = 'image/gif';
+  if (conteudoLimpo.startsWith('PHN2Zy')) mime = 'image/svg+xml';
+  return `data:${mime};base64,${conteudoLimpo}`;
+};
+
+export default function TelaPerfilUsuario({ userType, token, onLogout, onNotify, mostrarFinanceiroBarbearia = true }) {
   const AVALIACOES_PAGINA = 10;
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -36,9 +134,12 @@ export default function TelaPerfilUsuario({ userType, token, onLogout, onNotify 
   const [showNewPassword, setShowNewPassword] = useState(false);
   const [imageModal, setImageModal] = useState(null);
   const [disponivel, setDisponivel] = useState(true);
-  const [activeTab, setActiveTab] = useState('dados');
+  const [activeTab, setActiveTab] = useState(() => {
+    if (typeof window === 'undefined') return 'dados';
+    return localStorage.getItem('barbeiro_perfil_tab') || 'dados';
+  });
   const [presenteEmLocal, setPresenteEmLocal] = useState(false);
-  const [barbeariaAtualId, setBarbeariaAtualId] = useState(null);
+  const [_barbeariaAtualId, setBarbeariaAtualId] = useState(null);
   
   const [formData, setFormData] = useState({
     nome: '',
@@ -46,7 +147,9 @@ export default function TelaPerfilUsuario({ userType, token, onLogout, onNotify 
     telefone: '',
     endereco: '',
     cpf: '',
-    cnpj: ''
+    cnpj: '',
+    latitude: null,
+    longitude: null
   });
 
   const [passwordData, setPasswordData] = useState({
@@ -68,6 +171,8 @@ export default function TelaPerfilUsuario({ userType, token, onLogout, onNotify 
   const [barbeariaPerfilId, setBarbeariaPerfilId] = useState(null);
   const [agendamentosBarbearia, setAgendamentosBarbearia] = useState([]);
   const [barbeirosPresentesBarbearia, setBarbeirosPresentesBarbearia] = useState([]);
+  const [barbeariasList, setBarbeariasList] = useState([]);
+  const [carregandoBarbearias, setCarregandoBarbearias] = useState(false);
   const [contaPagamento, setContaPagamento] = useState({
     chave_pix: '',
     banco: '',
@@ -90,12 +195,150 @@ export default function TelaPerfilUsuario({ userType, token, onLogout, onNotify 
   const [assinaturaLoading, setAssinaturaLoading] = useState(false);
   const [pagamentoAssinaturaLoading, setPagamentoAssinaturaLoading] = useState(false);
   const [pixMensalidade, setPixMensalidade] = useState(null);
+  const [pixQrFallbackSrc, setPixQrFallbackSrc] = useState('');
+  const [pixQrImagemInvalida, setPixQrImagemInvalida] = useState(false);
   const [cartaoMensalidade, setCartaoMensalidade] = useState({
     numero_cartao: '',
     titular: '',
     validade: '',
     cvv: ''
   });
+
+  // Estados e handlers para fallback de localização
+  const [showFallbackModal, setShowFallbackModal] = useState(false);
+  const [fallbackMsg, setFallbackMsg] = useState('');
+  const [showManualInput, setShowManualInput] = useState(false);
+  const [manualEndereco, setManualEndereco] = useState('');
+  const [manualLatitude, setManualLatitude] = useState(null);
+  const [manualLongitude, setManualLongitude] = useState(null);
+
+  const tentarObterLocalizacao = useCallback(async () => {
+    try {
+      const pos = await obterPosicaoAltaPrecisa();
+      if (!pos) throw new Error('Posição indisponível');
+
+      if (typeof pos.accuracy === 'number' && pos.accuracy > 200) {
+        setFallbackMsg(`Precisão ruim (${Math.round(pos.accuracy)} m). Abra o app em área aberta ou insira o endereço manualmente.`);
+        setShowFallbackModal(true);
+        return;
+      }
+
+      setFormData((prev) => ({ ...prev, latitude: pos.latitude, longitude: pos.longitude }));
+
+      const res = await fetch(`${API_URL}/api/v1/barbearia/minha/configurar-endereco-por-gps`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ latitude: pos.latitude, longitude: pos.longitude })
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.detail || 'Falha ao salvar localização via GPS');
+      }
+
+      onNotify('Endereço salvo via GPS', 'success');
+      await fetchUserProfile({ silent: true });
+    } catch (err) {
+      setFallbackMsg(err.message || 'Erro ao obter/salvar localização');
+      setShowFallbackModal(true);
+    }
+  }, [token, onNotify, fetchUserProfile]);
+
+  const salvarManual = useCallback(async () => {
+    try {
+      // Se latitude/longitude fornecidos, usa o endpoint por GPS
+      if (manualLatitude && manualLongitude) {
+        const lat = parseFloat(manualLatitude);
+        const lon = parseFloat(manualLongitude);
+        if (!Number.isFinite(lat) || !Number.isFinite(lon)) throw new Error('Latitude/Longitude inválidas');
+
+        const res = await fetch(`${API_URL}/api/v1/barbearia/minha/configurar-endereco-por-gps`, {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          },
+          body: JSON.stringify({ latitude: lat, longitude: lon })
+        });
+
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          throw new Error(err.detail || 'Falha ao salvar localização via GPS');
+        }
+
+        onNotify('Endereço salvo via coordenadas manuais', 'success');
+        await fetchUserProfile({ silent: true });
+        return;
+      }
+
+      // Caso não haja coords, tenta salvar apenas o texto de endereço
+      if (manualEndereco && manualEndereco.trim()) {
+        const res = await fetch(`${API_URL}/api/v1/barbearia/minha/configurar-endereco`, {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          },
+          body: JSON.stringify({ endereco_texto: manualEndereco.trim() })
+        });
+
+        if (!res.ok) {
+          throw new Error('Falha ao geocodificar o endereço informado');
+        }
+
+        onNotify('Endereço salvo (texto) — aguarde geocoding', 'success');
+        await fetchUserProfile({ silent: true });
+        return;
+      }
+
+      throw new Error('Informe endereço ou coordenadas para salvar manualmente');
+    } catch (err) {
+      onNotify(err.message || 'Erro ao salvar endereço manualmente', 'error');
+      throw err;
+    }
+  }, [manualEndereco, manualLatitude, manualLongitude, token, onNotify, fetchUserProfile]);
+
+  useEffect(() => {
+    let ativo = true;
+
+    const gerarQrFallback = async () => {
+      if (!pixMensalidade?.pix_copia_cola) {
+        setPixQrFallbackSrc('');
+        setPixQrImagemInvalida(false);
+        return;
+      }
+
+      setPixQrImagemInvalida(false);
+
+      try {
+        const QRCodeModule = await import('qrcode');
+        const QRCode = QRCodeModule.default || QRCodeModule;
+        const dataUrl = await QRCode.toDataURL(pixMensalidade.pix_copia_cola, {
+          width: 320,
+          margin: 1,
+          errorCorrectionLevel: 'M',
+        });
+
+        if (ativo) {
+          setPixQrFallbackSrc(dataUrl);
+        }
+      } catch (err) {
+        console.error('Erro ao gerar QR fallback no frontend:', err);
+        if (ativo) {
+          setPixQrFallbackSrc('');
+        }
+      }
+    };
+
+    gerarQrFallback();
+
+    return () => {
+      ativo = false;
+    };
+  }, [pixMensalidade]);
 
   const barbeirosVinculadosBarbearia = useMemo(() => {
     if (userType !== 'barbearia') return [];
@@ -154,7 +397,9 @@ export default function TelaPerfilUsuario({ userType, token, onLogout, onNotify 
           telefone: data.telefone || '',
           endereco: data.endereco || '',
           cpf: data.cpf || '',
-          cnpj: data.cnpj || ''
+          cnpj: data.cnpj || '',
+          latitude: data.latitude || null,
+          longitude: data.longitude || null
         });
         setPreviewImage(data.foto_perfil || null);
         setFotoPessoal(data.foto_pessoal || null);
@@ -320,6 +565,19 @@ export default function TelaPerfilUsuario({ userType, token, onLogout, onNotify 
     return () => clearInterval(interval);
   }, [fetchUserProfile, token, userType]);
 
+  // Detectar automaticamente presença na barbearia na primeira carga da sessão
+  useEffect(() => {
+    if (userType !== 'barbeiro' || typeof window === 'undefined') return;
+    try {
+      const done = window.sessionStorage.getItem('barbeiro_auto_geo_done');
+      if (done) return;
+      // Executa captura uma vez por sessão para evitar prompts repetidos
+      capturarLocalizacao().finally(() => {
+        try { window.sessionStorage.setItem('barbeiro_auto_geo_done', '1'); } catch (_e) {}
+      });
+    } catch (_err) {}
+  }, [userType]);
+
   useEffect(() => {
     if (userType !== 'barbearia' || !token) return;
 
@@ -366,6 +624,103 @@ export default function TelaPerfilUsuario({ userType, token, onLogout, onNotify 
     const interval = setInterval(carregarBarbeirosDaBarbearia, 30000);
     return () => clearInterval(interval);
   }, [userType, token]);
+
+  // Quando o usuário é cliente, carregar lista de barbearias para seleção
+  useEffect(() => {
+    if (userType !== 'cliente') return;
+
+    let ativo = true;
+
+    const carregarBarbearias = async () => {
+      setCarregandoBarbearias(true);
+      try {
+        const res = await fetch(`${API_URL}/api/v1/barbearias/todas-aprovadas`, {
+          headers: token ? { 'Authorization': `Bearer ${token}` } : {}
+        });
+        
+        console.log('[DEBUG] Barbearias - status:', res.status, 'URL:', `${API_URL}/api/v1/barbearias/todas-aprovadas`);
+        
+        if (ativo && res.ok) {
+          const data = await res.json();
+          console.log('[DEBUG] Barbearias carregadas:', data?.length || 0);
+          const lista = Array.isArray(data)
+            ? data
+            : Array.isArray(data?.barbearias)
+              ? data.barbearias
+              : [];
+          setBarbeariasList(lista);
+        } else {
+          console.log('[DEBUG] Erro ao carregar barbearias - status:', res.status);
+          if (ativo) setBarbeariasList([]);
+        }
+      } catch (err) {
+        console.log('[DEBUG] Erro ao fetch barbearias:', err);
+        if (ativo) setBarbeariasList([]);
+      } finally {
+        if (ativo) setCarregandoBarbearias(false);
+      }
+    };
+
+    carregarBarbearias();
+    return () => {
+      ativo = false;
+    };
+  }, [userType, token, API_URL]);
+
+  // Quando o usuário é cliente e estamos visualizando uma barbearia
+  // (barbeariaPerfilId definido), buscar primeiro os dados da barbearia
+  // e só então carregar agendamentos/barbeiros presentes para filtrar escolhas.
+  useEffect(() => {
+    if (userType !== 'cliente' || !barbeariaPerfilId) return;
+
+    let ativo = true;
+
+    const carregarBarbeirosDaBarbeariaCliente = async () => {
+      try {
+        // tenta obter detalhes da barbearia (pode não exigir auth)
+        const headers = token ? { headers: { 'Authorization': `Bearer ${token}` } } : {};
+        const barbeariaRes = await fetch(`${API_URL}/api/v1/barbearia/${barbeariaPerfilId}`, headers);
+        let id = barbeariaPerfilId;
+        if (barbeariaRes.ok) {
+          const barbeariaData = await barbeariaRes.json();
+          if (barbeariaData?.id) id = barbeariaData.id;
+        }
+
+        const [agRes, presentesRes] = await Promise.all([
+          fetch(`${API_URL}/api/v1/barbearia/${id}/agendamentos`, headers),
+          fetch(`${API_URL}/api/v1/barbearia/${id}/barbeiros-presentes`, headers)
+        ]);
+
+        if (!ativo) return;
+
+        if (agRes.ok) {
+          const agData = await agRes.json();
+          setAgendamentosBarbearia(Array.isArray(agData) ? agData : []);
+        } else {
+          setAgendamentosBarbearia([]);
+        }
+
+        if (presentesRes.ok) {
+          const presentesData = await presentesRes.json();
+          setBarbeirosPresentesBarbearia(Array.isArray(presentesData) ? presentesData : []);
+        } else {
+          setBarbeirosPresentesBarbearia([]);
+        }
+      } catch (_error) {
+        if (ativo) {
+          setAgendamentosBarbearia([]);
+          setBarbeirosPresentesBarbearia([]);
+        }
+      }
+    };
+
+    carregarBarbeirosDaBarbeariaCliente();
+    const interval = setInterval(carregarBarbeirosDaBarbeariaCliente, 30000);
+    return () => {
+      clearInterval(interval);
+      ativo = false;
+    };
+  }, [userType, barbeariaPerfilId, token]);
 
   const fetchAvaliacoesBarbeiro = useCallback(async (offset = 0, append = false) => {
     if (userType !== 'barbeiro' || !token) return;
@@ -487,6 +842,12 @@ export default function TelaPerfilUsuario({ userType, token, onLogout, onNotify 
     }
   }, [activeTab, userType, fetchAvaliacoesBarbeiro]);
 
+  useEffect(() => {
+    if (userType === 'barbeiro' && typeof window !== 'undefined') {
+      localStorage.setItem('barbeiro_perfil_tab', activeTab);
+    }
+  }, [activeTab, userType]);
+
   const handleCarregarMaisAvaliacoes = useCallback(() => {
     if (!hasMoreAvaliacoes || _avaliacoesLoading || carregandoMaisAvaliacoes) return;
     fetchAvaliacoesBarbeiro(avaliacoesOffset, true);
@@ -572,18 +933,68 @@ export default function TelaPerfilUsuario({ userType, token, onLogout, onNotify 
 
   const gerarPixMensalidade = async () => {
     setPagamentoAssinaturaLoading(true);
+    setPixMensalidade(null);
+    setPixQrFallbackSrc('');
+    setPixQrImagemInvalida(false);
     try {
-      const res = await fetch(`${API_URL}/api/v1/assinaturas/pagar-mensalidade/pix`, {
-        method: 'POST',
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
+      const fetchComTimeout = async (url, options = {}, timeoutMs = 15000) => {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+        try {
+          return await fetch(url, { ...options, signal: controller.signal });
+        } finally {
+          clearTimeout(timeoutId);
+        }
+      };
 
-      const data = await res.json().catch(() => ({}));
+      const solicitarPix = async () => {
+        const res = await fetchComTimeout(`${API_URL}/api/v1/assinaturas/pagar-mensalidade/pix`, {
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+
+        const data = await res.json().catch(() => ({}));
+        return { res, data };
+      };
+
+      let { res, data } = await solicitarPix();
+
+      // Se ainda não houver assinatura, cria/atualiza o plano e tenta gerar o PIX novamente.
       if (!res.ok) {
-        throw new Error(data?.detail || 'Erro ao gerar PIX da mensalidade');
+        const detalhe = String(data?.detail || '').toLowerCase();
+        const semAssinatura = detalhe.includes('nenhuma assinatura encontrada') || detalhe.includes('sem_assinatura');
+        if (res.status === 404 && semAssinatura) {
+          const quantidade = Number(cadeirasDesejadas || 1);
+          const criarRes = await fetchComTimeout(`${API_URL}/api/v1/assinaturas/criar`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${token}`
+            },
+            body: JSON.stringify({
+              cadeiras_ativas: quantidade,
+              metodo_pagamento: 'pix'
+            })
+          });
+
+          const criarData = await criarRes.json().catch(() => ({}));
+          if (!criarRes.ok) {
+            throw new Error(criarData?.detail || 'Erro ao criar assinatura antes de gerar PIX');
+          }
+
+          ({ res, data } = await solicitarPix());
+        }
+      }
+
+      if (!res.ok) {
+        throw new Error(`Erro ao gerar PIX (${res.status}): ${data?.detail || 'falha na API'}`);
       }
 
       const pixNormalizado = normalizarPixPayload(data);
+      if (import.meta.env.DEV) {
+        console.log('PIX bruto (perfil barbearia):', data);
+        console.log('PIX normalizado (perfil barbearia):', pixNormalizado);
+      }
       if (!pixNormalizado.qrcode_base64 && !pixNormalizado.pix_copia_cola) {
         throw new Error('PIX gerado sem QR Code e sem codigo copia e cola');
       }
@@ -591,7 +1002,12 @@ export default function TelaPerfilUsuario({ userType, token, onLogout, onNotify 
       setPixMensalidade(pixNormalizado);
       onNotify('PIX gerado. Pague e confirme para regularizar.', 'success');
     } catch (error) {
-      onNotify(error.message || 'Erro ao gerar PIX', 'error');
+      if (error?.name === 'AbortError') {
+        onNotify('Tempo esgotado ao gerar PIX. Tente novamente.', 'error');
+      } else {
+        onNotify(error.message || 'Erro ao gerar PIX', 'error');
+      }
+      console.error('Falha ao gerar PIX (perfil barbearia):', error);
     } finally {
       setPagamentoAssinaturaLoading(false);
     }
@@ -723,6 +1139,101 @@ export default function TelaPerfilUsuario({ userType, token, onLogout, onNotify 
     setPortfolioImages(prev => prev.filter((_, i) => i !== index));
   };
 
+  // ✅ Capturar localização GPS
+  const capturarLocalizacao = async () => {
+    setLoading(true);
+    try {
+      const location = await obterLocalizacaoAtual();
+      if (!location) throw new Error('Não foi possível obter localização');
+
+      const { latitude, longitude } = location;
+      setFormData(prev => ({
+        ...prev,
+        latitude: parseFloat(Number(latitude).toFixed(6)),
+        longitude: parseFloat(Number(longitude).toFixed(6))
+      }));
+
+      // Tentar detectar barbearia próxima com raio bem curto para evitar falso positivo
+      let barbeariaId = null;
+      try {
+        const proxUrl = new URL(`${API_URL}/api/v1/barbearias/proximas`);
+        proxUrl.searchParams.append('latitude', latitude);
+        proxUrl.searchParams.append('longitude', longitude);
+        proxUrl.searchParams.append('raio_km', '0.1');
+
+        const proxRes = await fetch(proxUrl.toString());
+        if (proxRes.ok) {
+          const proxData = await proxRes.json();
+          if (Array.isArray(proxData) && proxData.length > 0) {
+            const maisProxima = proxData[0];
+            const distanciaKm = Number(maisProxima?.distancia_km ?? Infinity);
+            if (Number.isFinite(distanciaKm) && distanciaKm <= 0.1) {
+              barbeariaId = maisProxima.id;
+            }
+          }
+        }
+      } catch (_e) {
+        // ignore
+      }
+
+      // Persistir no perfil: usa endpoint de status para barbeiros (marca presente/online),
+      // e PATCH /usuarios/me como fallback para outros tipos.
+      if (userType === 'barbeiro') {
+        const statusPayload = barbeariaId
+          ? { status: 'present_local', barbearia_id: barbeariaId }
+          : { status: 'online_region' };
+
+        const statusRes = await fetch(`${API_URL}/api/v1/barbeiro/status`, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          },
+          body: JSON.stringify(statusPayload)
+        });
+
+        if (!statusRes.ok) {
+          const err = await statusRes.json().catch(() => ({}));
+          throw new Error(err.detail || 'Erro ao atualizar status do barbeiro no servidor');
+        }
+
+        onNotify(`📍 Localização enviada. ${barbeariaId ? 'Presença registrada na barbearia.' : 'Marcado como online na região.'}`, 'success');
+        setPresenteEmLocal(Boolean(barbeariaId));
+        setBarbeariaAtualId(barbeariaId || null);
+        await fetchUserProfile({ silent: true });
+      } else {
+        const payload = {
+          latitude: parseFloat(Number(latitude).toFixed(6)),
+          longitude: parseFloat(Number(longitude).toFixed(6))
+        };
+        if (barbeariaId) payload.barbearia_atual_id = barbeariaId;
+
+        const res = await fetch(`${API_URL}/api/v1/usuarios/me`, {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          },
+          body: JSON.stringify(payload)
+        });
+
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          throw new Error(err.detail || 'Erro ao atualizar localização no servidor');
+        }
+
+        onNotify(`📍 Localização enviada. ${barbeariaId ? 'Presença registrada na barbearia.' : 'Presença não detectada.'}`, 'success');
+        setPresenteEmLocal(Boolean(barbeariaId));
+        setBarbeariaAtualId(barbeariaId || null);
+        await fetchUserProfile({ silent: true });
+      }
+    } catch (err) {
+      onNotify(err.message || 'Erro ao capturar ou enviar GPS', 'error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleSaveProfile = async () => {
     if (userType === 'barbeiro') {
       if (portfolioImages.length < 3) {
@@ -736,6 +1247,7 @@ export default function TelaPerfilUsuario({ userType, token, onLogout, onNotify 
       let falhasRemocaoPortfolio = 0;
       let falhasUploadPortfolio = 0;
       let falhaUploadFotoPessoal = false;
+      let falhaGeocodingEndereco = false;
       let itensRemovidos = [];
       let novasPortfolio = [];
 
@@ -803,7 +1315,9 @@ export default function TelaPerfilUsuario({ userType, token, onLogout, onNotify 
         nome: formData.nome,
         email: formData.email,
         telefone: formData.telefone,
-        endereco: formData.endereco
+        endereco: formData.endereco,
+        latitude: formData.latitude,
+        longitude: formData.longitude
       };
 
       if (fotoPerfil && !fotoPerfil.startsWith('data:')) {
@@ -829,6 +1343,25 @@ export default function TelaPerfilUsuario({ userType, token, onLogout, onNotify 
       if (!res.ok) {
         const error = await res.json();
         throw new Error(error.detail || 'Erro ao atualizar perfil');
+      }
+
+      if (userType === 'barbearia' && formData.endereco?.trim()) {
+        try {
+          const enderecoRes = await fetch(`${API_URL}/api/v1/barbearia/minha/configurar-endereco`, {
+            method: 'PATCH',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${token}`
+            },
+            body: JSON.stringify({ endereco_texto: formData.endereco.trim() })
+          });
+
+          if (!enderecoRes.ok) {
+            falhaGeocodingEndereco = true;
+          }
+        } catch (_err) {
+          falhaGeocodingEndereco = true;
+        }
       }
 
       // Sincroniza portfólio somente após o PATCH do perfil ter sucesso.
@@ -893,7 +1426,7 @@ export default function TelaPerfilUsuario({ userType, token, onLogout, onNotify 
         }
       }
 
-      if (falhasRemocaoPortfolio > 0 || falhasUploadPortfolio > 0 || falhaUploadFotoPessoal) {
+      if (falhasRemocaoPortfolio > 0 || falhasUploadPortfolio > 0 || falhaUploadFotoPessoal || falhaGeocodingEndereco) {
         const partes = [];
         if (falhasRemocaoPortfolio > 0) {
           partes.push(`${falhasRemocaoPortfolio} remoção(ões) não concluída(s)`);
@@ -903,6 +1436,9 @@ export default function TelaPerfilUsuario({ userType, token, onLogout, onNotify 
         }
         if (falhaUploadFotoPessoal) {
           partes.push('foto pessoal não atualizada');
+        }
+        if (falhaGeocodingEndereco) {
+          partes.push('endereço da barbearia não pôde ser geocodificado');
         }
         onNotify(`Perfil atualizado, mas houve falhas em mídias: ${partes.join(' e ')}.`, 'error');
       } else {
@@ -978,6 +1514,9 @@ export default function TelaPerfilUsuario({ userType, token, onLogout, onNotify 
       setBarbeariaAtualId(null);
       setPresenteEmLocal(false);
       await fetchUserProfile();
+      try {
+        window.dispatchEvent(new Event('barberStatusChanged'));
+      } catch (_e) {}
     } catch (error) {
       onNotify(error.message, 'error');
     } finally {
@@ -1004,6 +1543,11 @@ export default function TelaPerfilUsuario({ userType, token, onLogout, onNotify 
     setPortfolioImages(portfolioOriginal);
   }, [user, portfolioServerItems]);
 
+  const barbeariaSelecionada = useMemo(() => {
+    if (!barbeariaPerfilId) return null;
+    return barbeariasList.find((barbearia) => Number(barbearia.id) === Number(barbeariaPerfilId)) || null;
+  }, [barbeariasList, barbeariaPerfilId]);
+
   if (loading && !user) {
     return (
       <div className="flex items-center justify-center min-h-screen">
@@ -1011,6 +1555,8 @@ export default function TelaPerfilUsuario({ userType, token, onLogout, onNotify 
       </div>
     );
   }
+
+  console.log('[DEBUG RENDER] userType:', userType, 'barbeariasList:', barbeariasList?.length, 'barbeirosPresentesBarbearia:', barbeirosPresentesBarbearia?.length, 'barbeariaPerfilId:', barbeariaPerfilId);
 
   return (
     <div className="space-y-4 p-4 pb-24">
@@ -1103,7 +1649,7 @@ export default function TelaPerfilUsuario({ userType, token, onLogout, onNotify 
             </button>
           </div>
 
-          {userType === 'barbeiro' && (
+          {userType === 'barbeiro' && activeTab === 'dados' && (
             <div className="space-y-2 mt-4">
               <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-3">
                 <div className="flex items-center justify-between">
@@ -1133,13 +1679,101 @@ export default function TelaPerfilUsuario({ userType, token, onLogout, onNotify 
                     </span>
                   )}
                 </div>
+                <div className="mt-3">
+                  <p className="text-xs text-zinc-400 mb-2">Localização e presença</p>
+                  <div className="flex gap-2">
+                    <div className="flex-1 bg-zinc-800/70 border border-zinc-700 text-zinc-300 py-2 rounded-lg text-xs font-bold text-center">
+                      Localizacao obrigatoria automatica
+                    </div>
+                    {presenteEmLocal && (
+                      <button
+                        onClick={handleSairDaBarbearia}
+                        disabled={loading}
+                        className="flex-1 bg-zinc-800 hover:bg-zinc-700 text-white py-2 rounded-lg text-xs font-bold"
+                      >
+                        Sair da barbearia
+                      </button>
+                    )}
+                  </div>
+                  <p className="text-[11px] text-zinc-500 mt-2">{presenteEmLocal ? 'Você está presente em uma barbearia' : 'Você não está presente em nenhuma barbearia'}</p>
+                </div>
               </div>
             </div>
           )}
         </>
       )}
 
-      {userType !== 'barbeiro' && (
+      {userType === 'cliente' && !barbeariaPerfilId && (
+        <div className="bg-zinc-900/60 border border-zinc-800 rounded-lg p-4 space-y-3">
+          <h2 className="text-sm font-bold text-zinc-300 uppercase">Selecionar Barbearia</h2>
+          <p className="text-[10px] text-zinc-500">[DEBUG] Barbearias: {barbeariasList.length}, Carregando: {carregandoBarbearias ? 'sim' : 'não'}</p>
+          {carregandoBarbearias ? (
+            <div className="text-center py-4">
+              <div className="inline-block animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-orange-500"></div>
+            </div>
+          ) : barbeariasList.length === 0 ? (
+            <p className="text-zinc-600 text-xs text-center py-2">Nenhuma barbearia disponível.</p>
+          ) : (
+            <div className="space-y-2">
+              {barbeariasList.map((barbearia) => (
+                <button
+                  key={barbearia.id}
+                  onClick={() => {
+                    console.log('[DEBUG] Selecionando barbearia:', barbearia.id);
+                    setBarbeariaPerfilId(barbearia.id);
+                  }}
+                  className={`w-full text-left p-3 border rounded-lg transition ${
+                    barbeariaPerfilId === barbearia.id
+                      ? 'bg-orange-500/20 border-orange-500'
+                      : 'bg-black/40 border-zinc-800 hover:border-zinc-600'
+                  }`}
+                >
+                  <p className="font-bold text-white text-sm">{barbearia.nome_barbearia || barbearia.nome || `Barbearia #${barbearia.id}`}</p>
+                  <p className="text-[11px] text-zinc-400">{barbearia.endereco || 'Endereço não informado'}</p>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {userType === 'cliente' && barbeariaPerfilId && (
+        <div className="bg-zinc-900/60 border border-zinc-800 rounded-lg p-4 space-y-3">
+          <h2 className="text-sm font-bold text-zinc-300 uppercase">Barbearia selecionada</h2>
+          <div className="bg-black/40 border border-zinc-800 rounded-lg p-3 space-y-1">
+            <p className="font-bold text-white text-sm">
+              {barbeariaSelecionada?.nome_barbearia || barbeariaSelecionada?.nome || `Barbearia #${barbeariaPerfilId}`}
+            </p>
+            <p className="text-[11px] text-zinc-400">
+              {barbeariaSelecionada?.endereco || 'Endereço não informado'}
+            </p>
+            <p className="text-[11px] text-zinc-500">
+              O fluxo segue para os dados do atendimento, pagamento em "Pagamento" e avaliações após a conclusão.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {userType === 'cliente' && barbeariaPerfilId && (
+        <div className="bg-zinc-900/60 border border-zinc-800 rounded-lg p-4 space-y-3">
+          <h2 className="text-sm font-bold text-zinc-300 uppercase">Barbeiros Presentes</h2>
+          <p className="text-[10px] text-zinc-500">[DEBUG] Barbeiros: {barbeirosPresentesBarbearia.length}, BarbeariaId: {barbeariaPerfilId}</p>
+          {barbeirosPresentesBarbearia.length === 0 ? (
+            <p className="text-zinc-600 text-xs text-center py-2">Nenhum barbeiro presente no momento.</p>
+          ) : (
+            <div className="space-y-2">
+              {barbeirosPresentesBarbearia.map((barbeiro) => (
+                <div key={barbeiro.id} className="bg-black/40 border border-zinc-800 rounded-lg p-3">
+                  <p className="text-sm font-bold text-white">{barbeiro.nome || `Barbeiro #${barbeiro.id}`}</p>
+                  <p className="text-[11px] text-zinc-400">Disponível para agendamento</p>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {userType !== 'barbeiro' && userType !== 'cliente' && (
         <div className="flex flex-col items-center gap-3 py-4">
           <div className="relative">
             <div className="w-28 h-28 rounded-full bg-gradient-to-br from-orange-500 to-orange-700 flex items-center justify-center text-white font-bold text-4xl overflow-hidden border-4 border-zinc-800">
@@ -1166,7 +1800,98 @@ export default function TelaPerfilUsuario({ userType, token, onLogout, onNotify 
 
       {userType === 'barbearia' && (
         <div className="bg-zinc-900/60 border border-zinc-800 rounded-lg p-4 space-y-3">
-          <h2 className="text-sm font-bold text-zinc-300 uppercase">Barbeiros Vinculados</h2>
+          <div className="flex items-center justify-between">
+            <h2 className="text-sm font-bold text-zinc-300 uppercase">Barbeiros Vinculados</h2>
+            {editing && (
+              <>
+                <button
+                  onClick={async () => {
+                    setLoading(true);
+                    try {
+                      await tentarObterLocalizacao();
+                    } finally {
+                      setLoading(false);
+                    }
+                  }}
+                  disabled={loading}
+                  className="text-xs bg-zinc-800 border border-zinc-700 text-white px-3 py-1 rounded-lg hover:bg-zinc-700"
+                >
+                  📍 Usar minha localização
+                </button>
+
+                {showFallbackModal && (
+                  <div className="fixed inset-0 flex items-center justify-center bg-black/50 z-50">
+                    <div className="bg-white rounded-lg p-4 max-w-sm w-full">
+                      <h3 className="font-bold">Problema ao obter GPS</h3>
+                      <p className="text-sm text-zinc-600 my-2">{fallbackMsg}</p>
+                      <div className="flex gap-2 justify-end mt-4">
+                        <button
+                          onClick={() => { setShowFallbackModal(false); setLoading(false); }}
+                          className="px-3 py-1 rounded border"
+                        >Cancelar</button>
+                        <button
+                          onClick={async () => {
+                            setLoading(true);
+                            try {
+                              await tentarObterLocalizacao();
+                              setShowFallbackModal(false);
+                            } finally { setLoading(false); }
+                          }}
+                          className="px-3 py-1 rounded bg-zinc-800 text-white"
+                        >Tentar novamente</button>
+                        <button
+                          onClick={() => setShowManualInput(true)}
+                          className="px-3 py-1 rounded bg-orange-500 text-white"
+                        >Inserir manualmente</button>
+                      </div>
+
+                      {showManualInput && (
+                        <div className="mt-3 space-y-2">
+                          <input
+                            value={manualEndereco}
+                            onChange={(e) => setManualEndereco(e.target.value)}
+                            placeholder="Endereço (Rua, número, bairro)"
+                            className="w-full border px-2 py-1 rounded"
+                          />
+                          <div className="grid grid-cols-2 gap-2">
+                            <input
+                              value={manualLatitude ?? ''}
+                              onChange={(e) => setManualLatitude(e.target.value)}
+                              placeholder="Latitude"
+                              className="w-full border px-2 py-1 rounded"
+                            />
+                            <input
+                              value={manualLongitude ?? ''}
+                              onChange={(e) => setManualLongitude(e.target.value)}
+                              placeholder="Longitude"
+                              className="w-full border px-2 py-1 rounded"
+                            />
+                          </div>
+                          <div className="flex gap-2 justify-end">
+                            <button
+                              onClick={() => setShowManualInput(false)}
+                              className="px-3 py-1 rounded border"
+                            >Cancelar</button>
+                            <button
+                              onClick={async () => {
+                                setLoading(true);
+                                try {
+                                  await salvarManual();
+                                  setShowFallbackModal(false);
+                                  setShowManualInput(false);
+                                } finally { setLoading(false); }
+                              }}
+                              className="px-3 py-1 rounded bg-orange-500 text-white"
+                            >Salvar manual</button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
           {barbeariaPerfilId && (
             <p className="text-[11px] text-zinc-500">Barbearia ID: {barbeariaPerfilId}</p>
           )}
@@ -1190,7 +1915,7 @@ export default function TelaPerfilUsuario({ userType, token, onLogout, onNotify 
         </div>
       )}
 
-      {userType === 'barbearia' && (
+      {userType === 'barbearia' && mostrarFinanceiroBarbearia && (
         <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-4 space-y-3">
           <h3 className="text-white font-bold flex items-center gap-2">
             <Wallet size={18} className="text-orange-400" />
@@ -1245,14 +1970,22 @@ export default function TelaPerfilUsuario({ userType, token, onLogout, onNotify 
                 {pixMensalidade && (
                   <div className="bg-zinc-900 border border-zinc-700 rounded-lg p-3 text-xs text-zinc-300 space-y-2">
                     <p>Valor PIX: <strong>{formatarDinheiro(pixMensalidade.valor)}</strong></p>
-                    {pixMensalidade.qrcode_base64 && (
+                    {getPixQrSrc(pixMensalidade.qrcode_base64) && !pixQrImagemInvalida && (
                       <img
-                        src={`data:image/png;base64,${pixMensalidade.qrcode_base64}`}
+                        src={getPixQrSrc(pixMensalidade.qrcode_base64)}
+                        alt="QR Code PIX"
+                        className="w-40 h-40 bg-white p-2 rounded mx-auto"
+                        onError={() => setPixQrImagemInvalida(true)}
+                      />
+                    )}
+                    {(pixQrImagemInvalida || !getPixQrSrc(pixMensalidade.qrcode_base64)) && pixQrFallbackSrc && (
+                      <img
+                        src={pixQrFallbackSrc}
                         alt="QR Code PIX"
                         className="w-40 h-40 bg-white p-2 rounded mx-auto"
                       />
                     )}
-                    {!pixMensalidade.qrcode_base64 && (
+                    {(pixQrImagemInvalida || !getPixQrSrc(pixMensalidade.qrcode_base64)) && !pixQrFallbackSrc && (
                       <p className="text-yellow-300">QR Code indisponivel. Use o codigo copia e cola.</p>
                     )}
                     <p className="break-all">Copia e cola: {pixMensalidade.pix_copia_cola}</p>
@@ -1606,6 +2339,51 @@ export default function TelaPerfilUsuario({ userType, token, onLogout, onNotify 
               className="w-full bg-zinc-900 border border-zinc-800 rounded-lg p-3 text-white outline-none focus:border-orange-500"
               placeholder="Rua, número, bairro"
             />
+            {userType === 'barbearia' && (
+              <p className="mt-1 text-[11px] text-zinc-500">
+                Ao salvar, este endereço será convertido em coordenadas reais para aparecer corretamente no mapa.
+              </p>
+            )}
+          </div>
+
+          {/* ✅ Campos de Localização GPS */}
+          <div className="border-t border-zinc-800 pt-4">
+            <h4 className="text-sm font-bold text-zinc-300 mb-3 flex items-center gap-2">
+              <MapPin size={16} className="text-orange-500" />
+              Localização GPS
+            </h4>
+
+            <div className="w-full bg-zinc-900 border border-zinc-800 text-zinc-300 px-4 py-2 rounded-lg font-semibold mb-3 text-center text-sm">
+              📍 Localizacao obrigatoria automatica para todos os perfis
+            </div>
+
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="text-xs text-zinc-400 mb-1 block">Latitude</label>
+                <input
+                  type="number"
+                  step="0.0001"
+                  value={formData.latitude || ''}
+                  onChange={(e) => setFormData({ ...formData, latitude: e.target.value ? parseFloat(e.target.value) : null })}
+                  className="w-full bg-zinc-900 border border-zinc-800 rounded-lg p-2 text-white outline-none focus:border-orange-500 text-sm"
+                  placeholder="-23.5505"
+                />
+              </div>
+              <div>
+                <label className="text-xs text-zinc-400 mb-1 block">Longitude</label>
+                <input
+                  type="number"
+                  step="0.0001"
+                  value={formData.longitude || ''}
+                  onChange={(e) => setFormData({ ...formData, longitude: e.target.value ? parseFloat(e.target.value) : null })}
+                  className="w-full bg-zinc-900 border border-zinc-800 rounded-lg p-2 text-white outline-none focus:border-orange-500 text-sm"
+                  placeholder="-46.6333"
+                />
+              </div>
+            </div>
+            {formData.latitude && formData.longitude && (
+              <p className="text-xs text-green-400 mt-2">✅ Localização: {formData.latitude.toFixed(4)}, {formData.longitude.toFixed(4)}</p>
+            )}
           </div>
 
           <div className="flex gap-2 pt-2">

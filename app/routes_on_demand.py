@@ -10,7 +10,7 @@ Este módulo implementa:
 5. Matching automático entre cliente e profissional
 """
 
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, HTTPException, status, Query, Request
 from sqlalchemy.orm import Session
 from sqlalchemy import and_, or_
 from pydantic import BaseModel
@@ -194,7 +194,8 @@ async def ligar_radar_barbeiro(
 async def atualizar_localizacao_barbeiro(
     request: AtualizarLocalizacaoRequest,
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(get_current_user)
+    current_user: Usuario = Depends(get_current_user),
+    http_request: Request = None
 ):
     """
     Atualizar localização do barbeiro em tempo real via GPS.
@@ -211,6 +212,18 @@ async def atualizar_localizacao_barbeiro(
         RadarFreelancerResponse com localização atualizada
     """
     
+    # DEBUG: logar headers/payload para diagnosticar coordenadas
+    try:
+        print('\n=== [DEBUG] POST /api/v1/on-demand/atualizar-localizacao ===')
+        if http_request is not None:
+            print('Headers:', dict(http_request.headers))
+        try:
+            print('Payload:', request.dict())
+        except Exception:
+            print('Payload (repr):', repr(request))
+    except Exception:
+        pass
+
     # Buscar ou criar o radar
     radar = db.query(RadarFreelancer).filter(
         RadarFreelancer.freelancer_id == current_user.id

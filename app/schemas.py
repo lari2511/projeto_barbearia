@@ -187,6 +187,8 @@ class BarbeariaResponse(BaseModel):
     nome: str
     endereco: str
     telefone: Optional[str] = None
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
     cadeira_livre: bool
     presente_em_local: bool = False
     horario_chegada: Optional[datetime] = None
@@ -286,6 +288,8 @@ class ChamadoCreate(BaseModel):
     cadeira_id: Optional[int] = None  # BRB/cadeira (opcional)
     data_hora_inicio: Optional[datetime] = None  # Novo campo
     data_hora_fim: Optional[datetime] = None  # Novo campo
+    cliente_latitude: float
+    cliente_longitude: float
 
 
 class ChamadoResponse(BaseModel):

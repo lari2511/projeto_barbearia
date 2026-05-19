@@ -1,26 +1,28 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { 
   User, Scissors, Store, MapPin, 
   LogOut, CheckCircle, AlertCircle, ArrowRight, 
   History, Search, X, Star, Navigation, Bell, CreditCard, Lock, Calendar, Briefcase
 } from 'lucide-react';
+import './styles.css';
 import PoliticaPrivacidade from './components/PoliticaPrivacidade';
 import TermosDeUso from './components/TermosDeUso';
 import TelaPerfilUsuario from './components/TelaPerfilUsuario';
-import TelaPagamentoNova from './components/TelaPagamentoNova';
 import RatingComponent from './components/RatingComponent';
 import AbaPadronizadaAvaliacoes from './components/AbaPadronizadaAvaliacoes';
 import PaymentSection from './components/PaymentSection';
 import ProfileCard from './components/ProfileCard';
 import AssinaturaPage from './components/AssinaturaPage';
-import ClientDashboard from './components/ClientDashboard';
-import BarberDashboard from './components/BarberDashboard';
-import ShopDashboard from './components/ShopDashboard';
+import ClientDashboardView from './components/ClientDashboard';
+import BarberDashboardView from './components/BarberDashboard';
+import ShopDashboardView from './components/ShopDashboard';
+import TelaDoChamado from './components/TelaDoChamado';
 import { useLiveJobs } from './hooks/useRealTimeUpdates';
+import { obterLocalizacaoAtual } from './utils/location';
+import { getApiBaseUrl, getWsBaseUrl } from './utils/api';
 
-const DEFAULT_HOST = typeof window !== "undefined" ? window.location.hostname : "localhost";
-const API_URL = import.meta.env.VITE_API_URL || `http://${DEFAULT_HOST}:8000`;
-const WS_URL = import.meta.env.VITE_WS_URL || `ws://${DEFAULT_HOST}:8000/ws/notificacoes`;
+const API_URL = getApiBaseUrl();
+const WS_URL = getWsBaseUrl();
 const BRAND_LOGO = "/brand-logo.png"; // coloque a logo em public/brand-logo.png
 
 // Utilitário para imagens
@@ -30,11 +32,32 @@ export default function App() {
   const [userType, setUserType] = useState(localStorage.getItem('userType'));
   const [token, setToken] = useState(localStorage.getItem('token'));
   const [view, setView] = useState(token ? 'dashboard' : 'login');
+  const [chamadoId, setChamadoId] = useState(null); // Para rastreamento de chamado
   const [toast, setToast] = useState(null);
+  const [shopTab, setShopTab] = useState('gestao');
   const [showTerms, setShowTerms] = useState(false);
   const [showPrivacy, setShowPrivacy] = useState(false);
   const [currentUser, setCurrentUser] = useState(null);
   const [userApproved, setUserApproved] = useState(true);
+  const [gpsObrigatorioAtivo, setGpsObrigatorioAtivo] = useState(false);
+  const [gpsMensagemBloqueio, setGpsMensagemBloqueio] = useState('');
+  const [gpsRetryCounter, setGpsRetryCounter] = useState(0);
+  const watchIdRef = useRef(null);
+
+  useEffect(() => {
+    const handleAuthExpired = () => {
+      localStorage.clear();
+      setUserType(null);
+      setToken(null);
+      setView('login');
+      setCurrentUser(null);
+      setUserApproved(true);
+      setToast({ message: 'Sessao expirada. Faca login novamente.', type: 'error' });
+    };
+
+    window.addEventListener('auth:expired', handleAuthExpired);
+    return () => window.removeEventListener('auth:expired', handleAuthExpired);
+  }, []);
 
   // Verificar aprovação do usuário quando entra no dashboard
   useEffect(() => {
@@ -42,14 +65,26 @@ export default function App() {
       fetch(`${API_URL}/api/v1/documentos/status`, {
         headers: { 'Authorization': `Bearer ${token}` }
       })
-      .then(r => r.ok ? r.json() : Promise.reject())
+      .then(r => {
+        if (r.status === 401) {
+          window.dispatchEvent(new CustomEvent('auth:expired'));
+          return null;
+        }
+        return r.ok ? r.json() : Promise.reject();
+      })
       .then(data => {
+        if (!data) return;
         setCurrentUser(data);
         setUserApproved(Boolean(data?.perfil_aprovado));
       })
       .catch(() => setUserApproved(true));
     }
   }, [token, view]);
+
+  const notify = useCallback((message, type = 'success') => {
+    setToast({ message, type });
+    setTimeout(() => setToast(null), 4000);
+  }, []);
 
   // WebSocket Global para notificações
   useEffect(() => {
@@ -64,12 +99,104 @@ export default function App() {
       };
       return () => ws.close();
     }
-  }, [token]);
+  }, [token, notify]);
 
-  const notify = (message, type = 'success') => {
-    setToast({ message, type });
-    setTimeout(() => setToast(null), 4000);
-  };
+  useEffect(() => {
+    const gpsObrigatorioParaPerfil = view === 'dashboard' && (userType === 'cliente' || userType === 'barbearia');
+
+    if (!token || typeof navigator === 'undefined' || !navigator.geolocation) {
+      if (gpsObrigatorioParaPerfil) {
+        setGpsObrigatorioAtivo(false);
+        setGpsMensagemBloqueio('Ative a localização para continuar usando o app.');
+      }
+      return undefined;
+    }
+
+    if (gpsObrigatorioParaPerfil) {
+      setGpsObrigatorioAtivo(false);
+    }
+
+    const sendLocation = async (coords) => {
+      try {
+        const response = await fetch(`${API_URL}/api/v1/atualizar-localizacao`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            latitude: coords.latitude,
+            longitude: coords.longitude,
+          }),
+        });
+
+        if (!response.ok && gpsObrigatorioParaPerfil) {
+          setGpsObrigatorioAtivo(false);
+          setGpsMensagemBloqueio('Nao foi possivel enviar sua localizacao. Verifique conexao e permissao.');
+          return;
+        }
+
+        if (gpsObrigatorioParaPerfil) {
+          setGpsObrigatorioAtivo(true);
+          setGpsMensagemBloqueio('');
+        }
+      } catch (_err) {
+        if (gpsObrigatorioParaPerfil) {
+          setGpsObrigatorioAtivo(false);
+          setGpsMensagemBloqueio('Falha ao sincronizar localizacao. Tente novamente.');
+        }
+      }
+    };
+
+    watchIdRef.current = navigator.geolocation.watchPosition(
+      (position) => {
+        sendLocation(position.coords);
+      },
+      (err) => {
+        if (gpsObrigatorioParaPerfil) {
+          const msg = err?.code === 1
+            ? 'Permissao de localizacao negada. Habilite a localizacao no navegador.'
+            : 'Nao foi possivel obter localizacao. Ative o GPS e tente novamente.';
+          setGpsObrigatorioAtivo(false);
+          setGpsMensagemBloqueio(msg);
+        }
+      },
+      {
+        enableHighAccuracy: true,
+        maximumAge: 3000,
+        timeout: 10000,
+      }
+    );
+
+    return () => {
+      if (watchIdRef.current != null) {
+        navigator.geolocation.clearWatch(watchIdRef.current);
+        watchIdRef.current = null;
+      }
+    };
+  }, [token, userType, view, gpsRetryCounter]);
+
+  const gpsBloqueado = view === 'dashboard'
+    && userApproved
+    && (userType === 'cliente' || userType === 'barbearia')
+    && !gpsObrigatorioAtivo;
+
+  const GpsObrigatorioOverlay = () => (
+    <div className="fixed bottom-4 left-4 right-4 z-[95] flex justify-center pointer-events-none">
+      <div className="max-w-md w-full bg-zinc-900/95 rounded-3xl border border-zinc-800 p-4 text-center shadow-2xl pointer-events-auto">
+        <h2 className="text-xl font-bold text-white">Localizacao obrigatoria</h2>
+        <p className="text-zinc-300 mt-3 text-sm">
+          {gpsMensagemBloqueio || 'Ative o GPS para continuar no perfil cliente/barbearia.'}
+        </p>
+        <button
+          onClick={() => setGpsRetryCounter((v) => v + 1)}
+          className="mt-4 w-full px-4 py-3 bg-orange-600 hover:bg-orange-700 text-white font-bold rounded-lg"
+        >
+          Tentar novamente
+        </button>
+      </div>
+    </div>
+  );
 
   const saveLogin = (type, access_token, userId) => {
     localStorage.setItem('userType', type);
@@ -78,6 +205,7 @@ export default function App() {
     setUserType(type);
     setToken(access_token);
     setView('dashboard');
+    setShopTab('gestao');
   };
 
   const logout = () => {
@@ -87,6 +215,12 @@ export default function App() {
     setView('login');
     setCurrentUser(null);
     setUserApproved(true);
+    setShopTab('gestao');
+  };
+
+  const abrirTelaRastreamento = (chamadoId) => {
+    setChamadoId(chamadoId);
+    setView('rastreamento');
   };
 
   // --- COMPONENTES UI COMPARTILHADOS ---
@@ -1128,24 +1262,17 @@ export default function App() {
     }, [userCoords, clientUser?.email_verificado]);
 
     useEffect(() => {
-      if (!navigator.geolocation) {
-        console.warn('⚠️ Geolocalização não disponível no navegador');
-        return;
-      }
-      
       console.log('🔍 Solicitando geolocalização...');
-      navigator.geolocation.getCurrentPosition(
-        (pos) => {
-          const coords = { lat: pos.coords.latitude, lon: pos.coords.longitude };
-          console.log('✅ Geolocalização obtida:', coords);
-          setUserCoords(coords);
-        },
-        (error) => {
-          console.error('❌ Erro de geolocalização:', error.code, error.message);
+      obterLocalizacaoAtual()
+        .then((coords) => {
+          const localizacao = { lat: coords.latitude, lon: coords.longitude };
+          console.log('✅ Geolocalização obtida:', localizacao);
+          setUserCoords(localizacao);
+        })
+        .catch((error) => {
+          console.error('❌ Erro de geolocalização:', error?.message || error);
           console.log('Caindo para fallback e buscando todos os barbeiros...');
-        },
-        { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
-      );
+        });
     }, []);
 
     const handleSelectBarbeiro = async (barbeiro) => {
@@ -1214,6 +1341,14 @@ export default function App() {
         notify('Selecione data e horário', 'error');
         return;
       }
+
+      let localizacao;
+      try {
+        localizacao = await obterLocalizacaoAtual();
+      } catch (_err) {
+        notify('Ative a localização para agendar.', 'error');
+        return;
+      }
       
       try {
         const dataHora = new Date(`${selectedDate}T${selectedTime}:00`);
@@ -1225,7 +1360,9 @@ export default function App() {
             servico_id: selectedService.id, 
             barbearia_id: selectedShop.id,
             barbeiro_id: selectedBarbeiro?.id || null,
-            data_hora_inicio: dataHora.toISOString()
+            data_hora_inicio: dataHora.toISOString(),
+            cliente_latitude: localizacao.latitude,
+            cliente_longitude: localizacao.longitude
           })
         });
         if (!res.ok) {
@@ -1575,10 +1712,10 @@ export default function App() {
                                   <input className="bg-black/40 rounded-lg p-3 border border-zinc-700 text-xs w-full placeholder-zinc-600 focus:border-yellow-400 outline-none" placeholder="Deixe um comentário... (opcional)" value={avaliarPedido.id===p.id && avaliarPedido?.alvo==='freelancer' ? avaliarPedido?.comentario || '' : ''} onChange={e=> setAvaliarPedido({ ...avaliarPedido, id: p.id, alvo: 'freelancer', comentario: e.target.value }) } />
                                   <button
                                     onClick={() => enviarAvaliacao(p, 'freelancer')}
-                                    disabled={Boolean(p.avaliacao_freelancer_enviada || p.avaliado_freelancer)}
+                                    disabled={p.avaliacao_freelancer_enviada || p.avaliado_freelancer}
                                     className="mt-3 w-full bg-gradient-to-r from-yellow-500 to-orange-500 text-black px-4 py-2 rounded-lg text-xs font-bold hover:shadow-lg hover:shadow-yellow-500/30 transition-all disabled:opacity-60 disabled:cursor-not-allowed"
                                   >
-                                    {Boolean(p.avaliacao_freelancer_enviada || p.avaliado_freelancer) ? '✅ Avaliação Enviada' : '✅ Enviar Avaliação'}
+                                    {p.avaliacao_freelancer_enviada || p.avaliado_freelancer ? '✅ Avaliação Enviada' : '✅ Enviar Avaliação'}
                                   </button>
                                 </div>
                                 <div className="bg-gradient-to-br from-blue-500/10 to-cyan-500/10 p-4 rounded-lg border border-blue-500/30">
@@ -1595,10 +1732,10 @@ export default function App() {
                                   <input className="bg-black/40 rounded-lg p-3 border border-zinc-700 text-xs w-full placeholder-zinc-600 focus:border-blue-400 outline-none" placeholder="Deixe um comentário... (opcional)" value={avaliarPedido.id===p.id && avaliarPedido?.alvo==='barbearia' ? avaliarPedido?.comentario || '' : ''} onChange={e=> setAvaliarPedido({ ...avaliarPedido, id: p.id, alvo: 'barbearia', comentario: e.target.value }) } />
                                   <button
                                     onClick={() => enviarAvaliacao(p, 'barbearia')}
-                                    disabled={Boolean(p.avaliacao_barbearia_enviada || p.avaliado_barbearia)}
+                                    disabled={p.avaliacao_barbearia_enviada || p.avaliado_barbearia}
                                     className="mt-3 w-full bg-gradient-to-r from-blue-500 to-cyan-500 text-black px-4 py-2 rounded-lg text-xs font-bold hover:shadow-lg hover:shadow-blue-500/30 transition-all disabled:opacity-60 disabled:cursor-not-allowed"
                                   >
-                                    {Boolean(p.avaliacao_barbearia_enviada || p.avaliado_barbearia) ? '✅ Avaliação Enviada' : '✅ Enviar Avaliação'}
+                                    {p.avaliacao_barbearia_enviada || p.avaliado_barbearia ? '✅ Avaliação Enviada' : '✅ Enviar Avaliação'}
                                   </button>
                                 </div>
                               </div>
@@ -1825,7 +1962,12 @@ export default function App() {
           throw new Error(data.detail || 'Erro ao aceitar');
         }
 
-        notify("Trabalho aceito!", "success");
+        const data = await res.json().catch(() => ({}));
+        const numeroCadeira = data?.cadeira?.numero;
+        const mensagem = numeroCadeira
+          ? `Trabalho aceito! Cadeira ${numeroCadeira} reservada.`
+          : "Trabalho aceito!";
+        notify(mensagem, "success");
         await carregarMeusAgendamentos();
       } catch (err) {
         notify(err.message || "Não foi possível aceitar o chamado.", "error");
@@ -1953,7 +2095,7 @@ export default function App() {
     };
 
     return (
-        <div className="bg-black h-full p-4 text-white">
+        <div className="bg-black h-full p-4 pb-32 text-white">
             <div className="flex justify-between items-center mb-6 pt-4">
                 <div className="flex items-center gap-2">
                     <h1 className="text-xl font-bold flex items-center gap-2"><Scissors className="text-orange-500"/> Área do Barbeiro</h1>
@@ -2331,7 +2473,17 @@ export default function App() {
   // ----------------------------------------------------------------------
   // ARQUIVO: src/components/ShopDashboard.jsx
   // ----------------------------------------------------------------------
-  const ShopDashboard = () => {
+  const ShopDashboard = ({ token, logout, API_URL, notify, tabShop, setTabShop }) => {
+    const [tabShopFallback, setTabShopFallback] = useState('gestao');
+    const tabShopSafe = typeof tabShop === 'string' ? tabShop : tabShopFallback;
+    const setTabShopSafe = useCallback((proximaAba) => {
+      if (typeof setTabShop === 'function') {
+        setTabShop(proximaAba);
+        return;
+      }
+      setTabShopFallback(proximaAba);
+    }, [setTabShop]);
+
     const [services, setServices] = useState([]);
     const [agendamentos, setAgendamentos] = useState([]);
     const [newService, setNewService] = useState({nome: '', valor: '', duracao_minutos: 30});
@@ -2353,7 +2505,6 @@ export default function App() {
     const [avaliacoesBarbearia, setAvaliacoesBarbearia] = useState([]);
     const [avaliarComoBarbearia, setAvaliarComoBarbearia] = useState({ chamadoId: null, alvo: null, nota: 5, comentario: '' });
     const [selectedAgendamentoShop, setSelectedAgendamentoShop] = useState(null); // Novo estado
-    const [tabShop, setTabShop] = useState('gestao'); // Tab: gestao | agendamentos | assinatura | avaliar | perfil
     const isConcluidoShop = (status = '') => (status || '').toString().toLowerCase().includes('conclu');
     const isCanceladoShop = (status = '') => (status || '').toString().toLowerCase().includes('cancel');
     const agendamentosVisiveis = agendamentos.filter(a => !isCanceladoShop(a.status));
@@ -2378,7 +2529,7 @@ export default function App() {
       }, 10000);
       
       return () => clearInterval(interval);
-    }, [user?.email_verificado]);
+    }, [API_URL, token, user?.email_verificado]);
 
     useEffect(() => {
       const load = async () => {
@@ -2402,7 +2553,7 @@ export default function App() {
         }
       };
       load();
-    }, []);
+    }, [API_URL, notify, token]);
 
     useEffect(() => {
       if (!barbeariaId) return;
@@ -2444,10 +2595,10 @@ export default function App() {
       }, 30000);
 
       return () => clearInterval(interval);
-    }, [barbeariaId]);
+    }, [API_URL, barbeariaId, token]);
 
     useEffect(() => {
-      if (!barbeariaId || tabShop !== 'gestao') return;
+      if (!barbeariaId || tabShopSafe !== 'gestao') return;
       const loadFreelancers = async () => {
         setFreelancersLoading(true);
         try {
@@ -2467,7 +2618,7 @@ export default function App() {
         }
       };
       loadFreelancers();
-    }, [barbeariaId, tabShop]);
+    }, [API_URL, barbeariaId, tabShopSafe, token]);
 
     useEffect(() => {
       if (!barbeariaId) return;
@@ -2487,7 +2638,7 @@ export default function App() {
         }
       };
       loadAvaliacoes();
-    }, [barbeariaId]);
+    }, [API_URL, barbeariaId, token]);
 
     const enviarAvaliacaoBarbearia = async (chamadoId, avaliadoId, alvo, naoFechar = false) => {
       try {
@@ -2850,7 +3001,7 @@ export default function App() {
     };
 
     return (
-        <div className="bg-black h-full p-4 text-white">
+      <div className="bg-black h-full p-4 pb-32 text-white overflow-y-auto">
             <div className="flex justify-between items-center mb-6 pt-4">
                 <div className="flex items-center gap-2">
                     <h1 className="text-xl font-bold flex items-center gap-2"><Store className="text-orange-500"/> Gestão da Loja</h1>
@@ -2899,34 +3050,60 @@ export default function App() {
               </div>
             )}
 
-            <div className="bg-zinc-900 p-5 rounded-2xl border border-zinc-800 mb-6">
-                <h3 className="font-bold mb-4 text-sm">Adicionar Serviço</h3>
-                <form onSubmit={addService} className="flex flex-wrap gap-2 mb-4">
-                  <input className="flex-1 min-w-[160px] bg-black rounded-lg p-3 border border-zinc-800 text-sm outline-none focus:border-orange-500" placeholder="Nome (ex: Barba)" value={newService.nome} onChange={e => setNewService({...newService, nome: e.target.value})} required/>
-                  <input className="w-20 bg-black rounded-lg p-3 border border-zinc-800 text-sm outline-none focus:border-orange-500 text-center" type="number" placeholder="R$" value={newService.valor} onChange={e => setNewService({...newService, valor: e.target.value})} required/>
-                  <input className="w-24 bg-black rounded-lg p-3 border border-zinc-800 text-sm outline-none focus:border-orange-500 text-center" type="number" placeholder="Min" value={newService.duracao_minutos} onChange={e => setNewService({...newService, duracao_minutos: e.target.value})} required/>
-                  <button className="bg-white text-black w-10 rounded-lg font-bold text-xl flex items-center justify-center hover:bg-zinc-200">+</button>
+            <div className="bg-zinc-900/60 p-5 rounded-2xl border border-purple-600/30 mb-6">
+                <h3 className="font-bold mb-4 text-sm flex items-center gap-2 text-purple-400">⚙️ Cadastrar Serviço</h3>
+                <form onSubmit={addService} className="space-y-3 mb-4">
+                  <input 
+                    className="w-full bg-black rounded-lg p-3 border border-zinc-800 text-sm outline-none focus:border-purple-500" 
+                    placeholder="Nome do serviço (ex: Corte Degradê)" 
+                    value={newService.nome} 
+                    onChange={e => setNewService({...newService, nome: e.target.value})} 
+                    required
+                  />
+                  <div className="grid grid-cols-2 gap-3">
+                    <input 
+                      className="bg-black rounded-lg p-3 border border-zinc-800 text-sm outline-none focus:border-purple-500" 
+                      type="number" 
+                      placeholder="Valor R$" 
+                      value={newService.valor} 
+                      onChange={e => setNewService({...newService, valor: e.target.value})} 
+                      required
+                    />
+                    <input 
+                      className="bg-black rounded-lg p-3 border border-zinc-800 text-sm outline-none focus:border-purple-500" 
+                      type="number" 
+                      placeholder="Duração (min)" 
+                      value={newService.duracao_minutos} 
+                      onChange={e => setNewService({...newService, duracao_minutos: e.target.value})} 
+                      required
+                    />
+                  </div>
+                  <button type="submit" className="w-full bg-orange-600 hover:bg-orange-700 text-white px-4 py-3 rounded-lg font-bold text-sm transition-all">+ Adicionar Serviço</button>
                 </form>
                 <div className="space-y-2">
-                    {services.map(s => (
-                      <div key={s.id} className="flex justify-between items-center bg-black/40 p-3 rounded-lg border border-zinc-800/50">
-                        <span className="text-sm">{s.nome}</span>
-                        <div className="text-right">
-                          <span className="block text-green-400 font-bold">R$ {s.valor}</span>
-                          <span className="block text-[10px] text-zinc-500">{s.duracao_minutos || 30} min</span>
+                    {services.length > 0 ? (
+                      services.map(s => (
+                        <div key={s.id} className="flex justify-between items-center bg-black/60 p-3 rounded-lg border border-purple-600/20 hover:border-purple-600/40 transition-colors">
+                          <span className="text-sm font-medium text-white">{s.nome}</span>
+                          <div className="text-right flex gap-3">
+                            <span className="text-green-400 font-bold text-sm">R$ {parseFloat(s.valor).toFixed(2)}</span>
+                            <span className="text-purple-400 font-bold text-sm">{s.duracao_minutos || 30} min</span>
+                          </div>
                         </div>
-                      </div>
-                    ))}
+                      ))
+                    ) : (
+                      <div className="text-center text-zinc-500 text-xs py-4">Nenhum serviço cadastrado ainda</div>
+                    )}
                 </div>
             </div>
 
             {/* Notificações de Agendamentos - Preview */}
-            {tabShop === 'gestao' && agendamentos.length > 0 && (
+            {tabShopSafe === 'gestao' && agendamentos.length > 0 && (
               <div className="bg-blue-600/10 border border-blue-600/30 p-4 rounded-xl mb-4">
                 <h3 className="font-bold text-sm text-blue-400 mb-3 flex items-center gap-2 justify-between">
                   <span><Calendar size={16}/> Próximos Agendamentos</span>
                   <button 
-                    onClick={() => setTabShop('agendamentos')}
+                    onClick={() => setTabShopSafe('agendamentos')}
                     className="text-xs bg-blue-600 px-2 py-1 rounded text-white"
                   >
                     Ver todos
@@ -2960,7 +3137,7 @@ export default function App() {
               </div>
             )}
 
-            {tabShop === 'gestao' && (
+            {tabShopSafe === 'gestao' && (
               <>
                 {/* Barbeiros Presentes no Local */}
                 {barbeirosPresentes.length > 0 && (
@@ -3010,15 +3187,15 @@ export default function App() {
                   </div>
                 )}
 
-                <div className="bg-purple-600/10 border border-purple-600/30 p-4 rounded-2xl mb-6">
+                <div className="bg-purple-600/10 border border-purple-600/30 p-5 rounded-2xl mb-6">
               <div className="flex items-center justify-between mb-4">
                 <h3 className="text-purple-400 font-bold text-sm flex items-center gap-2">
-                  <Navigation size={16}/> 💺 Suas Cadeiras ({cadeiras.length})
+                  <Navigation size={16}/> Suas Cadeiras ({cadeiras.length})
                 </h3>
                 <button
                   onClick={criarNovaCadeira}
                   disabled={cadeirasLoading}
-                  className="bg-purple-600 hover:bg-purple-700 disabled:opacity-50 text-white px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1"
+                  className="bg-purple-600 hover:bg-purple-700 disabled:opacity-50 text-white px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1 transition-all"
                   title="Adicionar nova cadeira"
                 >
                   <span className="text-lg leading-none">+</span> Nova
@@ -3031,92 +3208,92 @@ export default function App() {
                   <button
                     onClick={criarNovaCadeira}
                     disabled={cadeirasLoading}
-                    className="w-full bg-purple-600 hover:bg-purple-700 disabled:opacity-50 text-white px-4 py-2 rounded-lg font-bold text-xs"
+                    className="w-full bg-purple-600 hover:bg-purple-700 disabled:opacity-50 text-white px-4 py-2 rounded-lg font-bold text-xs transition-all"
                   >
                     {cadeirasLoading ? 'Criando...' : '➕ Criar Primeira Cadeira'}
                   </button>
                 </div>
               ) : (
-                <div className="space-y-3">
-                  {cadeiras.map(cadeira => (
-                    <div key={cadeira.id} className={`bg-zinc-900/80 p-3 rounded-xl border-2 transition-all ${
-                      cadeira.status === 'disponivel' ? 'border-green-800/50' :
-                      cadeira.status === 'ocupada' ? 'border-blue-800/50' :
-                      'border-red-800/50'
-                    }`}>
-                      <div className="flex items-center justify-between mb-2">
-                        <div className="flex-1">
-                          <p className="font-bold text-sm text-white">Cadeira {cadeira.numero}</p>
-                          <p className="text-xs mt-1">
+                <div className="space-y-2">
+                  {cadeiras.map(cadeira => {
+                    const statusConfig = {
+                      disponivel: { bg: 'bg-black/40', border: 'border-green-600/30', label: '🟢 Disponível', labelColor: 'text-green-400', labelBg: 'bg-green-600/20' },
+                      ocupada: { bg: 'bg-black/40', border: 'border-blue-600/30', label: '🔵 Ocupada', labelColor: 'text-blue-400', labelBg: 'bg-blue-600/20' },
+                      bloqueada: { bg: 'bg-black/40', border: 'border-red-600/30', label: '🔒 Bloqueada', labelColor: 'text-red-400', labelBg: 'bg-red-600/20' }
+                    };
+                    const config = statusConfig[cadeira.status] || statusConfig.disponivel;
+                    
+                    return (
+                      <div key={cadeira.id} className={`${config.bg} border ${config.border} p-3 rounded-lg transition-all hover:border-purple-600/50`}>
+                        <div className="flex items-center justify-between">
+                          <div className="flex-1">
+                            <p className="font-bold text-sm text-white">Cadeira {cadeira.numero}</p>
+                            <p className={`text-xs mt-1 font-bold ${config.labelColor}`}>
+                              {config.label}
+                              {cadeira.status === 'ocupada' && cadeira.freelancer_nome && (
+                                <span className="text-zinc-400 font-normal"> • {cadeira.freelancer_nome}</span>
+                              )}
+                            </p>
+                          </div>
+                          <div className="flex gap-2">
                             {cadeira.status === 'disponivel' && (
-                              <span className="text-green-400 font-bold">🟢 Disponível</span>
+                              <>
+                                <button 
+                                  onClick={() => acionarCadeira(cadeira.id)}
+                                  disabled={cadeirasLoading}
+                                  className="bg-orange-600 hover:bg-orange-700 disabled:opacity-50 text-white px-3 py-2 rounded-lg text-xs font-bold transition-all"
+                                >
+                                  Acionar
+                                </button>
+                                <button 
+                                  onClick={() => toggleBloquearCadeira(cadeira.id, cadeira.status)}
+                                  disabled={cadeirasLoading}
+                                  className="bg-zinc-700 hover:bg-red-700 disabled:opacity-50 text-white px-2 py-2 rounded-lg text-sm transition-all"
+                                  title="Bloquear cadeira"
+                                >
+                                  🔒
+                                </button>
+                              </>
                             )}
                             {cadeira.status === 'ocupada' && (
-                              <span className="text-blue-400 font-bold">🔵 Ocupada {cadeira.freelancer_nome ? `por ${cadeira.freelancer_nome}` : ''}</span>
+                              <button 
+                                onClick={() => encerrarPresenca(cadeira.id)}
+                                disabled={cadeirasLoading}
+                                className="bg-orange-600 hover:bg-orange-700 disabled:opacity-50 text-white px-3 py-2 rounded-lg text-xs font-bold transition-all"
+                              >
+                                Finalizar
+                              </button>
                             )}
                             {cadeira.status === 'bloqueada' && (
-                              <span className="text-red-400 font-bold">🔒 Bloqueada</span>
-                            )}
-                          </p>
-                        </div>
-                        <div className="flex gap-2">
-                          {cadeira.status === 'disponivel' && (
-                            <>
-                              <button 
-                                onClick={() => acionarCadeira(cadeira.id)}
-                                disabled={cadeirasLoading}
-                                className="bg-purple-600 hover:bg-purple-700 disabled:opacity-50 text-white px-3 py-2 rounded-lg text-xs font-bold"
-                              >
-                                📢 Acionar
-                              </button>
                               <button 
                                 onClick={() => toggleBloquearCadeira(cadeira.id, cadeira.status)}
                                 disabled={cadeirasLoading}
-                                className="bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white px-3 py-2 rounded-lg text-xs font-bold"
-                                title="Bloquear cadeira"
+                                className="bg-purple-600 hover:bg-purple-700 disabled:opacity-50 text-white px-2 py-2 rounded-lg text-sm transition-all"
+                                title="Desbloquear cadeira"
                               >
-                                🔒
+                                🔓
                               </button>
-                            </>
-                          )}
-                          {cadeira.status === 'ocupada' && (
-                            <button 
-                              onClick={() => encerrarPresenca(cadeira.id)}
-                              disabled={cadeirasLoading}
-                              className="bg-orange-600 hover:bg-orange-700 disabled:opacity-50 text-white px-3 py-2 rounded-lg text-xs font-bold"
-                            >
-                              ⏹️ Desligar
-                            </button>
-                          )}
-                          {cadeira.status === 'bloqueada' && (
-                            <button 
-                              onClick={() => toggleBloquearCadeira(cadeira.id, cadeira.status)}
-                              disabled={cadeirasLoading}
-                              className="bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white px-3 py-2 rounded-lg text-xs font-bold"
-                              title="Desbloquear cadeira"
-                            >
-                              🔓 Desbloquear
-                            </button>
-                          )}
+                            )}
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                   <button
                     onClick={acionarVagaRapida}
                     disabled={cadeirasLoading}
-                    className="w-full bg-purple-700 hover:bg-purple-800 disabled:opacity-50 text-white px-4 py-2 rounded-lg font-bold text-xs"
+                    className="w-full bg-purple-600 hover:bg-purple-700 disabled:opacity-50 text-white px-4 py-3 rounded-lg font-bold text-sm mt-3 transition-all"
                   >
                     {cadeirasLoading ? 'Acionando...' : '⚡ Liberar Próxima Vaga Disponível'}
                   </button>
                 </div>
               )}
-              <div className="bg-zinc-900/50 p-3 rounded-lg mt-3 border border-zinc-800">
-                <p className="text-zinc-400 text-xs mb-1">💡 <strong>Dicas:</strong></p>
+              <div className="bg-zinc-900/50 p-3 rounded-lg mt-4 border border-zinc-800">
+                <p className="text-zinc-400 text-xs mb-2">💡 <strong>Dicas:</strong></p>
                 <ul className="text-zinc-500 text-[10px] space-y-1 ml-4">
                   <li>• Use <strong>"Acionar"</strong> para notificar barbeiros próximos</li>
                   <li>• <strong>Bloqueie</strong> cadeiras em manutenção ou reservadas</li>
-                  <li>• Adicione mais cadeiras para barbearias grandes</li>
+                  <li>• O sistema libera automaticamente clientes quando faltam 15 min</li>
                 </ul>
               </div>
             </div>
@@ -3130,7 +3307,7 @@ export default function App() {
                 </div>
             </div>
 
-            {tabShop === 'gestao' && avaliacoesBarbearia.length > 0 && (
+            {tabShopSafe === 'gestao' && avaliacoesBarbearia.length > 0 && (
               <div className="bg-zinc-900 p-5 rounded-2xl border border-zinc-800">
                 <h3 className="font-bold mb-4 text-sm">Avaliações Recentes</h3>
                 <div className="space-y-3">
@@ -3147,7 +3324,7 @@ export default function App() {
               </div>
             )}
 
-            {tabShop === 'agendamentos' && (
+            {tabShopSafe === 'agendamentos' && (
               <div className="pb-24">
                 <h2 className="font-bold text-lg mb-4 flex items-center gap-2">
                   <Calendar size={20} className="text-red-500" />
@@ -3278,14 +3455,14 @@ export default function App() {
               </div>
             )}
 
-            {tabShop === 'assinatura' && (
+            {tabShopSafe === 'assinatura' && (
               <AssinaturaPage 
                 token={token} 
                 notify={notify} 
               />
             )}
 
-            {tabShop === 'avaliar' && (
+            {tabShopSafe === 'avaliar' && (
               <div className="p-4 pb-24">
                 {agendamentos.filter(a => isConcluidoShop(a.status)).length > 0 ? (
                   <div className="space-y-4">
@@ -3313,30 +3490,30 @@ export default function App() {
               </div>
             )}
 
-            {tabShop === 'perfil' && (
+            {tabShopSafe === 'perfil' && (
               <div className="pb-24">
                 <TelaPerfilUsuario userType="barbearia" token={token} onLogout={logout} onNotify={notify} />
               </div>
             )}
 
-            <div className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-[400px] h-16 bg-zinc-950/95 backdrop-blur-lg border-t border-zinc-800 flex justify-around items-center z-30 px-2">
-              <button onClick={() => setTabShop('gestao')} className={`flex flex-col items-center gap-0 p-1 flex-1 ${tabShop === 'gestao' ? 'text-red-500' : 'text-zinc-600'}`}>
+            <div className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-[400px] h-16 bg-zinc-950/95 backdrop-blur-lg border-t border-zinc-800 flex justify-around items-center z-[999] px-2 pointer-events-auto pb-[env(safe-area-inset-bottom)]">
+              <button onClick={() => setTabShopSafe('gestao')} className={`flex flex-col items-center gap-0 p-1 flex-1 ${tabShopSafe === 'gestao' ? 'text-red-500' : 'text-zinc-600'}`}>
                 <Store size={16} />
                 <span className="hidden sm:block text-[8px] font-bold leading-none">Gestão</span>
               </button>
-              <button onClick={() => setTabShop('agendamentos')} className={`flex flex-col items-center gap-0 p-1 flex-1 ${tabShop === 'agendamentos' ? 'text-red-500' : 'text-zinc-600'}`}>
+              <button onClick={() => setTabShopSafe('agendamentos')} className={`flex flex-col items-center gap-0 p-1 flex-1 ${tabShopSafe === 'agendamentos' ? 'text-red-500' : 'text-zinc-600'}`}>
                 <Calendar size={16} />
                 <span className="hidden sm:block text-[8px] font-bold leading-none">Agend.</span>
               </button>
-              <button onClick={() => setTabShop('assinatura')} className={`flex flex-col items-center gap-0 p-1 flex-1 ${tabShop === 'assinatura' ? 'text-red-500' : 'text-zinc-600'}`}>
+              <button onClick={() => setTabShopSafe('assinatura')} className={`flex flex-col items-center gap-0 p-1 flex-1 ${tabShopSafe === 'assinatura' ? 'text-red-500' : 'text-zinc-600'}`}>
                 <CreditCard size={16} />
                 <span className="hidden sm:block text-[8px] font-bold leading-none">Assinar</span>
               </button>
-              <button onClick={() => setTabShop('avaliar')} className={`flex flex-col items-center gap-0 p-1 flex-1 ${tabShop === 'avaliar' ? 'text-red-500' : 'text-zinc-600'}`}>
+              <button onClick={() => setTabShopSafe('avaliar')} className={`flex flex-col items-center gap-0 p-1 flex-1 ${tabShopSafe === 'avaliar' ? 'text-red-500' : 'text-zinc-600'}`}>
                 <Star size={16} />
                 <span className="hidden sm:block text-[8px] font-bold leading-none">Avaliar</span>
               </button>
-              <button onClick={() => setTabShop('perfil')} className={`flex flex-col items-center gap-0 p-1 flex-1 ${tabShop === 'perfil' ? 'text-red-500' : 'text-zinc-600'}`}>
+              <button onClick={() => setTabShopSafe('perfil')} className={`flex flex-col items-center gap-0 p-1 flex-1 ${tabShopSafe === 'perfil' ? 'text-red-500' : 'text-zinc-600'}`}>
                 <User size={16} />
                 <span className="hidden sm:block text-[8px] font-bold leading-none">Perfil</span>
               </button>
@@ -3348,7 +3525,7 @@ export default function App() {
   // --- RENDERIZADOR PRINCIPAL ---
   return (
     <div className="min-h-screen bg-zinc-950 flex justify-center sm:items-center sm:py-8 font-sans">
-      <div className="w-full sm:max-w-[400px] bg-black h-screen sm:h-[800px] sm:max-h-[90vh] sm:rounded-[2.5rem] sm:border-[8px] sm:border-zinc-800 sm:shadow-2xl relative overflow-y-auto flex flex-col pt-12">
+      <div className="w-full sm:max-w-[400px] bg-black min-h-screen sm:min-h-screen sm:h-auto sm:max-h-none sm:rounded-[2.5rem] sm:border-[8px] sm:border-zinc-800 sm:shadow-2xl relative overflow-y-visible overflow-x-hidden sm:overflow-y-auto sm:overflow-x-hidden flex flex-col pt-12 pb-[max(env(safe-area-inset-bottom),1rem)]">
         {/* Dynamic Notch */}
         <div className="hidden sm:block absolute top-0 left-1/2 -translate-x-1/2 w-1/3 h-7 bg-zinc-800 rounded-b-xl z-50 pointer-events-none"></div>
         
@@ -3356,13 +3533,15 @@ export default function App() {
         
         {/* ⏳ MOSTRAR TELA DE APROVAÇÃO PENDENTE SE NÃO APROVADO */}
         {!userApproved && <PendingApprovalScreen />}
+        {gpsBloqueado && <GpsObrigatorioOverlay />}
         
         {view === 'login' && <LoginScreen />}
-        {view === 'dashboard' && userType === 'cliente' && userApproved && <ClientDashboard token={token} logout={logout} API_URL={API_URL} notify={notify} />}
-        {view === 'dashboard' && userType === 'barbeiro' && userApproved && <BarberDashboard token={token} logout={logout} API_URL={API_URL} notify={notify} />}
-        {view === 'dashboard' && userType === 'barbearia' && userApproved && <ShopDashboard token={token} logout={logout} API_URL={API_URL} notify={notify} />}
+        {view === 'dashboard' && userType === 'cliente' && userApproved && <ClientDashboardView token={token} logout={logout} API_URL={API_URL} notify={notify} onChamadoAceito={abrirTelaRastreamento} />}
+        {view === 'dashboard' && userType === 'barbeiro' && userApproved && <BarberDashboardView token={token} logout={logout} API_URL={API_URL} notify={notify} onChamadoAceito={abrirTelaRastreamento} />}
+        {view === 'dashboard' && userType === 'barbearia' && userApproved && <ShopDashboardView token={token} logout={logout} API_URL={API_URL} notify={notify} tabShop={shopTab} setTabShop={setShopTab} />}
         {view === 'dashboard' && userType === 'admin' && userApproved && <AdminDashboard token={token} logout={logout} API_URL={API_URL} notify={notify} />}
         {view === 'admin' && userType === 'admin' && userApproved && <AdminValidationScreen token={token} logout={logout} API_URL={API_URL} notify={notify} />}
+        {view === 'rastreamento' && chamadoId && <TelaDoChamado chamadoId={chamadoId} userType={userType} />}
 
         {showTerms && (
           <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-[80] flex items-center justify-center p-4">

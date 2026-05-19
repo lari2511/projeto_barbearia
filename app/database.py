@@ -1,6 +1,6 @@
 import os
 from dotenv import load_dotenv
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.ext.declarative import declarative_base
 
@@ -35,4 +35,21 @@ def init_db():
     except Exception:
         pass
     Base.metadata.create_all(bind=engine)
+
+    inspector = inspect(engine)
+    if "chamados" in inspector.get_table_names():
+        colunas_existentes = {coluna["name"] for coluna in inspector.get_columns("chamados")}
+        colunas_esperadas = {
+            "cancelado_em": "DATETIME",
+            "tempo_cancelamento_minutos": "INTEGER",
+            "valor_taxa_cancelamento": "FLOAT",
+            "motivo_cancelamento": "VARCHAR(255)",
+            "horario_match": "DATETIME",  # ✅ Novo: timestamp quando freelancer aceita (inicia 5 min)
+        }
+
+        with engine.begin() as connection:
+            for nome_coluna, definicao in colunas_esperadas.items():
+                if nome_coluna not in colunas_existentes:
+                    connection.execute(text(f"ALTER TABLE chamados ADD COLUMN {nome_coluna} {definicao}"))
+
     print("--- Banco de dados inicializado com sucesso ---")

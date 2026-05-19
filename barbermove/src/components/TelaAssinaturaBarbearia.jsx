@@ -1,26 +1,219 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { CreditCard, Calendar, AlertTriangle, CheckCircle, Loader, TrendingUp } from 'lucide-react';
 
 export default function TelaAssinaturaBarbearia({ token, onNotify }) {
-  const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+  const defaultHost = typeof window !== 'undefined' ? window.location.hostname : 'localhost';
+  const defaultProtocol = typeof window !== 'undefined' && window.location.protocol === 'https:' ? 'https' : 'http';
+  const API_URL = import.meta.env.VITE_API_URL || `${defaultProtocol}://${defaultHost}:8000`;
+  const mixedContentRisk =
+    typeof window !== 'undefined' &&
+    window.location.protocol === 'https:' &&
+    API_URL.startsWith('http://');
+
+  const pareceQrEmImagem = (valor) => {
+    if (!valor || typeof valor !== 'string') return false;
+    const conteudo = valor.trim();
+    if (!conteudo) return false;
+    if (conteudo.startsWith('data:image')) return true;
+    if (conteudo.startsWith('http://') || conteudo.startsWith('https://')) return true;
+    if (conteudo.startsWith('iVBORw0KGgo')) return true;
+    if (conteudo.startsWith('/9j/')) return true;
+    if (conteudo.startsWith('R0lGOD')) return true;
+    if (conteudo.startsWith('PHN2Zy')) return true;
+    if (conteudo.startsWith('000201')) return false;
+    if (conteudo.includes('BR.GOV.BCB.PIX')) return false;
+    return conteudo.length > 80 && /^[A-Za-z0-9+/=\s]+$/.test(conteudo);
+  };
+
+  const pareceCodigoPix = (valor) => {
+    if (!valor || typeof valor !== 'string') return false;
+    const conteudo = valor.trim();
+    if (!conteudo) return false;
+    if (conteudo.startsWith('000201')) return true;
+    return conteudo.includes('BR.GOV.BCB.PIX');
+  };
 
   const normalizarPixPayload = (data) => {
-    const payload = data?.pix || data?.dados_pix || data || {};
+    const payload = data?.pix || data?.dados_pix || data?.data || data || {};
+    const transactionData = payload?.point_of_interaction?.transaction_data || {};
+    const nested = payload?.data || {};
+    const cobr = payload?.cob || data?.cob || {};
+    const loc = payload?.loc || data?.loc || {};
+    const camposImagem = [
+      payload.qrcode_base64,
+      payload.qr_code_base64,
+      payload.qrCodeBase64,
+      payload.qrcode,
+      payload.qr_code,
+      payload.imagem_qr,
+      payload.imagem_qrcode,
+      payload.base64,
+      payload.encodedImage,
+      payload.image_base64,
+      transactionData.qr_code_base64,
+      transactionData.qr_code,
+      transactionData.qrcode_base64,
+      transactionData.encodedImage,
+      nested.qrcode_base64,
+      nested.qr_code_base64,
+      nested.qrcode,
+      nested.qr_code,
+      nested.imagem_qr,
+      nested.imagem_qrcode,
+      nested.base64,
+      nested.encodedImage,
+      nested.image_base64,
+      cobr.qrcode_base64,
+      cobr.qr_code_base64,
+      cobr.qrcode,
+      cobr.qr_code,
+      loc.qrcode_base64,
+      loc.qr_code_base64,
+      loc.qrcode,
+      loc.qr_code,
+    ];
+    const camposTexto = [
+      payload.pix_copia_cola,
+      payload.codigo_pix,
+      payload.copia_cola,
+      payload.emv,
+      payload.qrcode,
+      payload.qr_code,
+      payload.qr,
+      payload.payload,
+      payload.payload_pix,
+      payload.qrCode,
+      transactionData.qr_code,
+      transactionData.qrcode,
+      transactionData.payload,
+      nested.pix_copia_cola,
+      nested.codigo_pix,
+      nested.copia_cola,
+      nested.emv,
+      nested.qrcode,
+      nested.qr_code,
+      nested.qr,
+      nested.payload,
+      nested.payload_pix,
+      nested.qrCode,
+      cobr.pix_copia_cola,
+      cobr.codigo_pix,
+      cobr.emv,
+      cobr.qrcode,
+      cobr.qr_code,
+      loc.qrcode,
+      loc.qr_code,
+      data?.pix_copia_cola,
+      data?.codigo_pix,
+      data?.copia_cola,
+      data?.emv,
+      data?.qrcode,
+      data?.qr_code,
+      data?.payload,
+      data?.payload_pix,
+    ];
+
+    let qrcodeBase64 = null;
+    for (const campo of camposImagem) {
+      if (pareceQrEmImagem(campo)) {
+        qrcodeBase64 = campo;
+        break;
+      }
+    }
+
+    let pixCopiaCola = '';
+    for (const campo of camposTexto) {
+      if (pareceCodigoPix(campo)) {
+        pixCopiaCola = campo;
+        break;
+      }
+    }
+    if (!pixCopiaCola) {
+      pixCopiaCola =
+        camposTexto.find((item) => typeof item === 'string' && item.trim()) ||
+        payload.pix_copia_cola ||
+        '';
+    }
+
     return {
       ...payload,
+      qrcode_base64: qrcodeBase64,
+      pix_copia_cola: pixCopiaCola,
+      valor: payload.valor ?? payload.amount ?? nested.valor ?? nested.amount ?? 0,
+    };
+  };
+
+  const getPixQrSrc = (qrcodeBase64) => {
+    if (!qrcodeBase64) return '';
+    const conteudo = String(qrcodeBase64).trim();
+    if (!conteudo) return '';
+    if (conteudo.startsWith('data:image')) return conteudo;
+    if (conteudo.startsWith('http://') || conteudo.startsWith('https://')) {
+      if (mixedContentRisk && conteudo.startsWith('http://')) {
+        if (import.meta.env.DEV) {
+          console.warn('URL HTTP de QR bloqueada por mixed content. Usando fallback por copia e cola.');
+        }
+        return '';
+      }
+      return conteudo;
+    }
+
+    const conteudoLimpo = conteudo.replace(/\s/g, '');
+    if (!conteudoLimpo) return '';
+
+    let mime = 'image/png';
+    if (conteudoLimpo.startsWith('/9j/')) mime = 'image/jpeg';
+    if (conteudoLimpo.startsWith('R0lGOD')) mime = 'image/gif';
+    if (conteudoLimpo.startsWith('PHN2Zy')) mime = 'image/svg+xml';
+    return `data:${mime};base64,${conteudoLimpo}`;
+  };
+
+  const montarPixFinal = (pixRaw) => {
+    const pixNormalizado = normalizarPixPayload(pixRaw);
+    const payloadBruto = pixRaw?.pix || pixRaw?.dados_pix || pixRaw?.data || pixRaw || {};
+    const payloadData = payloadBruto?.data || {};
+    const payloadCobr = payloadBruto?.cob || {};
+
+    return {
+      ...payloadBruto,
+      ...pixNormalizado,
       qrcode_base64:
-        payload.qrcode_base64 ||
-        payload.qr_code_base64 ||
-        payload.qrcode ||
-        payload.qr_code ||
-        payload.qrCodeBase64 ||
+        pixNormalizado.qrcode_base64 ||
+        payloadBruto.qrcode_base64 ||
+        payloadBruto.qr_code_base64 ||
+        payloadBruto.qrCodeBase64 ||
+        payloadData.qrcode_base64 ||
+        payloadData.qr_code_base64 ||
+        payloadCobr.qrcode_base64 ||
+        payloadCobr.qr_code_base64 ||
         null,
       pix_copia_cola:
-        payload.pix_copia_cola ||
-        payload.codigo_pix ||
-        payload.copia_cola ||
-        payload.emv ||
+        pixNormalizado.pix_copia_cola ||
+        payloadBruto.pix_copia_cola ||
+        payloadBruto.codigo_pix ||
+        payloadBruto.copia_cola ||
+        payloadBruto.emv ||
+        payloadBruto.qrcode ||
+        payloadBruto.qr_code ||
+        payloadBruto.payload ||
+        payloadData.pix_copia_cola ||
+        payloadData.codigo_pix ||
+        payloadData.copia_cola ||
+        payloadData.emv ||
+        payloadData.payload ||
+        payloadCobr.pix_copia_cola ||
+        payloadCobr.codigo_pix ||
+        payloadCobr.emv ||
         '',
+      valor:
+        pixNormalizado.valor ??
+        payloadBruto.valor ??
+        payloadBruto.amount ??
+        payloadData.valor ??
+        payloadData.amount ??
+        payloadCobr.valor_original ??
+        payloadBruto.valor_mensalidade ??
+        0,
     };
   };
 
@@ -32,13 +225,66 @@ export default function TelaAssinaturaBarbearia({ token, onNotify }) {
   const [metodoPagamento, setMetodoPagamento] = useState('pix');
   const [processandoPagamento, setProcessandoPagamento] = useState(false);
   const [pixData, setPixData] = useState(null);
+  const [pixQrFallbackSrc, setPixQrFallbackSrc] = useState('');
+  const [pixQrImagemInvalida, setPixQrImagemInvalida] = useState(false);
   const [copiado, setCopiado] = useState(false);
+  const pixSectionRef = useRef(null);
   const [cartao, setCartao] = useState({
     numero_cartao: '',
     titular: '',
     validade: '',
     cvv: ''
   });
+
+  useEffect(() => {
+    if (pixData && pixSectionRef.current) {
+      pixSectionRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  }, [pixData]);
+
+  useEffect(() => {
+    let ativo = true;
+
+    const gerarQrFallback = async () => {
+      if (!pixData?.pix_copia_cola) {
+        setPixQrFallbackSrc('');
+        setPixQrImagemInvalida(false);
+        return;
+      }
+
+      setPixQrImagemInvalida(false);
+
+      try {
+        const QRCode = (await import('qrcode')).default;
+        const dataUrl = await QRCode.toDataURL(pixData.pix_copia_cola, {
+          width: 320,
+          margin: 1,
+          errorCorrectionLevel: 'M',
+        });
+
+        if (ativo) {
+          setPixQrFallbackSrc(dataUrl);
+        }
+      } catch (err) {
+        console.error('Erro ao gerar QR fallback no frontend:', err);
+        if (ativo) {
+          setPixQrFallbackSrc('');
+        }
+      }
+    };
+
+    gerarQrFallback();
+
+    return () => {
+      ativo = false;
+    };
+  }, [pixData]);
+
+  useEffect(() => {
+    if (import.meta.env.DEV) {
+      console.log('Estado atual do pixData:', pixData);
+    }
+  }, [pixData]);
 
   const carregarDados = useCallback(async () => {
     setLoading(true);
@@ -108,13 +354,59 @@ export default function TelaAssinaturaBarbearia({ token, onNotify }) {
         })
       });
 
+      const assinaturaPayload = await res.json().catch(() => ({}));
+
       if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.detail || 'Erro ao processar assinatura');
+        throw new Error(assinaturaPayload.detail || 'Erro ao processar assinatura');
       }
 
-      onNotify?.(`Assinatura ${assinatura ? 'atualizada' : 'contratada'} com sucesso!`, 'success');
-      await carregarDados();
+      if (assinaturaPayload?.id) {
+        setAssinatura(assinaturaPayload);
+      }
+
+      if (metodoPagamento === 'pix') {
+        const pixRes = await fetch(`${API_URL}/api/v1/assinaturas/pagar-mensalidade/pix`, {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${token}`
+          }
+        });
+
+        if (!pixRes.ok) {
+          const pixErr = await pixRes.json();
+          throw new Error(pixErr.detail || 'Erro ao gerar PIX da assinatura');
+        }
+
+        const pixRaw = await pixRes.json();
+        if (import.meta.env.DEV) {
+          console.log('Dados brutos do PIX (assinatura):', pixRaw);
+        }
+        const pixFinal = montarPixFinal(pixRaw);
+        if (import.meta.env.DEV) {
+          console.log('Dados normalizados do PIX (assinatura):', pixFinal);
+        }
+        if (!pixFinal.qrcode_base64 && !pixFinal.pix_copia_cola) {
+          throw new Error('PIX gerado sem QR Code e sem codigo copia e cola');
+        }
+
+        setPixData(pixFinal);
+        onNotify?.('PIX da assinatura gerado com sucesso', 'success');
+
+        // Mantem o PIX visivel sem refresh imediato que pode trocar o contexto da tela.
+        setStatus((prev) => {
+          if (!prev) return prev;
+          return {
+            ...prev,
+            tem_assinatura: true,
+            cadeiras_ativas: assinaturaPayload?.cadeiras_ativas ?? prev.cadeiras_ativas,
+            valor_mensalidade: assinaturaPayload?.valor_mensal ?? prev.valor_mensalidade,
+          };
+        });
+      } else {
+        setPixData(null);
+        onNotify?.(`Assinatura ${assinatura ? 'atualizada' : 'contratada'} com sucesso!`, 'success');
+        await carregarDados();
+      }
     } catch (err) {
       onNotify?.(`Erro: ${err.message}`, 'error');
     } finally {
@@ -170,11 +462,17 @@ export default function TelaAssinaturaBarbearia({ token, onNotify }) {
       }
 
       const data = await res.json();
-      const pixNormalizado = normalizarPixPayload(data);
-      if (!pixNormalizado.qrcode_base64 && !pixNormalizado.pix_copia_cola) {
+      if (import.meta.env.DEV) {
+        console.log('Dados brutos do PIX (mensalidade):', data);
+      }
+      const pixFinal = montarPixFinal(data);
+      if (import.meta.env.DEV) {
+        console.log('Dados normalizados do PIX (mensalidade):', pixFinal);
+      }
+      if (!pixFinal.qrcode_base64 && !pixFinal.pix_copia_cola) {
         throw new Error('PIX gerado sem QR Code e sem codigo copia e cola');
       }
-      setPixData(pixNormalizado);
+      setPixData(pixFinal);
       onNotify?.('PIX da mensalidade gerado com sucesso', 'success');
     } catch (err) {
       onNotify?.(`Erro: ${err.message}`, 'error');
@@ -207,8 +505,16 @@ export default function TelaAssinaturaBarbearia({ token, onNotify }) {
     return 'bg-green-900/20 border-green-600 text-green-300';
   };
 
+  const pixQrSrc = getPixQrSrc(pixData?.qrcode_base64);
+
   return (
-    <div className="space-y-6 p-4 md:p-6 max-w-4xl mx-auto">
+    <div className="relative z-10 space-y-6 p-4 md:p-6 max-w-4xl mx-auto pb-40">
+      {mixedContentRisk && (
+        <div className="bg-amber-900/30 border border-amber-600 text-amber-200 rounded-lg p-3 text-sm">
+          Possivel bloqueio de conteudo misto: app em HTTPS e API em HTTP. Use uma API segura para evitar bloqueio do QR Code no navegador.
+        </div>
+      )}
+
       {status && (
         <div className={`${getStatusColor()} border rounded-lg p-4`}>
           <div className="flex items-start gap-3">
@@ -246,17 +552,27 @@ export default function TelaAssinaturaBarbearia({ token, onNotify }) {
             </button>
 
             {pixData && (
-              <div className="bg-white text-zinc-900 rounded-lg p-4 space-y-3">
-                {pixData.qrcode_base64 && (
+              <div ref={pixSectionRef} className="bg-white text-zinc-900 rounded-lg p-4 space-y-3 ring-2 ring-orange-300/70">
+                {pixQrSrc && !pixQrImagemInvalida && (
                   <div className="flex justify-center">
                     <img
-                      src={`data:image/png;base64,${pixData.qrcode_base64}`}
+                      src={pixQrSrc}
+                      alt="QR Code PIX mensalidade"
+                      className="w-44 h-44"
+                      onError={() => setPixQrImagemInvalida(true)}
+                    />
+                  </div>
+                )}
+                {(pixQrImagemInvalida || !pixQrSrc) && pixQrFallbackSrc && (
+                  <div className="flex justify-center">
+                    <img
+                      src={pixQrFallbackSrc}
                       alt="QR Code PIX mensalidade"
                       className="w-44 h-44"
                     />
                   </div>
                 )}
-                {!pixData.qrcode_base64 && (
+                {(pixQrImagemInvalida || !pixQrSrc) && !pixQrFallbackSrc && (
                   <p className="text-xs text-amber-700 font-semibold">QR Code indisponivel. Use o codigo copia e cola.</p>
                 )}
                 <input
@@ -459,6 +775,53 @@ export default function TelaAssinaturaBarbearia({ token, onNotify }) {
               </>
             )}
           </button>
+
+          {pixData && (
+            <div ref={pixSectionRef} className="bg-zinc-800 border border-zinc-700 rounded-lg p-4 space-y-3 ring-2 ring-orange-500/60">
+              <p className="text-sm font-bold text-white">PIX gerado</p>
+              {pixQrSrc && !pixQrImagemInvalida && (
+                <div className="flex justify-center">
+                  <img
+                    src={pixQrSrc}
+                    alt="QR Code PIX assinatura"
+                    className="w-44 h-44 bg-white p-2 rounded"
+                    onError={() => setPixQrImagemInvalida(true)}
+                  />
+                </div>
+              )}
+              {(pixQrImagemInvalida || !pixQrSrc) && pixQrFallbackSrc && (
+                <div className="flex justify-center">
+                  <img
+                    src={pixQrFallbackSrc}
+                    alt="QR Code PIX assinatura"
+                    className="w-44 h-44 bg-white p-2 rounded"
+                  />
+                </div>
+              )}
+              {(pixQrImagemInvalida || !pixQrSrc) && !pixQrFallbackSrc && (
+                <p className="text-xs text-amber-300 font-semibold">QR Code indisponivel. Use o codigo copia e cola.</p>
+              )}
+              <input
+                type="text"
+                readOnly
+                value={pixData.pix_copia_cola || ''}
+                className="w-full border border-zinc-600 bg-zinc-900 rounded p-2 text-xs text-zinc-200"
+              />
+              <button
+                onClick={copiarPix}
+                className="w-full bg-zinc-100 text-zinc-900 py-2 rounded font-bold"
+              >
+                {copiado ? 'Copiado!' : 'Copiar codigo PIX'}
+              </button>
+              <button
+                onClick={() => pagarMensalidade({ confirmar_pix: true })}
+                disabled={processandoPagamento}
+                className="w-full bg-green-600 text-white py-2 rounded font-bold disabled:opacity-60"
+              >
+                Confirmar pagamento PIX
+              </button>
+            </div>
+          )}
         </div>
       </div>
 

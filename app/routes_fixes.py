@@ -94,6 +94,8 @@ def get_perfil_completo(db: Session = Depends(get_db), usuario = Depends(get_cur
         "tipo": usuario.tipo,
         "telefone": usuario.telefone,
         "endereco": usuario.endereco,
+        "latitude": usuario.latitude,
+        "longitude": usuario.longitude,
         "foto_perfil": usuario.foto_perfil,
         "cpf": usuario.cpf,
         "cnpj": usuario.cnpj,
@@ -105,6 +107,7 @@ def get_perfil_completo(db: Session = Depends(get_db), usuario = Depends(get_cur
         "presente_em_local": usuario.presente_em_local,
         "barbearia_atual_id": usuario.barbearia_atual_id,
         "barbearia_atual_nome": barbearia_atual_nome,
+        "pode_receber_chamado_agora": bool(usuario.presente_em_local and usuario.barbearia_atual_id),
         "criado_em": usuario.criado_em
     }
 

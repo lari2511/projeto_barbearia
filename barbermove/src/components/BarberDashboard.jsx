@@ -1,15 +1,22 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { Scissors, LogOut, CheckCircle, AlertCircle, Briefcase, User, Calendar, Star, ThumbsUp, MapPin, ArrowRight, Armchair, Wallet } from 'lucide-react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { Scissors, LogOut, CheckCircle, AlertCircle, Briefcase, User, Calendar, Star, MapPin, ArrowRight } from 'lucide-react';
 import AbaPadronizadaAvaliacoes from './AbaPadronizadaAvaliacoes';
+import ChatRoom from './ChatRoom';
+import TrackingPanel from './TrackingPanel';
 import TelaPerfilUsuario from './TelaPerfilUsuario';
-import CadeirasDisponíveisComponent from './CadeirasDisponíveisComponent';
+import TelaRotasAtivos from './TelaRotasAtivos';
 
 export default function BarberDashboard({ token, logout, notify, API_URL }) {
+    const TABS_VALIDAS = ['trabalhos', 'agenda', 'avaliar', 'perfil'];
     const [jobs, setJobs] = useState([]); // Novos chamados - vazio até carregar
     const [ongoingJobs, setOngoingJobs] = useState([]); // Atendimentos em andamento
     const [user, setUser] = useState(null);
     const [userData, setUserData] = useState(null);
-    const [tab, setTab] = useState('trabalhos'); // 'trabalhos' | 'agenda' | 'aprovar' | 'avaliar' | 'perfil'
+    const [tab, setTab] = useState(() => {
+        if (typeof window === 'undefined') return 'trabalhos';
+        const tabSalva = localStorage.getItem('barbeiro_dashboard_tab') || 'trabalhos';
+        return TABS_VALIDAS.includes(tabSalva) ? tabSalva : 'trabalhos';
+    }); // 'trabalhos' | 'agenda' | 'avaliar' | 'perfil'
     const [loading, setLoading] = useState(true);
     const [presenteNoLocal, setPresenteNoLocal] = useState(false); // Barbeiro presente no local
     const [toggleandoPresenca, setTogandoPresenca] = useState(false); // Enquanto carrega toggle de presença
@@ -20,6 +27,59 @@ export default function BarberDashboard({ token, logout, notify, API_URL }) {
     const [cadeirasAcionadas, setCadeirasAcionadas] = useState([]); // Cadeiras disponíveis próximas
     const [loadingCadeiras, setLoadingCadeiras] = useState(false);
     const [cadeiraOcupada, setCadeiraOcupada] = useState(null); // Cadeira que o barbeiro está ocupando
+    const [chatTarget, setChatTarget] = useState(null);
+    const [promptFinalizacaoJob, setPromptFinalizacaoJob] = useState(null);
+
+    // Timers por atendimento (cronômetro)
+    const [timers, setTimers] = useState({}); // { [jobId]: { running, startTs, elapsed } }
+    const timerIntervalsRef = useRef({});
+    const promptTimeoutsRef = useRef({});
+    const promptedRef = useRef({});
+
+    const formatElapsed = (ms) => {
+        if (!ms || ms <= 0) return '00:00';
+        const total = Math.floor(ms / 1000);
+        const mm = String(Math.floor(total / 60)).padStart(2, '0');
+        const ss = String(total % 60).padStart(2, '0');
+        return `${mm}:${ss}`;
+    };
+
+    const startTimer = (jobId) => {
+        setTimers(prev => {
+            const existing = prev[jobId] || { running: false, startTs: null, elapsed: 0 };
+            const startTs = Date.now() - (existing.elapsed || 0);
+            return { ...prev, [jobId]: { ...existing, running: true, startTs } };
+        });
+
+        if (timerIntervalsRef.current[jobId]) return;
+        timerIntervalsRef.current[jobId] = setInterval(() => {
+            setTimers(prev => {
+                const t = prev[jobId];
+                if (!t) return prev;
+                const elapsed = Date.now() - t.startTs;
+                return { ...prev, [jobId]: { ...t, elapsed } };
+            });
+        }, 1000);
+    };
+
+    const stopTimer = (jobId) => {
+        const interval = timerIntervalsRef.current[jobId];
+        if (interval) {
+            clearInterval(interval);
+            delete timerIntervalsRef.current[jobId];
+        }
+        setTimers(prev => ({ ...prev, [jobId]: { ...(prev[jobId] || {}), running: false } }));
+    };
+
+    useEffect(() => {
+        return () => {
+            // cleanup intervals
+            Object.values(timerIntervalsRef.current).forEach((ival) => clearInterval(ival));
+            timerIntervalsRef.current = {};
+            Object.values(promptTimeoutsRef.current).forEach((timeoutId) => clearTimeout(timeoutId));
+            promptTimeoutsRef.current = {};
+        };
+    }, []);
 
     const sincronizarAgendamentos = useCallback(async () => {
         try {
@@ -38,7 +98,7 @@ export default function BarberDashboard({ token, logout, notify, API_URL }) {
             if (resAgendados.ok) {
                 const agendados = await resAgendados.json();
                 const emAndamento = Array.isArray(agendados)
-                    ? agendados.filter(ag => ag.status === 'confirmado')
+                    ? agendados.filter(ag => ['confirmado', 'em_atendimento'].includes((ag.status || '').toString().toLowerCase()))
                     : [];
                 setOngoingJobs(emAndamento);
             } else {
@@ -62,6 +122,76 @@ export default function BarberDashboard({ token, logout, notify, API_URL }) {
             return () => clearInterval(interval);
         }
     }, [token, sincronizarAgendamentos]);
+
+    // Quando houver agendamentos em andamento, garantir que timers sejam inicializados
+    useEffect(() => {
+        // inicializar timers para atendimentos em andamento a partir do servidor
+        ongoingJobs.forEach(job => {
+            try {
+                if (!job || !job.id) return;
+                // somente para agendamentos em atendimento/confirmado
+                const status = (job.status || '').toString().toLowerCase();
+                if (!['em_atendimento', 'confirmado'].includes(status)) return;
+
+                // se servidor informou data_hora_inicio, usar como referência
+                const serverStartIso = job.data_hora_inicio || job.data_hora_inicio_iso || job.data_hora_inicio && job.data_hora_inicio;
+                const servDur = job.duracao_minutos || (job.servico && job.servico.duracao_minutos) || 30;
+
+                if (serverStartIso) {
+                    const serverStart = new Date(serverStartIso).getTime();
+                    const elapsed = Math.max(0, Date.now() - serverStart);
+                    setTimers(prev => ({ ...prev, [job.id]: { running: true, startTs: Date.now() - elapsed, elapsed } }));
+                    // já cria o intervalo se não existir
+                    if (!timerIntervalsRef.current[job.id]) startTimer(job.id);
+
+                    // agendar prompt se ainda não agendado
+                    const finishAt = serverStart + (servDur * 60000);
+                    const timeLeft = finishAt - Date.now();
+                    if (timeLeft <= 0) {
+                        // tempo já estourou — perguntar imediatamente
+                        askFinish(job);
+                    } else {
+                        try { if (promptTimeoutsRef.current[job.id]) clearTimeout(promptTimeoutsRef.current[job.id]); } catch(_){}
+                        promptTimeoutsRef.current[job.id] = setTimeout(() => askFinish(job), timeLeft);
+                    }
+                } else {
+                    // sem timestamp do servidor, garantir que o timer local exista
+                    if (!timerIntervalsRef.current[job.id]) startTimer(job.id);
+                }
+            } catch (e) {
+                console.error('Erro ao inicializar timer para job', job && job.id, e);
+            }
+        });
+
+        // limpar timers/intervals para jobs que não estão mais em andamento
+        const ongoingIds = new Set(ongoingJobs.map(j => j.id));
+        Object.keys(timerIntervalsRef.current).forEach(k => {
+            if (!ongoingIds.has(Number(k))) {
+                try { clearInterval(timerIntervalsRef.current[k]); } catch(_){}
+                delete timerIntervalsRef.current[k];
+                setTimers(prev => {
+                    const copy = { ...prev };
+                    delete copy[k];
+                    return copy;
+                });
+            }
+        });
+
+        // limpar prompts para jobs que terminaram
+        Object.keys(promptTimeoutsRef.current).forEach(k => {
+            if (!ongoingIds.has(Number(k))) {
+                try { clearTimeout(promptTimeoutsRef.current[k]); } catch(_){}
+                delete promptTimeoutsRef.current[k];
+                delete promptedRef.current[k];
+            }
+        });
+    }, [ongoingJobs]);
+
+    useEffect(() => {
+        if (typeof window !== 'undefined') {
+            localStorage.setItem('barbeiro_dashboard_tab', tab);
+        }
+    }, [tab]);
 
     useEffect(() => {
         fetch(`${API_URL}/api/v1/documentos/status`, {
@@ -87,7 +217,7 @@ export default function BarberDashboard({ token, logout, notify, API_URL }) {
             if (data && data.id) {
                 setUserData(data);
                 setPresenteNoLocal(data.presente_em_local || false);
-                if (data.presente_em_local && data.barbearia_atual_id) {
+                if (data.pode_receber_chamado_agora === true) {
                     setStatusFreelancer('presente');
                     setBarbeariaSelecionada(data.barbearia_atual_id);
                 } else if (data.online_regiao) {
@@ -182,6 +312,7 @@ export default function BarberDashboard({ token, logout, notify, API_URL }) {
     };
 
     const acceptJob = async (id) => {
+        console.log('acceptJob called with id:', id);
         try {
             const response = await fetch(`${API_URL}/api/v1/chamados/${id}/aceitar`, {
                 method: 'PUT',
@@ -189,11 +320,23 @@ export default function BarberDashboard({ token, logout, notify, API_URL }) {
             });
 
             if (response.ok) {
-                notify("Trabalho aceito! ✓", "success");
-                // Move o job de jobs para ongoingJobs
+                const data = await response.json().catch(() => ({}));
+                console.log('acceptJob response data:', data);
+                const numeroCadeira = data?.cadeira?.numero;
+                const mensagem = numeroCadeira
+                    ? `Trabalho aceito! Cadeira ${numeroCadeira} reservada. ✓`
+                    : "Trabalho aceito! ✓";
+                notify(mensagem, "success");
+                // Move o job de jobs para ongoingJobs, incluindo dados da cadeira retornada
                 const acceptedJob = jobs.find(j => j.id === id);
                 if (acceptedJob) {
-                    setOngoingJobs(prev => [...prev, { ...acceptedJob, status: 'confirmado' }]);
+                    const cadeiraData = data?.cadeira || {};
+                    setOngoingJobs(prev => [...prev, { 
+                        ...acceptedJob, 
+                        status: 'confirmado',
+                        cadeira_id: cadeiraData.id ?? acceptedJob.cadeira_id,
+                        cadeira_numero: cadeiraData.numero ?? acceptedJob.cadeira_numero
+                    }]);
                 }
                 setJobs(prevJobs => prevJobs.filter(j => j.id !== id));
 
@@ -209,6 +352,7 @@ export default function BarberDashboard({ token, logout, notify, API_URL }) {
     };
 
     const rejectJob = async (id) => {
+        console.log('rejectJob called with id:', id);
         try {
             const response = await fetch(`${API_URL}/api/v1/chamados/${id}/rejeitar`, {
                 method: 'PUT',
@@ -237,6 +381,13 @@ export default function BarberDashboard({ token, logout, notify, API_URL }) {
             if (response.ok) {
                 notify("Corte finalizado! ✓", "success");
                 setOngoingJobs(prevJobs => prevJobs.filter(j => j.id !== id));
+                setPromptFinalizacaoJob(prev => (prev && prev.id === id ? null : prev));
+                // Parar cronômetro local para este atendimento
+                try { stopTimer(id); } catch (_) {}
+                // limpar prompts/timeout relacionados
+                try { if (promptTimeoutsRef.current[id]) clearTimeout(promptTimeoutsRef.current[id]); } catch(_){}
+                try { delete promptTimeoutsRef.current[id]; } catch(_){}
+                try { delete promptedRef.current[id]; } catch(_){}
                 // Recarrega chamados abertos imediatamente para evitar sumiço visual
                 // quando ainda existem solicitações pendentes para aceitar/recusar.
                 sincronizarAgendamentos();
@@ -246,6 +397,71 @@ export default function BarberDashboard({ token, logout, notify, API_URL }) {
             }
         } catch (_err) {
             notify("Erro ao conectar com servidor", "error");
+        }
+    };
+
+    const askFinish = (job) => {
+        if (!job || !job.id) return;
+        if (promptFinalizacaoJob && promptFinalizacaoJob.id === job.id) return;
+        promptedRef.current[job.id] = true;
+        setPromptFinalizacaoJob(job);
+    };
+
+    const confirmarFinalizacaoPrompt = async () => {
+        if (!promptFinalizacaoJob?.id) return;
+        const id = promptFinalizacaoJob.id;
+        setPromptFinalizacaoJob(null);
+        await finalizeJob(id);
+    };
+
+    const adiarFinalizacaoPrompt = () => {
+        if (!promptFinalizacaoJob?.id) return;
+        const job = promptFinalizacaoJob;
+        const id = job.id;
+        setPromptFinalizacaoJob(null);
+        notify('Continuando o atendimento. Vou perguntar novamente em 1 minuto.', 'info');
+        try {
+            if (promptTimeoutsRef.current[id]) clearTimeout(promptTimeoutsRef.current[id]);
+        } catch (_) {}
+        promptTimeoutsRef.current[id] = setTimeout(() => {
+            promptedRef.current[id] = false;
+            askFinish(job);
+        }, 60 * 1000);
+    };
+
+    const iniciarCorte = async (id) => {
+        try {
+            const response = await fetch(`${API_URL}/api/v1/chamados/${id}/iniciar-corte`, {
+                method: 'PUT',
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+
+            if (response.ok) {
+                notify('Corte iniciado!', 'success');
+                sincronizarAgendamentos();
+                // Iniciar cronômetro local para este atendimento
+                try {
+                    // solicitar payload do servidor para iniciar a partir de data_hora_inicio
+                    const payload = await response.json().catch(() => null);
+                    const serverStart = payload?.data_hora_inicio ? new Date(payload.data_hora_inicio).getTime() : Date.now();
+                    const elapsed = Date.now() - serverStart;
+                    setTimers(prev => ({ ...prev, [id]: { running: true, startTs: Date.now() - elapsed, elapsed } }));
+                    startTimer(id);
+                    // agendar prompt quando tempo do serviço terminar
+                    const durMin = payload?.duracao_minutos || 30;
+                    const timeLeft = Math.max(0, (serverStart + durMin * 60000) - Date.now());
+                    try { if (promptTimeoutsRef.current[id]) clearTimeout(promptTimeoutsRef.current[id]); } catch(_){}
+                    promptTimeoutsRef.current[id] = setTimeout(() => {
+                        const job = ongoingJobs.find(j => j.id === id) || { id };
+                        askFinish(job);
+                    }, timeLeft);
+                } catch (_) {}
+            } else {
+                const errorData = await response.json().catch(() => ({}));
+                notify(errorData.detail || 'Não foi possível iniciar o corte', 'error');
+            }
+        } catch (_err) {
+            notify('Erro ao conectar com servidor', 'error');
         }
     };
 
@@ -345,29 +561,38 @@ export default function BarberDashboard({ token, logout, notify, API_URL }) {
     };
 
     return (
-        <div className="bg-black h-full w-full max-w-full overflow-hidden flex flex-col text-white font-sans">
+        <div className="bg-black min-h-[100dvh] w-full max-w-full overflow-x-hidden flex flex-col text-white font-sans">
             {/* HEADER FIXO */}
             <div className="p-2 sm:p-4 flex justify-between items-center border-b border-zinc-800 bg-black/80 backdrop-blur-md z-20 flex-shrink-0">
                 <div className="flex items-center gap-2">
-                    <h1 className="text-base sm:text-xl font-bold flex items-center gap-2">
+                    <h1 className="text-base sm:text-xl font-bold tracking-tight flex items-center gap-2">
                         <Scissors size={18} className="text-orange-500"/> Barbeiro
                     </h1>
                     {user?.documento_verificado && (
                         <CheckCircle size={14} className="text-blue-500 fill-blue-500" />
                     )}
                 </div>
-                <button onClick={logout} className="text-zinc-500 hover:text-white"><LogOut size={18}/></button>
+                <div className="flex items-center gap-2">
+                    <button
+                        onClick={logout}
+                        className="flex items-center gap-1 rounded-full border border-zinc-700 bg-zinc-900 px-3 py-1 text-[10px] font-bold text-zinc-300 hover:border-orange-500 hover:text-white"
+                    >
+                        <ArrowRight size={12} className="rotate-180" />
+                        Início
+                    </button>
+                    <button onClick={logout} className="text-zinc-500 hover:text-white"><LogOut size={18}/></button>
+                </div>
             </div>
 
             {/* CONTEÚDO PRINCIPAL - SÓ UMA ABA DE CADA VEZ */}
-            <div className="flex-1 overflow-y-auto pb-16">
+            <div className="flex-1 overflow-visible pb-[calc(6rem+env(safe-area-inset-bottom))]">
                 
                 {/* === ABA 1: TRABALHOS === */}
                 {tab === 'trabalhos' && (
-                    <div className="p-2 sm:p-4 space-y-3">
+                    <div className="p-2 sm:p-4 space-y-3 max-w-3xl mx-auto w-full">
                         {/* 🔘 3 BOTÕES DE STATUS */}
-                        <div className="bg-zinc-900/50 border border-zinc-800 p-3 rounded-lg space-y-2">
-                            <h3 className="text-xs font-bold text-zinc-400 uppercase mb-2">Status Operacional</h3>
+                        <div className="bg-zinc-900/60 border border-zinc-800/80 p-3 rounded-xl space-y-2">
+                            <h3 className="text-xs font-bold text-zinc-400 uppercase tracking-wide mb-2">Status Operacional</h3>
                             
                             <div className="grid grid-cols-3 gap-2">
                                 {/* OFFLINE */}
@@ -419,7 +644,7 @@ export default function BarberDashboard({ token, logout, notify, API_URL }) {
                                         } ${toggleandoPresenca ? 'opacity-50 cursor-not-allowed' : ''}`}
                                     >
                                         <div className={`h-2 w-2 rounded-full ${statusFreelancer === 'presente' ? 'bg-white animate-pulse' : 'bg-zinc-600'}`}></div>
-                                        PRESENTE
+                                        NO LOCAL
                                     </button>
                                 )}
                             </div>
@@ -441,8 +666,16 @@ export default function BarberDashboard({ token, logout, notify, API_URL }) {
                             )}
                         </div>
 
+                        <TrackingPanel
+                            chamado={ongoingJobs[0] || jobs[0] || null}
+                            token={token}
+                            API_URL={API_URL}
+                            notify={notify}
+                            modo="barbeiro"
+                        />
+
                         {/* 📍 CADEIRAS ACIONADAS PRÓXIMAS */}
-                        <div className="bg-zinc-900/50 border border-zinc-800 p-3 rounded-lg">
+                        <div className="bg-zinc-900/60 border border-zinc-800/80 p-3 rounded-xl">
                             <h3 className="text-xs font-bold text-zinc-400 uppercase mb-2 flex items-center gap-2">
                                 <MapPin size={14} className="text-green-500" />
                                 Cadeiras Disponíveis Próximas
@@ -493,7 +726,7 @@ export default function BarberDashboard({ token, logout, notify, API_URL }) {
                                                                 📍 {cadeira.distancia_km} km
                                                             </span>
                                                         )}
-                                                        <span className="text-[10px] text-zinc-500">
+                                                        <span className="text-[10px] text-zinc-400">
                                                             Acionada há {Math.floor((new Date() - new Date(cadeira.acionada_em)) / 60000)} min
                                                         </span>
                                                     </div>
@@ -518,7 +751,7 @@ export default function BarberDashboard({ token, logout, notify, API_URL }) {
                         {mostrarSeletorBarbearia && (
                             <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4">
                                 <div className="bg-zinc-900 border border-zinc-700 rounded-lg p-4 max-w-md w-full max-h-[80vh] overflow-y-auto">
-                                    <h3 className="text-lg font-bold mb-3">Selecione a Barbearia</h3>
+                                    <h3 className="text-lg font-bold mb-3">Selecione uma Barbearia</h3>
                                     <p className="text-xs text-zinc-400 mb-4">Escolha em qual barbearia você está presente:</p>
                                     
                                     <div className="space-y-2 mb-4">
@@ -559,27 +792,27 @@ export default function BarberDashboard({ token, logout, notify, API_URL }) {
                             </div>
                         )}
 
-                        <h2 className="text-sm font-bold text-zinc-400 uppercase">Novos Chamados</h2>
-                        <div className="space-y-2 pb-20">
+                        <h2 className="text-sm font-bold text-zinc-300 uppercase tracking-wide">Novos Chamados</h2>
+                        <div className="space-y-2 pb-20 max-w-2xl mx-auto w-full">
                             {loading ? (
                                 <div className="text-center py-8">
                                     <div className="w-6 h-6 border-3 border-orange-500 border-t-transparent rounded-full animate-spin mx-auto mb-2"></div>
                                     <p className="text-zinc-500 text-xs">Buscando chamados...</p>
                                 </div>
                             ) : jobs && jobs.length > 0 ? jobs.map(job => (
-                                <div key={job.id} className="bg-gradient-to-br from-orange-900/20 to-orange-800/10 border border-orange-500/30 p-3 rounded-lg">
-                                    <div className="flex justify-between items-start gap-2 mb-2">
+                                <div key={job.id} className="bg-gradient-to-br from-orange-900/20 to-orange-800/10 border border-orange-500/30 p-3.5 rounded-xl overflow-hidden">
+                                    <div className="flex justify-between items-start gap-2 mb-2.5">
                                         <div className="flex-1 min-w-0">
                                             <p className="font-bold text-sm truncate">{job.nome_cliente || job.cliente || 'Cliente'}</p>
-                                            <p className="text-xs text-zinc-400">{job.descricao || job.servico || 'Serviço'} • R$ {job.valor || 0}</p>
+                                            <p className="text-xs text-zinc-400 truncate">{job.descricao || job.servico || 'Serviço'} • R$ {job.valor || 0}</p>
                                             {job.data_hora_inicio && <p className="text-xs text-orange-400 mt-1">{new Date(job.data_hora_inicio).toLocaleString('pt-BR')}</p>}
                                         </div>
                                     </div>
-                                    <div className="flex gap-2 w-full">
-                                        <button onClick={() => acceptJob(job.id)} className="flex-1 bg-orange-600 hover:bg-orange-700 text-white text-xs px-2 py-2 rounded font-bold transition">
+                                    <div className="grid grid-cols-2 gap-2 w-full">
+                                        <button onClick={() => acceptJob(job.id)} className="w-full bg-orange-600 hover:bg-orange-700 text-white text-xs px-2 py-2 rounded font-bold transition">
                                             ✓ Aceitar
                                         </button>
-                                        <button onClick={() => rejectJob(job.id)} className="flex-1 bg-red-600 hover:bg-red-700 text-white text-xs px-2 py-2 rounded font-bold transition">
+                                        <button onClick={() => rejectJob(job.id)} className="w-full bg-red-600 hover:bg-red-700 text-white text-xs px-2 py-2 rounded font-bold transition">
                                             ✕ Recusar
                                         </button>
                                     </div>
@@ -590,21 +823,52 @@ export default function BarberDashboard({ token, logout, notify, API_URL }) {
                         </div>
 
                         {/* Atendimentos em andamento */}
-                        <h2 className="text-sm font-bold text-zinc-400 uppercase mt-6">Atendimentos em Andamento</h2>
-                        <div className="space-y-2 pb-20">
+                        <h2 className="text-sm font-bold text-zinc-300 uppercase tracking-wide mt-6">Atendimentos em Andamento</h2>
+                        <div className="space-y-2 pb-20 max-w-2xl mx-auto w-full">
                             {ongoingJobs && ongoingJobs.length > 0 ? ongoingJobs.map(job => (
-                                <div key={job.id} className="bg-gradient-to-br from-green-900/20 to-green-800/10 border border-green-500/30 p-3 rounded-lg">
-                                    <div className="flex justify-between items-start gap-2 mb-2">
+                                <div key={job.id} className="bg-gradient-to-br from-green-900/20 to-green-800/10 border border-green-500/30 p-3.5 rounded-xl overflow-hidden">
+                                    <div className="flex justify-between items-start gap-2 mb-2.5">
                                         <div className="flex-1 min-w-0">
                                             <p className="text-xs text-green-400 font-bold">✓ EM ANDAMENTO</p>
                                             <p className="font-bold text-sm truncate mt-1">{job.cliente_nome || job.cliente || 'Cliente'}</p>
-                                            <p className="text-xs text-zinc-400">{job.servico_nome || job.servico || 'Serviço'} • R$ {job.valor || 0}</p>
+                                            <p className="text-xs text-zinc-400 truncate">{job.servico_nome || job.servico || 'Serviço'} • R$ {job.valor || 0}</p>
+                                            {(job.cadeira_numero || job.cadeira_id) && (
+                                                <p className="text-xs text-orange-300 mt-1">
+                                                    Cadeira {job.cadeira_numero || job.cadeira_id} reservada
+                                                </p>
+                                            )}
                                             {job.data_hora_inicio && <p className="text-xs text-green-300 mt-1">{new Date(job.data_hora_inicio).toLocaleString('pt-BR')}</p>}
                                         </div>
                                     </div>
-                                    <button onClick={() => finalizeJob(job.id)} className="w-full bg-green-600 hover:bg-green-700 text-white text-xs px-2 py-2 rounded font-bold transition">
-                                        ✓ Finalizar Corte
-                                    </button>
+                                    <div className="flex gap-2">
+                                        {String(job.status || '').toLowerCase() === 'confirmado' && (
+                                            <button onClick={() => iniciarCorte(job.id)} className="flex-1 bg-blue-600 hover:bg-blue-700 text-white text-xs px-2 py-2 rounded font-bold transition">
+                                                Iniciar Corte
+                                            </button>
+                                        )}
+                                        {String(job.status || '').toLowerCase() === 'em_atendimento' && (
+                                            <button onClick={() => finalizeJob(job.id)} className="flex-1 bg-green-600 hover:bg-green-700 text-white text-xs px-2 py-2 rounded font-bold transition">
+                                                ✓ Finalizar Corte
+                                            </button>
+                                        )}
+                                        <button onClick={() => setChatTarget(job.id)} className="flex-1 bg-zinc-800 hover:bg-zinc-700 text-white text-xs px-2 py-2 rounded font-bold transition">
+                                            Chat
+                                        </button>
+                                        {onChamadoAceito && (
+                                            <button onClick={() => onChamadoAceito(job.id)} className="flex-1 bg-blue-600 hover:bg-blue-700 text-white text-xs px-2 py-2 rounded font-bold transition">
+                                                📍 Rastreamento
+                                            </button>
+                                        )}
+                                    </div>
+                                    <div className="mt-2 flex items-center gap-2">
+                                        <div className="text-xs text-zinc-300">Tempo: <span className="font-mono text-sm">{formatElapsed(timers[job.id]?.elapsed)}</span></div>
+                                        <button
+                                            onClick={() => timers[job.id]?.running ? stopTimer(job.id) : startTimer(job.id)}
+                                            className="px-2 py-1 bg-zinc-800 hover:bg-zinc-700 rounded text-xs text-white"
+                                        >
+                                            {timers[job.id]?.running ? 'Pausar' : 'Iniciar cronômetro'}
+                                        </button>
+                                    </div>
                                 </div>
                             )) : (
                                 <p className="text-zinc-600 text-center py-4 text-xs">Nenhum atendimento em andamento</p>
@@ -615,23 +879,49 @@ export default function BarberDashboard({ token, logout, notify, API_URL }) {
 
                 {/* === ABA 2: AGENDA === */}
                 {tab === 'agenda' && (
-                    <div className="p-2 sm:p-4 pb-20">
-                        <h2 className="text-sm font-bold text-zinc-400 uppercase mb-4">Atendimentos em Andamento</h2>
+                    <div className="p-2 sm:p-4 pb-20 max-w-3xl mx-auto w-full">
+                        <h2 className="text-sm font-bold text-zinc-300 uppercase tracking-wide mb-4">Atendimentos em Andamento</h2>
                         {ongoingJobs && ongoingJobs.length > 0 ? (
                             <div className="space-y-2">
                                 {ongoingJobs.map(job => (
-                                    <div key={job.id} className="bg-gradient-to-br from-green-900/20 to-green-800/10 border border-green-500/30 p-3 rounded-lg">
-                                        <div className="flex justify-between items-start gap-2 mb-2">
+                                    <div key={job.id} className="bg-gradient-to-br from-green-900/20 to-green-800/10 border border-green-500/30 p-3.5 rounded-xl">
+                                        <div className="flex justify-between items-start gap-2 mb-2.5">
                                             <div className="flex-1 min-w-0">
                                                 <p className="text-xs text-green-400 font-bold">✓ EM ANDAMENTO</p>
                                                 <p className="font-bold text-sm truncate mt-1">{job.cliente_nome || job.cliente || 'Cliente'}</p>
                                                 <p className="text-xs text-zinc-400">{job.servico_nome || job.servico || 'Serviço'} • R$ {job.valor || 0}</p>
+                                                {(job.cadeira_numero || job.cadeira_id) && (
+                                                    <p className="text-xs text-orange-300 mt-1">
+                                                        Cadeira {job.cadeira_numero || job.cadeira_id} reservada
+                                                    </p>
+                                                )}
                                                 {job.data_hora_inicio && <p className="text-xs text-green-300 mt-1">{new Date(job.data_hora_inicio).toLocaleString('pt-BR')}</p>}
                                             </div>
                                         </div>
-                                        <button onClick={() => finalizeJob(job.id)} className="w-full bg-green-600 hover:bg-green-700 text-white text-xs px-2 py-2 rounded font-bold transition">
-                                            ✓ Finalizar Corte
-                                        </button>
+                                        <div className="flex gap-2">
+                                            {String(job.status || '').toLowerCase() === 'confirmado' && (
+                                                <button onClick={() => iniciarCorte(job.id)} className="flex-1 bg-blue-600 hover:bg-blue-700 text-white text-xs px-2 py-2 rounded font-bold transition">
+                                                    Iniciar Corte
+                                                </button>
+                                            )}
+                                            {String(job.status || '').toLowerCase() === 'em_atendimento' && (
+                                                <button onClick={() => finalizeJob(job.id)} className="flex-1 bg-green-600 hover:bg-green-700 text-white text-xs px-2 py-2 rounded font-bold transition">
+                                                    ✓ Finalizar Corte
+                                                </button>
+                                            )}
+                                            <button onClick={() => setChatTarget(job.id)} className="flex-1 bg-zinc-800 hover:bg-zinc-700 text-white text-xs px-2 py-2 rounded font-bold transition">
+                                                Chat
+                                            </button>
+                                        </div>
+                                        <div className="mt-2 flex items-center gap-2">
+                                            <div className="text-xs text-zinc-300">Tempo: <span className="font-mono text-sm">{formatElapsed(timers[job.id]?.elapsed)}</span></div>
+                                            <button
+                                                onClick={() => timers[job.id]?.running ? stopTimer(job.id) : startTimer(job.id)}
+                                                className="px-2 py-1 bg-zinc-800 hover:bg-zinc-700 rounded text-xs text-white"
+                                            >
+                                                {timers[job.id]?.running ? 'Pausar' : 'Iniciar cronômetro'}
+                                            </button>
+                                        </div>
                                     </div>
                                 ))}
                             </div>
@@ -641,17 +931,9 @@ export default function BarberDashboard({ token, logout, notify, API_URL }) {
                     </div>
                 )}
 
-                {/* === ABA 3: APROVAR === */}
-                {tab === 'aprovar' && (
-                    <div className="p-2 sm:p-4">
-                        <h2 className="text-sm font-bold text-zinc-400 uppercase mb-4">Aprovações</h2>
-                        <p className="text-zinc-600 text-center py-12 text-xs">Nenhuma aprovação pendente</p>
-                    </div>
-                )}
-
-                {/* === ABA 4: AVALIAR === */}
+                {/* === ABA 3: AVALIAR === */}
                 {tab === 'avaliar' && (
-                    <div className="p-2 sm:p-4 pb-20">
+                    <div className="p-2 sm:p-4 pb-20 max-w-3xl mx-auto w-full">
                         {userData ? (
                             <AbaPadronizadaAvaliacoes
                                 usuarioId={userData.id}
@@ -670,34 +952,64 @@ export default function BarberDashboard({ token, logout, notify, API_URL }) {
                     </div>
                 )}
 
-                {/* === ABA 5: PERFIL === */}
+                {/* === ABA 4: PERFIL === */}
                 {tab === 'perfil' && (
                     <TelaPerfilUsuario userType="barbeiro" token={token} onLogout={logout} onNotify={notify} />
                 )}
 
-                {/* === ABA 6: CADEIRAS DISPONÍVEIS === */}
-                {tab === 'cadeiras' && (
-                    <CadeirasDisponíveisComponent token={token} API_URL={API_URL} notify={notify} />
+                {chatTarget && (
+                    <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-2 sm:p-4">
+                        <div className="w-full max-w-[96vw] sm:max-w-5xl lg:max-w-6xl h-[92vh] bg-zinc-900 border border-zinc-800 rounded-2xl p-3 sm:p-5 shadow-2xl flex flex-col">
+                            <div className="flex items-center justify-between gap-3 mb-4 pb-3 border-b border-zinc-800">
+                                <div>
+                                    <p className="text-base sm:text-lg font-bold text-white">Chat do chamado #{chatTarget}</p>
+                                    <p className="text-[11px] sm:text-xs text-zinc-400 mt-1">Área ampliada para acompanhar a conversa do cliente sem ficar presa em um quadrado pequeno</p>
+                                </div>
+                                <button onClick={() => setChatTarget(null)} className="text-xs text-zinc-400 hover:text-white">Fechar</button>
+                            </div>
+                            <div className="flex-1 min-h-0 overflow-hidden">
+                                <ChatRoom chamadoId={chatTarget} token={token} API_URL={API_URL} compact={false} />
+                            </div>
+                        </div>
+                    </div>
                 )}
 
-                {/* === ABA 7: CARTEIRA === */}
-                {tab === 'carteira' && (
-                    <TelaCarteiraFreelancer 
-                        barbeiroDashId={userData?.id}
-                        token={token} 
-                        API_URL={API_URL} 
-                        onNotify={notify} 
-                    />
+                {promptFinalizacaoJob && (
+                    <div className="fixed inset-0 z-[60] bg-black/85 backdrop-blur-md flex items-center justify-center p-4">
+                        <div className="w-full max-w-md bg-zinc-950 border border-orange-500/40 rounded-2xl shadow-2xl p-5 text-center">
+                            <div className="mx-auto h-14 w-14 rounded-full bg-orange-500/15 border border-orange-500/30 flex items-center justify-center mb-4">
+                                <Scissors size={24} className="text-orange-400" />
+                            </div>
+                            <p className="text-xs uppercase tracking-[0.3em] text-orange-300/80 mb-2">Tempo previsto encerrado</p>
+                            <h3 className="text-lg font-bold text-white mb-2">Você finalizou o corte?</h3>
+                            <p className="text-sm text-zinc-300 mb-4">
+                                O atendimento de <span className="font-semibold text-white">{promptFinalizacaoJob.cliente_nome || promptFinalizacaoJob.cliente || 'cliente'}</span> já atingiu a duração prevista.
+                            </p>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                <button
+                                    onClick={adiarFinalizacaoPrompt}
+                                    className="w-full rounded-xl border border-zinc-700 bg-zinc-900 px-4 py-3 text-sm font-bold text-zinc-200 hover:bg-zinc-800 transition"
+                                >
+                                    Ainda não
+                                </button>
+                                <button
+                                    onClick={confirmarFinalizacaoPrompt}
+                                    className="w-full rounded-xl bg-green-600 px-4 py-3 text-sm font-bold text-white hover:bg-green-700 transition"
+                                >
+                                    Sim, finalizar
+                                </button>
+                            </div>
+                        </div>
+                    </div>
                 )}
-
             </div>
 
             {/* NAVBAR FIXA INFERIOR - 5 BOTÕES */}
-            <div className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-[400px] h-16 bg-zinc-950/98 backdrop-blur-lg border-t border-zinc-800 flex justify-around items-center z-50">
+            <div className="sticky bottom-0 left-0 w-full h-[calc(4rem+env(safe-area-inset-bottom))] pb-[env(safe-area-inset-bottom)] bg-zinc-950/98 backdrop-blur-lg border-t border-zinc-800 flex justify-around items-center z-40">
                 <button
                     onClick={() => setTab('trabalhos')}
                     className={`flex flex-col items-center justify-center gap-0.5 h-full flex-1 text-center transition-colors ${
-                        tab === 'trabalhos' ? 'text-orange-500 bg-orange-500/5' : 'text-zinc-500 hover:text-zinc-400'
+                        tab === 'trabalhos' ? 'text-orange-500 bg-orange-500/5' : 'text-zinc-400 hover:text-zinc-200'
                     }`}
                 >
                     <Briefcase size={14} />
@@ -707,7 +1019,7 @@ export default function BarberDashboard({ token, logout, notify, API_URL }) {
                 <button
                     onClick={() => setTab('agenda')}
                     className={`flex flex-col items-center justify-center gap-0.5 h-full flex-1 text-center transition-colors ${
-                        tab === 'agenda' ? 'text-orange-500 bg-orange-500/5' : 'text-zinc-500 hover:text-zinc-400'
+                        tab === 'agenda' ? 'text-orange-500 bg-orange-500/5' : 'text-zinc-400 hover:text-zinc-200'
                     }`}
                 >
                     <Calendar size={14} />
@@ -715,19 +1027,9 @@ export default function BarberDashboard({ token, logout, notify, API_URL }) {
                 </button>
                 
                 <button
-                    onClick={() => setTab('aprovar')}
-                    className={`flex flex-col items-center justify-center gap-0.5 h-full flex-1 text-center transition-colors ${
-                        tab === 'aprovar' ? 'text-orange-500 bg-orange-500/5' : 'text-zinc-500 hover:text-zinc-400'
-                    }`}
-                >
-                    <ThumbsUp size={14} />
-                    <span className="text-[7px] font-bold">Aprovar</span>
-                </button>
-                
-                <button
                     onClick={() => setTab('avaliar')}
                     className={`flex flex-col items-center justify-center gap-0.5 h-full flex-1 text-center transition-colors ${
-                        tab === 'avaliar' ? 'text-orange-500 bg-orange-500/5' : 'text-zinc-500 hover:text-zinc-400'
+                        tab === 'avaliar' ? 'text-orange-500 bg-orange-500/5' : 'text-zinc-400 hover:text-zinc-200'
                     }`}
                 >
                     <Star size={14} />
@@ -737,33 +1039,38 @@ export default function BarberDashboard({ token, logout, notify, API_URL }) {
                 <button
                     onClick={() => setTab('perfil')}
                     className={`flex flex-col items-center justify-center gap-0.5 h-full flex-1 text-center transition-colors ${
-                        tab === 'perfil' ? 'text-orange-500 bg-orange-500/5' : 'text-zinc-500 hover:text-zinc-400'
+                        tab === 'perfil' ? 'text-orange-500 bg-orange-500/5' : 'text-zinc-400 hover:text-zinc-200'
                     }`}
                 >
                     <User size={14} />
                     <span className="text-[7px] font-bold">Perfil</span>
                 </button>
 
-                <button
-                    onClick={() => setTab('cadeiras')}
-                    className={`flex flex-col items-center justify-center gap-0.5 h-full flex-1 text-center transition-colors ${
-                        tab === 'cadeiras' ? 'text-orange-500 bg-orange-500/5' : 'text-zinc-500 hover:text-zinc-400'
-                    }`}
-                >
-                    <Armchair size={14} />
-                    <span className="text-[7px] font-bold">Cadeiras</span>
-                </button>
-
-                <button
-                    onClick={() => setTab('carteira')}
-                    className={`flex flex-col items-center justify-center gap-0.5 h-full flex-1 text-center transition-colors ${
-                        tab === 'carteira' ? 'text-green-500 bg-green-500/5' : 'text-zinc-500 hover:text-zinc-400'
-                    }`}
-                >
-                    <Wallet size={14} />
-                    <span className="text-[7px] font-bold">Carteira</span>
-                </button>
             </div>
+
+
+            {/* Mostrar rotas quando há atendimento em andamento */}
+            {ongoingJobs && ongoingJobs.length > 0 && ['confirmado', 'em_atendimento'].includes((ongoingJobs[0].status || '').toLowerCase()) && (
+              <TelaRotasAtivos
+                chamado={ongoingJobs[0]}
+                userType="barbeiro"
+                userLocation={user}
+                clienteLocation={{
+                  latitude: ongoingJobs[0]?.cliente_latitude,
+                  longitude: ongoingJobs[0]?.cliente_longitude,
+                }}
+                barbearia={{
+                  id: ongoingJobs[0]?.barbearia_id,
+                  nome: ongoingJobs[0]?.barbearia_nome,
+                  latitude: ongoingJobs[0]?.barbearia_latitude,
+                  longitude: ongoingJobs[0]?.barbearia_longitude,
+                  endereco: ongoingJobs[0]?.barbearia_endereco,
+                  telefone: ongoingJobs[0]?.barbearia_telefone,
+                }}
+                barbeiro={user}
+                onNotify={notify}
+              />
+            )}
         </div>
     );
 }

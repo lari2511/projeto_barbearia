@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Loader, AlertCircle, CheckCircle, Armchair, Lock, LockOpen } from 'lucide-react';
+import { Loader, AlertCircle, CheckCircle, Armchair, Lock, LockOpen, Plus } from 'lucide-react';
 
 export default function LiberarCadeirasComponent({ token, API_URL, notify, barbeariaId }) {
   const [cadeiras, setCadeiras] = useState([]);
   const [loading, setLoading] = useState(true);
   const [libertando, setLibertando] = useState(null);
+  const [tempoRestante, setTempoRestante] = useState({});
 
   const carregarCadeiras = useCallback(async () => {
     if (!barbeariaId) {
@@ -35,11 +36,30 @@ export default function LiberarCadeirasComponent({ token, API_URL, notify, barbe
     carregarCadeiras();
   }, [carregarCadeiras]);
 
+  // Atualizar tempo restante a cada segundo
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setTempoRestante(prev => {
+        const updated = { ...prev };
+        cadeiras.forEach(c => {
+          if (c.ocupada_em) {
+            const ocupadaEm = new Date(c.ocupada_em).getTime();
+            const agora = Date.now();
+            const tempoDecorrido = (agora - ocupadaEm) / 1000; // segundos
+            updated[c.id] = Math.max(0, tempoDecorrido);
+          }
+        });
+        return updated;
+      });
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [cadeiras]);
+
   const liberarCadeira = async (cadeiraId) => {
     try {
       setLibertando(cadeiraId);
-      const res = await fetch(`${API_URL}/api/v1/cadeiras/${cadeiraId}/liberar-para-barbeiros`, {
-        method: 'PUT',
+      const res = await fetch(`${API_URL}/api/v1/cadeiras/${cadeiraId}/liberar`, {
+        method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
@@ -48,7 +68,7 @@ export default function LiberarCadeirasComponent({ token, API_URL, notify, barbe
 
       if (res.ok) {
         const data = await res.json();
-        notify(`✅ Cadeira '${data.cadeira.numero}' liberada para freelancers!`, 'success');
+        notify(`✅ Cadeira '${data.cadeira_id || cadeiraId}' liberada!`, 'success');
         carregarCadeiras();
       } else {
         const error = await res.json();
@@ -115,118 +135,158 @@ export default function LiberarCadeirasComponent({ token, API_URL, notify, barbe
 
   if (!barbeariaId) {
     return (
-      <div className="bg-yellow-900/20 border border-yellow-600 rounded-lg p-3 text-yellow-400 text-xs">
-        ⚠️ Barbearia não identificada. Configure seu perfil.
+      <div className="bg-purple-900/20 border border-purple-600/30 rounded-lg p-4 text-purple-300 text-xs text-center">
+        ⚠️ <strong>Barbearia não identificada</strong> — Configure seu perfil nas configurações.
       </div>
     );
   }
 
   return (
     <div className="space-y-4">
+      {/* Header */}
       <div className="flex items-center justify-between">
         <h3 className="text-sm font-bold text-white flex items-center gap-2">
-          👍 Liberar Cadeiras
+          🪑 Gerenciar Cadeiras
         </h3>
         <button
           onClick={carregarCadeiras}
           disabled={loading}
-          className="bg-orange-500 text-white px-2 py-1 rounded text-xs font-bold active:scale-95 disabled:opacity-50"
+          className="bg-purple-600 hover:bg-purple-700 text-white px-3 py-1.5 rounded-lg text-xs font-bold active:scale-95 disabled:opacity-50 transition flex items-center gap-1"
         >
-          {loading ? '⏳' : '🔄'}
+          {loading ? <Loader size={14} className="animate-spin" /> : '🔄 Atualizar'}
         </button>
       </div>
 
+      {/* Nova Cadeira */}
+      <button className="w-full bg-purple-600 hover:bg-purple-700 text-white py-3 rounded-lg font-bold text-sm flex items-center justify-center gap-2 transition active:scale-95">
+        <Plus size={18} />
+        Nova Cadeira
+      </button>
+
+      {/* Dicas */}
+      <div className="bg-purple-600/10 border border-purple-600/30 rounded-lg p-3">
+        <p className="text-xs text-purple-300">
+          💡 <strong>Dica:</strong> Quando a barra fica <span className="text-purple-400">roxa e piscante</span>, significa que faltam 15 minutos — o próximo cliente já está sendo buscado pelo sistema!
+        </p>
+      </div>
+
       {loading ? (
-        <div className="flex items-center justify-center py-6">
-          <Loader className="animate-spin text-orange-500" size={20} />
+        <div className="flex items-center justify-center py-8">
+          <Loader className="animate-spin text-purple-500" size={24} />
         </div>
       ) : cadeiras.length === 0 ? (
-        <div className="bg-zinc-900/50 border border-zinc-800 rounded-lg p-4 text-center">
-          <AlertCircle className="text-zinc-600 mx-auto mb-2" size={24} />
-          <p className="text-zinc-400 text-xs">Nenhuma cadeira cadastrada</p>
+        <div className="bg-zinc-900/50 border border-zinc-800 rounded-lg p-6 text-center">
+          <AlertCircle className="text-zinc-600 mx-auto mb-3" size={32} />
+          <p className="text-zinc-400 text-sm">Nenhuma cadeira cadastrada</p>
+          <p className="text-zinc-500 text-xs mt-1">Clique em "Nova Cadeira" para começar!</p>
         </div>
       ) : (
-        <div className="space-y-2">
+        <div className="space-y-3">
           {cadeiras.map(cadeira => {
             const status = (cadeira.status || '').toString().toLowerCase();
+            const piscando = status === 'ocupada' && tempoRestante[cadeira.id] && tempoRestante[cadeira.id] >= (tempoRestante[cadeira.id] * 60 - 900); // últimos 15 min
+            
             return (
-            <div key={cadeira.id} className="bg-zinc-900 border border-zinc-800 rounded-lg p-3">
-              <div className="flex items-center justify-between mb-2">
-                <div className="flex items-center gap-2">
-                  <Armchair size={16} className="text-orange-500" />
-                  <span className="font-bold text-sm">{cadeira.numero}</span>
-                </div>
-                <span className={`text-xs px-2 py-1 rounded font-bold ${
-                  status === 'disponivel' ? 'bg-green-600/20 text-green-400' :
-                  status === 'ocupada' ? 'bg-blue-600/20 text-blue-400' :
-                  'bg-red-600/20 text-red-400'
-                }`}>
-                  {status ? status.toUpperCase() : 'DESCONHECIDO'}
-                </span>
-              </div>
+              <div 
+                key={cadeira.id} 
+                className={`rounded-lg border overflow-hidden transition ${
+                  piscando 
+                    ? 'border-purple-500 bg-purple-900/10 animate-pulse' 
+                    : 'border-zinc-800 bg-zinc-900/50'
+                }`}
+              >
+                {/* Barra de Progresso no topo */}
+                {status === 'ocupada' && (
+                  <div className={`h-1 transition-all ${
+                    piscando 
+                      ? 'bg-purple-500 animate-pulse' 
+                      : 'bg-orange-500'
+                  }`} style={{
+                    width: `${Math.min(100, (tempoRestante[cadeira.id] || 0) / 18)}%` // assumindo 30 minutos = 1800s
+                  }} />
+                )}
 
-              {status === 'disponivel' ? (
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => liberarCadeira(cadeira.id)}
-                    disabled={libertando === cadeira.id}
-                    className="flex-1 bg-green-600 hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold py-2 rounded text-xs transition-colors active:scale-95"
-                  >
-                    {libertando === cadeira.id ? (
-                      <span className="flex items-center justify-center gap-1">
-                        <Loader size={12} className="animate-spin" />
-                        Liberando...
-                      </span>
+                {/* Conteúdo do Card */}
+                <div className="p-4 flex items-center justify-between gap-4">
+                  {/* Info da Cadeira */}
+                  <div className="flex-1 flex items-center gap-3">
+                    <div className="bg-purple-600/20 p-2.5 rounded-lg">
+                      <Armchair size={18} className="text-purple-400" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="font-bold text-white text-sm">Cadeira {cadeira.numero}</p>
+                      <div className="flex items-center gap-2 mt-1">
+                        <span className={`text-xs px-2 py-0.5 rounded-full font-bold ${
+                          status === 'disponivel' ? 'bg-green-600/30 text-green-400' :
+                          status === 'ocupada' ? 'bg-blue-600/30 text-blue-400' :
+                          'bg-zinc-700/50 text-zinc-400'
+                        }`}>
+                          {status ? status.charAt(0).toUpperCase() + status.slice(1) : 'DESCONHECIDO'}
+                        </span>
+                        {status === 'ocupada' && cadeira.freelancer_nome && (
+                          <span className="text-xs text-zinc-400 truncate">por {cadeira.freelancer_nome}</span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Botões de Ação */}
+                  <div className="flex items-center gap-2">
+                    {status === 'ocupada' ? (
+                      <button
+                        onClick={() => liberarCadeira(cadeira.id)}
+                        disabled={libertando === cadeira.id}
+                        className="bg-orange-500 hover:bg-orange-600 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold py-2 px-3 rounded-lg text-xs transition-colors active:scale-95 flex items-center gap-1 whitespace-nowrap"
+                      >
+                        {libertando === cadeira.id ? (
+                          <>
+                            <Loader size={12} className="animate-spin" />
+                            Liberando...
+                          </>
+                        ) : (
+                          '⚡ Liberar'
+                        )}
+                      </button>
+                    ) : status === 'disponivel' ? (
+                      <button
+                        onClick={() => bloquearCadeira(cadeira.id)}
+                        disabled={libertando === cadeira.id}
+                        className="bg-purple-600 hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold py-2 px-3 rounded-lg text-xs transition-colors active:scale-95 flex items-center gap-1"
+                      >
+                        {libertando === cadeira.id ? (
+                          <>
+                            <Loader size={12} className="animate-spin" />
+                          </>
+                        ) : (
+                          <>
+                            <Lock size={12} />
+                            Bloquear
+                          </>
+                        )}
+                      </button>
                     ) : (
-                      '✅ Liberar'
+                      <button
+                        onClick={() => desbloquearCadeira(cadeira.id)}
+                        disabled={libertando === cadeira.id}
+                        className="bg-purple-600 hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold py-2 px-3 rounded-lg text-xs transition-colors active:scale-95 flex items-center gap-1"
+                      >
+                        {libertando === cadeira.id ? (
+                          <>
+                            <Loader size={12} className="animate-spin" />
+                          </>
+                        ) : (
+                          <>
+                            <LockOpen size={12} />
+                            Desbloquear
+                          </>
+                        )}
+                      </button>
                     )}
-                  </button>
-                  <button
-                    onClick={() => bloquearCadeira(cadeira.id)}
-                    disabled={libertando === cadeira.id}
-                    className="flex-1 bg-red-600 hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold py-2 rounded text-xs transition-colors active:scale-95"
-                  >
-                    {libertando === cadeira.id ? (
-                      <span className="flex items-center justify-center gap-1">
-                        <Loader size={12} className="animate-spin" />
-                      </span>
-                    ) : (
-                      '🔒 Bloquear'
-                    )}
-                  </button>
-                </div>
-              ) : status === 'ocupada' && cadeira.freelancer_id ? (
-                <div className="bg-blue-900/20 border border-blue-600/30 rounded p-2 text-xs text-blue-400">
-                  <div className="flex items-center gap-1">
-                    <CheckCircle size={12} />
-                    <span>Ocupada por {cadeira.freelancer_nome || 'Freelancer'}</span>
                   </div>
                 </div>
-              ) : status === 'ocupada' && !cadeira.freelancer_id ? (
-                <div className="bg-orange-900/20 border border-orange-600/30 rounded p-2 text-xs text-orange-400">
-                  Aguardando freelancer aceitar...
-                </div>
-              ) : (
-                <button
-                  onClick={() => desbloquearCadeira(cadeira.id)}
-                  disabled={libertando === cadeira.id}
-                  className="w-full bg-yellow-600 hover:bg-yellow-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold py-2 rounded text-xs transition-colors active:scale-95"
-                >
-                  {libertando === cadeira.id ? (
-                    <span className="flex items-center justify-center gap-1">
-                      <Loader size={12} className="animate-spin" />
-                      Desbloqueando...
-                    </span>
-                  ) : (
-                    <>
-                      <LockOpen size={12} className="inline mr-1" />
-                      Desbloquear
-                    </>
-                  )}
-                </button>
-              )}
-            </div>
-          )})}
+              </div>
+            );
+          })}
         </div>
       )}
     </div>

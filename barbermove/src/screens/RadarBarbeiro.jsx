@@ -64,7 +64,9 @@ TaskManager.defineTask(LOCATION_TASK_NAME, async ({ data, error }) => {
         return;
       }
 
-      const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+      const defaultHost = typeof window !== 'undefined' ? window.location.hostname : 'localhost';
+      const defaultProtocol = typeof window !== 'undefined' && window.location.protocol === 'https:' ? 'https' : 'http';
+      const API_URL = import.meta.env.VITE_API_URL || `${defaultProtocol}://${defaultHost}:8000`;
 
       // Envia a localização fresca para o Backend
       const response = await fetch(
@@ -255,7 +257,9 @@ const RadarBarbeiro = ({ route: _route, navigation }) => {
         return;
       }
 
-      const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+      const defaultHost = typeof window !== 'undefined' ? window.location.hostname : 'localhost';
+      const defaultProtocol = typeof window !== 'undefined' && window.location.protocol === 'https:' ? 'https' : 'http';
+      const API_URL = import.meta.env.VITE_API_URL || `${defaultProtocol}://${defaultHost}:8000`;
 
       const body = {
         is_online: isOnline,

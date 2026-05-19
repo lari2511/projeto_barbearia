@@ -56,7 +56,7 @@ def listar_barbearias_proximas(
         barbearia = db.query(Barbearia).filter(
             Barbearia.usuario_id == user.id
         ).first()
-        
+
         if barbearia and user.latitude and user.longitude:
             cadeira_disponivel = db.query(Cadeira).filter(
                 Cadeira.barbearia_id == barbearia.id,
@@ -68,8 +68,6 @@ def listar_barbearias_proximas(
                     )
                 )
             ).first()
-            if not cadeira_disponivel:
-                continue
 
             # Calcular distância usando Haversine
             lat1, lon1 = radians(usuario_atual.latitude), radians(usuario_atual.longitude)
@@ -93,13 +91,15 @@ def listar_barbearias_proximas(
                     "endereco": barbearia.endereco,
                     "cidade": getattr(barbearia, "cidade", None),
                     "bairro": getattr(barbearia, "bairro", None),
+                    "latitude": user.latitude,
+                    "longitude": user.longitude,
                     "distancia_km": round(distancia_km, 2),
                     "logo_url": getattr(barbearia, "logo_url", None),
                     "descricao": getattr(barbearia, "descricao", None),
                     "categoria": getattr(barbearia, "categoria", None),
                     "criado_em": user.criado_em,
                     "aprovado_em": user.perfil_aprovado_em,
-                    "cadeira_disponivel": True
+                    "cadeira_disponivel": cadeira_disponivel is not None
                 })
     
     # Ordenar por distância (mais próximos primeiro)
@@ -155,8 +155,6 @@ def listar_todas_barbearias_aprovadas(
                     )
                 )
             ).first()
-            if not cadeira_disponivel:
-                continue
 
             # Calcular distância se ambas têm localização
             distancia_km = None
@@ -180,13 +178,15 @@ def listar_todas_barbearias_aprovadas(
                 "endereco": barbearia.endereco,
                 "cidade": getattr(barbearia, "cidade", None),
                 "bairro": getattr(barbearia, "bairro", None),
+                "latitude": user.latitude,
+                "longitude": user.longitude,
                 "distancia_km": distancia_km,
                 "logo_url": getattr(barbearia, "logo_url", None),
                 "descricao": getattr(barbearia, "descricao", None),
                 "categoria": getattr(barbearia, "categoria", None),
                 "criado_em": user.criado_em,
                 "aprovado_em": user.perfil_aprovado_em,
-                "cadeira_disponivel": True
+                "cadeira_disponivel": cadeira_disponivel is not None
             })
     
     # Ordenar por distância se disponível

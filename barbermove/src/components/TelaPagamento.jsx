@@ -1,10 +1,19 @@
 // --- ARQUIVO: barbermove/src/components/TelaPagamento.jsx ---
 // Componente para processar pagamentos (PIX/Cartão/Dinheiro)
 
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { AlertCircle, CheckCircle, Copy, Loader, CreditCard, QrCode, DollarSign, Gift, X, ArrowLeft, Wallet } from 'lucide-react';
+import {
+  salvarMetodoPreferidoCliente,
+  lerMetodoPreferidoCliente,
+  normalizarPixMercadoPago,
+  gerarQrDataUrl,
+  validarCartaoBasico
+} from './checkout/core';
 
 export default function TelaPagamento({ chamadoId, valor, onPago }) {
+  const preferenciaInicialAplicadaRef = useRef(false);
+  const [metodoPreferidoCliente, setMetodoPreferidoCliente] = useState(() => lerMetodoPreferidoCliente());
   const [etapa, setEtapa] = useState('metodo'); // 'metodo', 'pix', 'cartao', 'processando', 'confirmacao'
   const [metodo, setMetodo] = useState(null);
   const [pagamentoId, setPagamentoId] = useState(null);
@@ -47,93 +56,17 @@ export default function TelaPagamento({ chamadoId, valor, onPago }) {
   };
 
   // Validações
-  const validarCartao = () => {
-    const novosErros = {};
-    
-    const numLimpo = cartao.numero.replace(/\s/g, '');
-    if (!numLimpo || numLimpo.length < 13) {
-      novosErros.numero = 'Número do cartão inválido';
-    }
-    
-    if (!cartao.titular || cartao.titular.length < 3) {
-      novosErros.titular = 'Nome do titular é obrigatório';
-    }
-    
-    const validadeLimpa = cartao.validade.replace(/\D/g, '');
-    if (!validadeLimpa || validadeLimpa.length !== 4) {
-      novosErros.validade = 'Validade inválida (MM/AA)';
-    } else {
-      const mes = parseInt(validadeLimpa.slice(0, 2));
-      const ano = parseInt('20' + validadeLimpa.slice(2, 4));
-      const hoje = new Date();
-      const anoAtual = hoje.getFullYear();
-      const mesAtual = hoje.getMonth() + 1;
-      
-      if (mes < 1 || mes > 12) {
-        novosErros.validade = 'Mês inválido';
-      } else if (ano < anoAtual || (ano === anoAtual && mes < mesAtual)) {
-        novosErros.validade = 'Cartão vencido';
-      }
-    }
-    
-    if (!cartao.cvv || cartao.cvv.length < 3) {
-      novosErros.cvv = 'CVV inválido';
-    }
-    
-    setErros(novosErros);
-    return Object.keys(novosErros).length === 0;
-  };
+  
 
-  const mostrarMensagem = (texto, tipo = 'info') => {
+  const mostrarMensagem = useCallback((texto, tipo = 'info') => {
     setMensagem(texto);
     setTipoMensagem(tipo);
     setTimeout(() => setMensagem(''), 4000);
-  };
+  }, []);
 
-  const criarPagamento = async (metodoSelecionado) => {
-    setLoading(true);
-    setMensagem('');
-    try {
-      const response = await fetch(`${import.meta.env.VITE_API_URL}/api/v1/pagamentos/criar`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
-        },
-        body: JSON.stringify({
-          chamado_id: chamadoId,
-          metodo: metodoSelecionado,
-          cupom_codigo: cupom || null,
-          parcelas: metodoSelecionado === 'cartao' ? parcelas : 1
-        })
-      });
+  
 
-      if (response.ok) {
-        const data = await response.json();
-        setPagamentoId(data.id);
-        setValorComDesconto(data.valor_final ?? valorComDesconto);
-        setMetodo(metodoSelecionado);
-
-        if (metodoSelecionado === 'pix') {
-          await gerarPix(data.id);
-        } else if (metodoSelecionado === 'cartao') {
-          setEtapa('cartao');
-        } else if (metodoSelecionado === 'dinheiro') {
-          await confirmarPagamento('dinheiro', data.id);
-        }
-        mostrarMensagem('Pagamento criado com sucesso!', 'success');
-      } else {
-        const error = await response.json();
-        mostrarMensagem(error.detail || 'Erro ao criar pagamento', 'error');
-      }
-    } catch (err) {
-      console.error('Erro:', err);
-      mostrarMensagem('Erro ao criar pagamento. Tente novamente.', 'error');
-    }
-    setLoading(false);
-  };
-
-  const gerarPix = async (pagId) => {
+  const gerarPix = useCallback(async (pagId) => {
     try {
       // Usar endpoint MercadoPago para gerar PIX real
       const response = await fetch(`${import.meta.env.VITE_API_URL}/api/v1/pagamentos/mercadopago/pix`, {
@@ -147,13 +80,15 @@ export default function TelaPagamento({ chamadoId, valor, onPago }) {
 
       if (response.ok) {
         const data = await response.json();
-        // Converter base64 para data URL para exibir a imagem
-        if (data.qrcode_base64) {
-          setQrcode(`data:image/png;base64,${data.qrcode_base64}`);
-        } else if (data.qrcode) {
-          setQrcode(data.qrcode);
+        const pix = normalizarPixMercadoPago(data);
+
+        let qrRender = pix.qrImage;
+        if (!qrRender && pix.copia) {
+          qrRender = await gerarQrDataUrl(pix.copia).catch(() => '');
         }
-        setCopiaCola(data.qrcode || 'Código PIX disponível no banco');
+
+        setQrcode(qrRender || null);
+        setCopiaCola(pix.copia || 'Código PIX disponível no banco');
         setEtapa('pix');
         mostrarMensagem('QR Code MercadoPago gerado! Escaneie para pagar.', 'success');
       } else {
@@ -164,7 +99,7 @@ export default function TelaPagamento({ chamadoId, valor, onPago }) {
       console.error('Erro:', err);
       mostrarMensagem('Erro ao gerar PIX. Tente novamente.', 'error');
     }
-  };
+  }, [mostrarMensagem]);
 
   const copiarPix = () => {
     navigator.clipboard.writeText(copiaCola);
@@ -213,13 +148,17 @@ export default function TelaPagamento({ chamadoId, valor, onPago }) {
     mostrarMensagem('Cupom removido', 'info');
   };
 
-  const confirmarPagamento = async (metodoOverride = null, pagamentoIdOverride = null) => {
+  const confirmarPagamento = useCallback(async (metodoOverride = null, pagamentoIdOverride = null) => {
     const metodoAtual = metodoOverride || metodo;
     const pagamentoAtual = pagamentoIdOverride || pagamentoId;
 
-    if (metodoAtual === 'cartao' && !validarCartao()) {
-      mostrarMensagem('Preencha todos os dados do cartão corretamente', 'error');
-      return;
+    if (metodoAtual === 'cartao') {
+      const novosErros = validarCartaoBasico({ numero: cartao.numero, titular: cartao.titular, validade: cartao.validade, cvv: cartao.cvv });
+      setErros(novosErros);
+      if (Object.keys(novosErros).length !== 0) {
+        mostrarMensagem('Preencha todos os dados do cartão corretamente', 'error');
+        return;
+      }
     }
 
     setLoading(true);
@@ -317,7 +256,72 @@ export default function TelaPagamento({ chamadoId, valor, onPago }) {
       mostrarMensagem('Erro ao processar pagamento. Tente novamente.', 'error');
     }
     setLoading(false);
-  };
+  }, [metodo, pagamentoId, cartao, parcelas, mostrarMensagem, onPago]);
+
+  const criarPagamento = useCallback(async (metodoSelecionado) => {
+    setLoading(true);
+    setMensagem('');
+    try {
+      const response = await fetch(`${import.meta.env.VITE_API_URL}/api/v1/pagamentos/criar`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
+        },
+        body: JSON.stringify({
+          chamado_id: chamadoId,
+          metodo: metodoSelecionado,
+          cupom_codigo: cupom || null,
+          parcelas: metodoSelecionado === 'cartao' ? parcelas : 1
+        })
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        setPagamentoId(data.id);
+        setValorComDesconto(data.valor_final ?? valorComDesconto);
+        setMetodo(metodoSelecionado);
+
+        if (metodoSelecionado === 'pix') {
+          await gerarPix(data.id);
+        } else if (metodoSelecionado === 'cartao') {
+          setEtapa('cartao');
+        } else if (metodoSelecionado === 'dinheiro') {
+          await confirmarPagamento('dinheiro', data.id);
+        }
+        mostrarMensagem('Pagamento criado com sucesso!', 'success');
+      } else {
+        const error = await response.json();
+        mostrarMensagem(error.detail || 'Erro ao criar pagamento', 'error');
+      }
+    } catch (err) {
+      console.error('Erro:', err);
+      mostrarMensagem('Erro ao criar pagamento. Tente novamente.', 'error');
+    }
+    setLoading(false);
+  }, [chamadoId, cupom, parcelas, valorComDesconto, gerarPix, confirmarPagamento, mostrarMensagem]);
+
+  useEffect(() => {
+    if (preferenciaInicialAplicadaRef.current) return;
+    preferenciaInicialAplicadaRef.current = true;
+
+    const metodoPreferido = lerMetodoPreferidoCliente();
+    if (!metodoPreferido) return;
+
+    // Agendar em next tick para evitar setState síncrono dentro do efeito
+    const timer = setTimeout(() => {
+      if (metodoPreferido === 'pix') {
+        criarPagamento('pix');
+        return;
+      }
+
+      if (metodoPreferido === 'cartao_credito' || metodoPreferido === 'cartao_debito') {
+        criarPagamento('cartao');
+      }
+    }, 0);
+
+    return () => clearTimeout(timer);
+  }, [criarPagamento]);
 
   return (
     <div className="bg-gradient-to-br from-zinc-900 via-zinc-900 to-zinc-800 rounded-3xl p-6 sm:p-8 border border-zinc-700 max-w-xl mx-auto shadow-2xl">
@@ -378,6 +382,14 @@ export default function TelaPagamento({ chamadoId, valor, onPago }) {
       {/* Seleção de Método */}
       {etapa === 'metodo' && (
         <div className="space-y-5">
+          {metodoPreferidoCliente && (
+            <div className="bg-zinc-800/50 rounded-xl p-3 border border-zinc-700">
+              <p className="text-xs text-zinc-300">
+                Metodo preferido: <span className="font-bold text-orange-400">{metodoPreferidoCliente.replace('_', ' ')}</span>
+              </p>
+            </div>
+          )}
+
           {/* Cupom de Desconto */}
           <div className="bg-zinc-800/50 rounded-xl p-4 border border-zinc-700">
             <p className="text-zinc-300 text-sm mb-3 flex items-center gap-2">
@@ -426,7 +438,11 @@ export default function TelaPagamento({ chamadoId, valor, onPago }) {
 
           {/* PIX */}
           <button
-            onClick={() => criarPagamento('pix')}
+            onClick={() => {
+              salvarMetodoPreferidoCliente('pix');
+              setMetodoPreferidoCliente('pix');
+              criarPagamento('pix');
+            }}
             disabled={loading}
             className="w-full bg-gradient-to-r from-purple-600 via-purple-500 to-blue-600 hover:from-purple-700 hover:via-purple-600 hover:to-blue-700 text-white font-bold py-5 rounded-2xl transition-all transform hover:scale-[1.02] active:scale-[0.98] flex items-center justify-between px-6 disabled:opacity-50 disabled:cursor-not-allowed shadow-lg hover:shadow-purple-500/50"
           >
@@ -442,7 +458,11 @@ export default function TelaPagamento({ chamadoId, valor, onPago }) {
 
           {/* Cartão */}
           <button
-            onClick={() => criarPagamento('cartao')}
+            onClick={() => {
+              salvarMetodoPreferidoCliente('cartao_credito');
+              setMetodoPreferidoCliente('cartao_credito');
+              criarPagamento('cartao');
+            }}
             disabled={loading}
             className="w-full bg-gradient-to-r from-green-600 via-emerald-500 to-teal-600 hover:from-green-700 hover:via-emerald-600 hover:to-teal-700 text-white font-bold py-5 rounded-2xl transition-all transform hover:scale-[1.02] active:scale-[0.98] flex items-center justify-between px-6 disabled:opacity-50 disabled:cursor-not-allowed shadow-lg hover:shadow-green-500/50"
           >
@@ -492,7 +512,7 @@ export default function TelaPagamento({ chamadoId, valor, onPago }) {
       )}
 
       {/* Tela PIX */}
-      {etapa === 'pix' && qrcode && (
+      {etapa === 'pix' && (
         <div className="space-y-6 text-center animate-in fade-in duration-500">
           {/* Badge MercadoPago */}
           <div className="flex justify-center">
@@ -502,10 +522,16 @@ export default function TelaPagamento({ chamadoId, valor, onPago }) {
           </div>
 
           <div className="relative">
-            <div className="bg-white rounded-2xl p-6 inline-block shadow-2xl border-4 border-purple-500">
-              <img src={qrcode} alt="QR Code PIX MercadoPago" className="w-64 h-64" />
-            </div>
-            <div className="absolute -top-3 -right-3 bg-purple-600 text-white rounded-full p-3 shadow-lg animate-bounce">
+            {qrcode ? (
+              <div className="bg-white rounded-2xl p-6 inline-block shadow-2xl border-4 border-purple-500">
+                <img src={qrcode} alt="QR Code PIX MercadoPago" className="w-64 h-64" />
+              </div>
+            ) : (
+              <div className="bg-zinc-900 border border-zinc-700 rounded-xl p-6 inline-block">
+                <p className="text-yellow-300 text-sm">QR Code indisponível. Use o código de cópia abaixo.</p>
+              </div>
+            )}
+            <div className="absolute -top-3 -right-3 bg-purple-600 text-white rounded-full p-3 shadow-lg">
               <QrCode size={24} />
             </div>
           </div>

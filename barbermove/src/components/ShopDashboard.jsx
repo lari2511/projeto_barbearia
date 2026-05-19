@@ -1,25 +1,37 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Store, LogOut, CheckCircle, AlertCircle, User, CreditCard, Calendar, Search, Star, ThumbsUp, TrendingUp } from 'lucide-react';
+import { Store, LogOut, CheckCircle, AlertCircle, User, CreditCard, Calendar, Search, Star, TrendingUp, Users, Bell } from 'lucide-react';
 import PaymentSection from './PaymentSection';
 import AbaPadronizadaAvaliacoes from './AbaPadronizadaAvaliacoes';
 import TelaPerfilUsuario from './TelaPerfilUsuario';
-import LiberarCadeirasComponent from './LiberarCadeirasComponent';
 import TelaMensalidadeAssinatura from './TelaMensalidadeAssinatura';
+import ChatRoom from './ChatRoom';
 
 export default function ShopDashboard({ token, logout, notify, API_URL }) {
+    const TABS_VALIDAS = ['barbeiros', 'freelancers', 'agenda', 'avaliar', 'assinatura', 'perfil', 'pagamento'];
     const [services, setServices] = useState([{id: 1, nome: "Corte Simples", valor: 30}]);
     const [newService, setNewService] = useState({nome: '', valor: ''});
     const [user, setUser] = useState(null);
     const [userData, setUserData] = useState(null);
-    const [tab, setTab] = useState('barbeiros');
+    const [tab, setTab] = useState(() => {
+        if (typeof window === 'undefined') return 'barbeiros';
+        const tabSalva = localStorage.getItem('barbearia_dashboard_tab') || 'barbeiros';
+        return TABS_VALIDAS.includes(tabSalva) ? tabSalva : 'barbeiros';
+    });
     const [agendamentos, setAgendamentos] = useState([]);
     const [freelancersPresentes, setFreelancersPresentes] = useState([]);
     const [freelancersDisponiveis, setFreelancersDisponiveis] = useState([]);
     const [freelancersPendentesAprovacao, setFreelancersPendentesAprovacao] = useState([]);
+    const [cadeirasBarbearia, setCadeirasBarbearia] = useState([]);
+    const [loadingCadeirasBarbearia, setLoadingCadeirasBarbearia] = useState(false);
     const [ultimaAtualizacaoFreelancers, setUltimaAtualizacaoFreelancers] = useState(null);
+        const freelancersPresentesNaBarbearia = freelancersPresentes.filter((freelancer) =>
+            freelancer?.presente_em_local &&
+            (!freelancer?.barbearia_atual_id || freelancer.barbearia_atual_id === barbeariaId)
+        );
     const [wsConectado, setWsConectado] = useState(false);
     const [_loading, _setLoading] = useState(false);
     const [barbeariaId, setBarbeariaId] = useState(null);
+    const [chatTarget, setChatTarget] = useState(null);
 
     useEffect(() => {
         fetch(`${API_URL}/api/v1/documentos/status`, {
@@ -46,24 +58,33 @@ export default function ShopDashboard({ token, logout, notify, API_URL }) {
         .catch(() => {});
     }, [API_URL, token]);
 
+    useEffect(() => {
+        if (typeof window !== 'undefined') {
+            localStorage.setItem('barbearia_dashboard_tab', tab);
+        }
+    }, [tab]);
+
     // Carregar agendamentos da barbearia
     useEffect(() => {
         if (!barbeariaId) return;
-        
+
         const carregarAgendamentos = async () => {
             try {
-                const res = await fetch(`${API_URL}/api/v1/barbearias/${barbeariaId}/agendamentos`, {
-                    headers: {'Authorization': `Bearer ${token}`}
+                const res = await fetch(`${API_URL}/api/v1/barbearia/${barbeariaId}/agendamentos`, {
+                    headers: {
+                        'Authorization': `Bearer ${token}`
+                    }
                 });
+
                 if (res.ok) {
                     const data = await res.json();
-                    setAgendamentos(Array.isArray(data) ? data : []);
+                    setAgendamentos(Array.isArray(data) ? data : data.agendamentos || []);
                 }
-            } catch (err) {
-                console.error('Erro ao carregar agendamentos:', err);
+            } catch (_err) {
+                // mantém a última lista carregada
             }
         };
-        
+
         carregarAgendamentos();
         const interval = setInterval(carregarAgendamentos, 10000);
         return () => clearInterval(interval);
@@ -106,7 +127,7 @@ export default function ShopDashboard({ token, logout, notify, API_URL }) {
             notify('Barbearia não identificada', 'error');
             return;
         }
-
+        
         try {
             const res = await fetch(`${API_URL}/api/v1/barbearia/${barbeariaId}/bloquear-freelancer`, {
                 method: 'POST',
@@ -215,13 +236,122 @@ export default function ShopDashboard({ token, logout, notify, API_URL }) {
         }
     }, [API_URL, barbeariaId, token]);
 
+    const carregarCadeirasBarbearia = useCallback(async () => {
+        if (!barbeariaId) return;
+
+        try {
+            setLoadingCadeirasBarbearia(true);
+            const res = await fetch(`${API_URL}/api/v1/cadeiras/barbearia/${barbeariaId}`, {
+                headers: {'Authorization': `Bearer ${token}`}
+            });
+
+            if (!res.ok) {
+                setCadeirasBarbearia([]);
+                return;
+            }
+
+            const data = await res.json();
+            setCadeirasBarbearia(Array.isArray(data) ? data : []);
+        } catch (_err) {
+            console.error('Erro ao carregar cadeiras da barbearia');
+            setCadeirasBarbearia([]);
+        } finally {
+            setLoadingCadeirasBarbearia(false);
+        }
+    }, [API_URL, barbeariaId, token]);
+
+    const acionarCadeira = async (cadeiraId) => {
+        if (!barbeariaId) {
+            notify('Barbearia não identificada', 'error');
+            return;
+        }
+
+        try {
+            const res = await fetch(`${API_URL}/api/v1/cadeiras/${cadeiraId}/liberar-para-barbeiros`, {
+                method: 'PUT',
+                headers: {'Authorization': `Bearer ${token}`}
+            });
+
+            if (res.ok) {
+                const data = await res.json();
+                notify(data.message || 'Cadeira acionada com sucesso', 'success');
+                carregarCadeirasBarbearia();
+                carregarFreelancersDisponiveis();
+            } else {
+                const error = await res.json().catch(() => ({}));
+                notify(error.detail || 'Erro ao acionar cadeira', 'error');
+            }
+        } catch (_err) {
+            notify('Erro ao conectar com servidor', 'error');
+        }
+    };
+
+    const acionarPrimeiraCadeiraDisponivel = async () => {
+        const primeiraDisponivel = cadeirasBarbearia.find((cadeira) => String(cadeira.status || '').toLowerCase() === 'disponivel');
+        if (!primeiraDisponivel) {
+            notify('Nenhuma cadeira disponível para acionar', 'info');
+            return;
+        }
+        await acionarCadeira(primeiraDisponivel.id);
+    };
+
+    const bloquearCadeira = async (cadeiraId) => {
+        if (!barbeariaId) {
+            notify('Barbearia não identificada', 'error');
+            return;
+        }
+
+        try {
+            const res = await fetch(`${API_URL}/api/v1/cadeiras/${cadeiraId}/bloquear`, {
+                method: 'PUT',
+                headers: {'Authorization': `Bearer ${token}`}
+            });
+
+            if (res.ok) {
+                const data = await res.json();
+                notify(data.message || 'Cadeira bloqueada com sucesso', 'success');
+                carregarCadeirasBarbearia();
+            } else {
+                const error = await res.json().catch(() => ({}));
+                notify(error.detail || 'Erro ao bloquear cadeira', 'error');
+            }
+        } catch (_err) {
+            notify('Erro ao conectar com servidor', 'error');
+        }
+    };
+
+    const desbloquearCadeira = async (cadeiraId) => {
+        if (!barbeariaId) {
+            notify('Barbearia não identificada', 'error');
+            return;
+        }
+
+        try {
+            const res = await fetch(`${API_URL}/api/v1/cadeiras/${cadeiraId}/desbloquear`, {
+                method: 'PUT',
+                headers: {'Authorization': `Bearer ${token}`}
+            });
+
+            if (res.ok) {
+                const data = await res.json();
+                notify(data.message || 'Cadeira desbloqueada com sucesso', 'success');
+                carregarCadeirasBarbearia();
+            } else {
+                const error = await res.json().catch(() => ({}));
+                notify(error.detail || 'Erro ao desbloquear cadeira', 'error');
+            }
+        } catch (_err) {
+            notify('Erro ao conectar com servidor', 'error');
+        }
+    };
+
     useEffect(() => {
         if (!barbeariaId || tab !== 'barbeiros') return;
 
         // Sincronização inicial sempre ocorre.
         carregarFreelancersPresentes();
-        // eslint-disable-next-line react-hooks/set-state-in-effect
         carregarFreelancersDisponiveis();
+        carregarCadeirasBarbearia();
 
         // Se o WebSocket estiver conectado, não precisamos de polling.
         if (wsConectado) return;
@@ -229,9 +359,10 @@ export default function ShopDashboard({ token, logout, notify, API_URL }) {
         const interval = setInterval(() => {
             carregarFreelancersPresentes();
             carregarFreelancersDisponiveis();
+            carregarCadeirasBarbearia();
         }, 5000);
         return () => clearInterval(interval);
-    }, [barbeariaId, tab, wsConectado, carregarFreelancersDisponiveis, carregarFreelancersPresentes]);
+    }, [barbeariaId, tab, wsConectado, carregarFreelancersDisponiveis, carregarFreelancersPresentes, carregarCadeirasBarbearia]);
 
     useEffect(() => {
         if (!barbeariaId || tab !== 'barbeiros') return;
@@ -246,15 +377,16 @@ export default function ShopDashboard({ token, logout, notify, API_URL }) {
         ws.onmessage = (event) => {
             try {
                 const data = JSON.parse(event.data);
-                if (data?.type !== 'freelancer_status_changed') return;
-
                 const eventoBarbeariaId = data?.barbearia_id;
                 if (eventoBarbeariaId && Number(eventoBarbeariaId) !== Number(barbeariaId)) {
                     return;
                 }
 
-                carregarFreelancersPresentes();
-                carregarFreelancersDisponiveis();
+                if (['freelancer_status_changed', 'cadeira_status_changed', 'cadeira_acionada', 'cadeira_liberada'].includes(data?.type)) {
+                    carregarFreelancersPresentes();
+                    carregarFreelancersDisponiveis();
+                    carregarCadeirasBarbearia();
+                }
             } catch {
                 // Ignora mensagens não JSON como ping/pong
             }
@@ -286,23 +418,25 @@ export default function ShopDashboard({ token, logout, notify, API_URL }) {
     };
 
     return (
-        <div className="bg-black h-full w-full max-w-full overflow-hidden flex flex-col text-white font-sans">
+        <div className="bg-black min-h-[100dvh] w-full max-w-full overflow-x-hidden flex flex-col text-white font-sans">
             <div className="p-2 sm:p-4 flex justify-between items-center border-b border-zinc-800 bg-black/80 backdrop-blur-md z-20 flex-shrink-0">
                 <div className="flex items-center gap-2">
-                    <h1 className="text-base sm:text-xl font-bold flex items-center gap-2">
+                    <h1 className="text-base sm:text-xl font-bold tracking-tight flex items-center gap-2">
                         <Store size={18} className="text-orange-500"/> Loja
                     </h1>
                     {user?.documento_verificado && (
                         <CheckCircle size={14} className="text-blue-500 fill-blue-500" />
                     )}
                 </div>
-                <button onClick={logout} className="text-zinc-500 hover:text-white"><LogOut size={18}/></button>
+                <div className="flex items-center gap-2">
+                    <button onClick={logout} className="text-zinc-500 hover:text-white"><LogOut size={18}/></button>
+                </div>
             </div>
 
-            <div className="flex-1 overflow-y-auto pb-16">
+            <div className="flex-1 overflow-visible pb-[calc(6rem+env(safe-area-inset-bottom))]">
                 
                 {tab === 'barbeiros' && (
-                    <div className="p-2 sm:p-4 space-y-3 pb-20">
+                    <div className="p-2 sm:p-4 space-y-3 pb-20 max-w-3xl mx-auto w-full">
                         {user && !user.documento_verificado && (
                             <div className="bg-yellow-600/10 border border-yellow-600/30 p-2 rounded-lg flex items-center gap-2">
                                 <AlertCircle size={14} className="text-yellow-500"/>
@@ -310,7 +444,164 @@ export default function ShopDashboard({ token, logout, notify, API_URL }) {
                             </div>
                         )}
                         
-                        <h2 className="text-sm font-bold text-zinc-400 uppercase">Freelancers Presentes</h2>
+                        <h2 className="text-sm font-bold text-zinc-300 uppercase tracking-wide">Bem-vindo à Barbearia</h2>
+                        <div className="bg-zinc-900/60 border border-zinc-800 rounded-xl p-3 text-xs text-zinc-400">
+                            <p>Selecione uma aba abaixo para gerenciar sua barbearia.</p>
+                        </div>
+
+                        <div className="bg-purple-600/10 border border-purple-600/30 p-5 rounded-2xl mb-6">
+                          <div className="flex items-center justify-between mb-4">
+                            <h3 className="text-purple-400 font-bold text-sm flex items-center gap-2">💺 Suas Cadeiras ({cadeirasBarbearia.length})</h3>
+                            <button className="bg-purple-600 hover:bg-purple-700 text-white px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1 transition-all"><span className="text-lg leading-none">+</span> Nova</button>
+                          </div>
+
+                          {loadingCadeirasBarbearia ? (
+                            <div className="flex items-center justify-center gap-2 py-6">
+                              <div className="w-4 h-4 border-2 border-orange-500 border-t-transparent rounded-full animate-spin"></div>
+                              <span className="text-xs text-zinc-400">Carregando cadeiras...</span>
+                            </div>
+                          ) : cadeirasBarbearia.length === 0 ? (
+                            <div className="bg-zinc-900/80 p-4 rounded-xl border border-zinc-800 text-sm text-zinc-300">
+                              <p className="mb-3">Nenhuma cadeira cadastrada ainda.</p>
+                            </div>
+                          ) : (
+                            <div className="space-y-2">
+                              {cadeirasBarbearia.map(cadeira => {
+                                const status = String(cadeira.status || '').toLowerCase();
+                                const statusConfig = {
+                                  disponivel: { bg: 'bg-black/40', border: 'border-green-600/30', label: '🟢 Disponível', labelColor: 'text-green-400', labelBg: 'bg-green-600/20' },
+                                  ocupada: { bg: 'bg-black/40', border: 'border-blue-600/30', label: '🔵 Ocupada', labelColor: 'text-blue-400', labelBg: 'bg-blue-600/20' },
+                                  bloqueada: { bg: 'bg-black/40', border: 'border-red-600/30', label: '🔒 Bloqueada', labelColor: 'text-red-400', labelBg: 'bg-red-600/20' }
+                                };
+                                const config = statusConfig[status] || statusConfig.disponivel;
+                                
+                                return (
+                                  <div key={cadeira.id} className={`${config.bg} border ${config.border} p-3 rounded-lg transition-all hover:border-purple-600/50`}>
+                                    <div className="flex items-center justify-between">
+                                      <div className="flex-1">
+                                        <p className="font-bold text-sm text-white">Cadeira {cadeira.numero}</p>
+                                        <p className={`text-xs mt-1 font-bold ${config.labelColor}`}>{config.label}</p>
+                                      </div>
+                                      <div className="flex gap-2">
+                                        {status === 'disponivel' && (
+                                          <>
+                                            <button 
+                                              onClick={() => acionarCadeira(cadeira.id)}
+                                              className="bg-orange-600 hover:bg-orange-700 text-white px-3 py-2 rounded-lg text-xs font-bold transition-all"
+                                            >
+                                              Acionar
+                                            </button>
+                                            <button 
+                                              onClick={() => bloquearCadeira(cadeira.id)}
+                                              className="bg-zinc-700 hover:bg-red-700 text-white px-2 py-2 rounded-lg text-sm transition-all"
+                                              title="Bloquear cadeira"
+                                            >
+                                              🔒
+                                            </button>
+                                          </>
+                                        )}
+                                        {status === 'ocupada' && (
+                                          <button 
+                                            onClick={() => desbloquearCadeira(cadeira.id)}
+                                            className="bg-orange-600 hover:bg-orange-700 text-white px-3 py-2 rounded-lg text-xs font-bold transition-all"
+                                          >
+                                            Finalizar
+                                          </button>
+                                        )}
+                                        {status === 'bloqueada' && (
+                                          <button 
+                                            onClick={() => desbloquearCadeira(cadeira.id)}
+                                            className="bg-purple-600 hover:bg-purple-700 text-white px-2 py-2 rounded-lg text-sm transition-all"
+                                            title="Desbloquear cadeira"
+                                          >
+                                            🔓
+                                          </button>
+                                        )}
+                                      </div>
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                              <button
+                                className="w-full bg-purple-600 hover:bg-purple-700 text-white px-4 py-3 rounded-lg font-bold text-sm mt-3 transition-all"
+                              >
+                                ⚡ Liberar Próxima Vaga Disponível
+                              </button>
+                            </div>
+                          )}
+                          <div className="bg-zinc-900/50 p-3 rounded-lg mt-4 border border-zinc-800">
+                            <p className="text-zinc-400 text-xs mb-2">💡 <strong>Dicas:</strong></p>
+                            <ul className="text-zinc-500 text-[10px] space-y-1 ml-4">
+                              <li>• Use <strong>"Acionar"</strong> para notificar barbeiros próximos</li>
+                              <li>• <strong>Bloqueie</strong> cadeiras em manutenção ou reservadas</li>
+                              <li>• O sistema libera automaticamente clientes quando faltam 15 min</li>
+                            </ul>
+                          </div>
+                        </div>
+
+                        <div className="bg-zinc-900/60 p-5 rounded-2xl border border-purple-600/30 mb-6">
+                            <h3 className="font-bold mb-4 text-sm flex items-center gap-2 text-purple-400">⚙️ Cadastrar Serviço</h3>
+                            <form onSubmit={addService} className="space-y-3 mb-4">
+                              <input 
+                                className="w-full bg-black rounded-lg p-3 border border-zinc-800 text-sm outline-none focus:border-purple-500 text-white" 
+                                placeholder="Nome do serviço (ex: Corte Degradê)" 
+                                value={newService.nome} 
+                                onChange={e => setNewService({...newService, nome: e.target.value})} 
+                                required
+                              />
+                              <div className="grid grid-cols-2 gap-3">
+                                <input 
+                                  className="bg-black rounded-lg p-3 border border-zinc-800 text-sm outline-none focus:border-purple-500 text-white" 
+                                  type="number" 
+                                  placeholder="Valor R$" 
+                                  value={newService.valor} 
+                                  onChange={e => setNewService({...newService, valor: e.target.value})} 
+                                  required
+                                />
+                                <input 
+                                  className="bg-black rounded-lg p-3 border border-zinc-800 text-sm outline-none focus:border-purple-500 text-white" 
+                                  type="number" 
+                                  placeholder="Duração (min)" 
+                                  value={newService.duracao_minutos} 
+                                  onChange={e => setNewService({...newService, duracao_minutos: e.target.value})} 
+                                  required
+                                />
+                              </div>
+                              <button type="submit" className="w-full bg-orange-600 hover:bg-orange-700 text-white px-4 py-3 rounded-lg font-bold text-sm transition-all">+ Adicionar Serviço</button>
+                            </form>
+                            <div className="space-y-2">
+                                {services.length > 0 ? (
+                                  services.map(s => (
+                                    <div key={s.id} className="flex justify-between items-center bg-black/60 p-3 rounded-lg border border-purple-600/20 hover:border-purple-600/40 transition-colors">
+                                      <span className="text-sm font-medium text-white">{s.nome}</span>
+                                      <div className="text-right flex gap-3">
+                                        <span className="text-green-400 font-bold text-sm">R$ {parseFloat(s.valor).toFixed(2)}</span>
+                                        <span className="text-purple-400 font-bold text-sm">{s.duracao_minutos || 30} min</span>
+                                      </div>
+                                    </div>
+                                  ))
+                                ) : (
+                                  <div className="text-center text-zinc-500 text-xs py-4">Nenhum serviço cadastrado ainda</div>
+                                )}
+                            </div>
+                        </div>
+
+                    </div>
+                )}
+
+                {/* ABA: FREELANCERS */}
+                {tab === 'freelancers' && (
+                    <div className="p-2 sm:p-4 space-y-3 pb-20 max-w-3xl mx-auto w-full">
+                        <div className="flex items-center justify-between gap-2">
+                            <h2 className="text-sm font-bold text-zinc-300 uppercase tracking-wide">Controle de Freelancers</h2>
+                            <button
+                                onClick={() => setTab('barbeiros')}
+                                className="bg-zinc-800 hover:bg-zinc-700 text-white px-3 py-1.5 rounded text-xs font-bold"
+                            >
+                                Voltar
+                            </button>
+                        </div>
+
                         <div className="bg-green-900/20 border border-green-700 rounded-lg p-2.5 flex items-center justify-between">
                             <div className="flex items-center gap-2">
                                 <span className="h-2.5 w-2.5 rounded-full bg-green-400 animate-pulse"></span>
@@ -322,47 +613,7 @@ export default function ShopDashboard({ token, logout, notify, API_URL }) {
                                     : 'Sincronizando...'}
                             </span>
                         </div>
-                        <p className="text-[11px] text-zinc-500">
-                            {wsConectado ? 'Canal ao vivo: WebSocket conectado' : 'Canal ao vivo: reconectando (fallback por polling ativo)'}
-                        </p>
-                        <div className="bg-zinc-900/50 border border-zinc-800 rounded-lg p-3 space-y-2">
-                            <div className="flex items-center justify-between">
-                                <h3 className="text-xs font-bold text-zinc-400 uppercase">Disponíveis para sua Barbearia</h3>
-                                <span className="text-[11px] text-green-400 font-bold">{freelancersDisponiveis.length}</span>
-                            </div>
-                            {freelancersDisponiveis.length === 0 ? (
-                                <p className="text-zinc-600 text-xs">Nenhum barbeiro disponível agora.</p>
-                            ) : (
-                                <div className="space-y-2">
-                                    {freelancersDisponiveis.slice(0, 6).map((f) => (
-                                        <div key={f.usuario_id} className="bg-black/40 border border-zinc-700 rounded p-2">
-                                            <p className="text-sm font-bold text-white">{f.nome}</p>
-                                            <p className="text-[11px] text-zinc-400">{f.presente_em_local ? 'Disponível no local' : 'Disponível na região'}</p>
-                                        </div>
-                                    ))}
-                                </div>
-                            )}
-                        </div>
 
-                        <div className="bg-zinc-900/50 border border-zinc-800 rounded-lg p-3 space-y-2">
-                            <div className="flex items-center justify-between">
-                                <h3 className="text-xs font-bold text-zinc-400 uppercase">Aguardando Aprovação</h3>
-                                <span className="text-[11px] text-yellow-400 font-bold">{freelancersPendentesAprovacao.length}</span>
-                            </div>
-                            {freelancersPendentesAprovacao.length === 0 ? (
-                                <p className="text-zinc-600 text-xs">Nenhum barbeiro pendente no momento.</p>
-                            ) : (
-                                <div className="space-y-2">
-                                    {freelancersPendentesAprovacao.slice(0, 6).map((f) => (
-                                        <div key={f.usuario_id} className="bg-black/40 border border-zinc-700 rounded p-2">
-                                            <p className="text-sm font-bold text-white">{f.nome}</p>
-                                            <p className="text-[11px] text-zinc-400">Perfil em análise pelo admin</p>
-                                        </div>
-                                    ))}
-                                </div>
-                            )}
-                        </div>
-                        
                         <button
                             onClick={() => {
                                 carregarFreelancersPresentes();
@@ -373,23 +624,22 @@ export default function ShopDashboard({ token, logout, notify, API_URL }) {
                             🔄 Atualizar Lista
                         </button>
 
-                        {freelancersPresentes.length === 0 ? (
-                            <p className="text-zinc-600 text-center py-8 text-xs">Nenhum freelancer presente no momento</p>
-                        ) : (
-                            <div className="space-y-2">
-                                {freelancersPresentes.map(freelancer => (
-                                    <div key={freelancer.id} className="bg-zinc-900/50 border border-zinc-800 p-3 rounded-lg space-y-2">
-                                        <div className="flex justify-between items-start">
-                                            <div>
-                                                <p className="font-bold text-sm">{freelancer.nome}</p>
-                                                <p className="text-xs text-zinc-400">{freelancer.email}</p>
+                        {/* PRESENTES */}
+                        <div className="bg-zinc-900/60 border border-zinc-800/80 rounded-xl p-3 space-y-2">
+                            <h3 className="text-xs font-bold text-zinc-400 uppercase tracking-wide">Freelancers Presentes</h3>
+                            {freelancersPresentesNaBarbearia.length === 0 ? (
+                                <p className="text-zinc-600 text-xs">Nenhum freelancer presente no momento</p>
+                            ) : (
+                                <div className="space-y-2">
+                                    {freelancersPresentesNaBarbearia.map(freelancer => (
+                                        <div key={freelancer.id} className="bg-black/40 border border-zinc-700 rounded p-3 overflow-hidden">
+                                            <div className="flex justify-between items-start mb-2">
+                                                <div className="min-w-0 pr-2">
+                                                    <p className="font-bold text-sm truncate">{freelancer.nome}</p>
+                                                    <p className="text-xs text-zinc-400 truncate">{freelancer.email}</p>
+                                                </div>
+                                                <div className="h-2 w-2 bg-green-500 rounded-full animate-pulse"></div>
                                             </div>
-                                            <div className="h-2 w-2 bg-green-500 rounded-full animate-pulse"></div>
-                                        </div>
-
-                                        {/* 🎛️ CONTROLE DE STATUS (Controle Duplo) */}
-                                        <div className="space-y-2 pt-2 border-t border-zinc-700">
-                                            <p className="text-xs text-zinc-400 font-bold">Alterar Status:</p>
                                             <div className="grid grid-cols-3 gap-2">
                                                 <button
                                                     onClick={() => alterarStatusFreelancer(freelancer.id, 'offline')}
@@ -411,76 +661,75 @@ export default function ShopDashboard({ token, logout, notify, API_URL }) {
                                                 </button>
                                             </div>
                                         </div>
-                                    </div>
-                                ))}
-                            </div>
-                        )}
-
-                        <h2 className="text-sm font-bold text-zinc-400 uppercase mt-6">Meus Serviços</h2>
-                        <div className="bg-zinc-900/50 p-3 rounded-lg border border-zinc-800/50">
-                            <form onSubmit={addService} className="space-y-2 mb-3">
-                                <input
-                                    className="w-full bg-black/50 text-white text-xs p-2 rounded border border-zinc-800 focus:border-orange-500 outline-none"
-                                    placeholder="Nome do serviço"
-                                    value={newService.nome}
-                                    onChange={e => setNewService({...newService, nome: e.target.value})}
-                                    required
-                                />
-                                <div className="flex gap-2">
-                                    <input
-                                        className="flex-1 bg-black/50 text-white text-xs p-2 rounded border border-zinc-800 focus:border-orange-500 outline-none"
-                                        type="number"
-                                        placeholder="Valor R$"
-                                        value={newService.valor}
-                                        onChange={e => setNewService({...newService, valor: e.target.value})}
-                                        required
-                                    />
-                                    <button className="bg-orange-600 hover:bg-orange-700 text-white text-xs px-3 rounded font-bold transition">Adicionar</button>
+                                    ))}
                                 </div>
-                            </form>
-                            
-                            <div className="space-y-2">
-                                {services.map(s => (
-                                    <div key={s.id} className="flex justify-between items-center bg-black/40 p-2 rounded text-xs">
-                                        <span>{s.nome}</span>
-                                        <span className="text-green-400 font-bold">R$ {s.valor}</span>
-                                    </div>
-                                ))}
-                            </div>
+                            )}
                         </div>
 
-                        <div className="mt-8">
-                            <LiberarCadeirasComponent 
-                                token={token} 
-                                API_URL={API_URL} 
-                                notify={notify} 
-                                barbeariaId={barbeariaId}
-                            />
+                        {/* DISPONÍVEIS */}
+                        <div className="bg-zinc-900/60 border border-zinc-800/80 rounded-xl p-3 space-y-2">
+                            <div className="flex items-center justify-between">
+                                <h3 className="text-xs font-bold text-zinc-400 uppercase tracking-wide">Disponíveis para sua Barbearia</h3>
+                                <span className="text-[11px] text-green-400 font-bold">{freelancersDisponiveis.length}</span>
+                            </div>
+                            {freelancersDisponiveis.length === 0 ? (
+                                <p className="text-zinc-600 text-xs">Nenhum barbeiro disponível agora.</p>
+                            ) : (
+                                <div className="space-y-2">
+                                    {freelancersDisponiveis.map((f) => (
+                                        <div key={f.usuario_id} className="bg-black/40 border border-zinc-700 rounded p-2">
+                                            <p className="text-sm font-bold text-white">{f.nome}</p>
+                                            <p className="text-[11px] text-zinc-400">{f.presente_em_local ? 'Disponível no local' : 'Disponível na região'}</p>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+
+                        {/* AGUARDANDO APROVAÇÃO */}
+                        <div className="bg-zinc-900/60 border border-zinc-800/80 rounded-xl p-3 space-y-2">
+                            <div className="flex items-center justify-between">
+                                <h3 className="text-xs font-bold text-zinc-400 uppercase tracking-wide">Aguardando Aprovação</h3>
+                                <span className="text-[11px] text-yellow-400 font-bold">{freelancersPendentesAprovacao.length}</span>
+                            </div>
+                            {freelancersPendentesAprovacao.length === 0 ? (
+                                <p className="text-zinc-600 text-xs">Nenhum barbeiro pendente no momento.</p>
+                            ) : (
+                                <div className="space-y-2">
+                                    {freelancersPendentesAprovacao.map((f) => (
+                                        <div key={f.usuario_id} className="bg-black/40 border border-zinc-700 rounded p-2">
+                                            <p className="text-sm font-bold text-white">{f.nome}</p>
+                                            <p className="text-[11px] text-zinc-400">Perfil em análise pelo admin</p>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
                         </div>
                     </div>
                 )}
 
                 {tab === 'agenda' && (
-                    <div className="p-2 sm:p-4 space-y-3 pb-20">
-                        <h2 className="text-sm font-bold text-zinc-400 uppercase">Agendamentos</h2>
+                    <div className="p-2 sm:p-4 space-y-3 pb-20 max-w-3xl mx-auto w-full">
+                        <h2 className="text-sm font-bold text-zinc-300 uppercase tracking-wide">Agendamentos</h2>
                         
                         {agendamentos.length === 0 ? (
                             <p className="text-zinc-600 text-center py-12 text-xs">Nenhum agendamento</p>
                         ) : (
-                            <div className="space-y-2">
+                            <div className="space-y-2 max-w-2xl mx-auto w-full">
                                 {agendamentos.map(ag => (
-                                    <div key={ag.id} className="bg-zinc-900/50 border border-zinc-800 p-3 rounded-lg space-y-2">
+                                    <div key={ag.id} className="bg-zinc-900/60 border border-zinc-800/80 p-3.5 rounded-xl space-y-2.5 overflow-hidden">
                                         <div className="flex justify-between items-start">
-                                            <div>
-                                                <p className="font-bold text-sm">{ag.servico_nome || 'Serviço'}</p>
-                                                <p className="text-xs text-zinc-400">Cliente: {ag.cliente_nome}</p>
-                                                <p className="text-xs text-zinc-400">Freelancer: {ag.barbeiro_nome}</p>
-                                                <p className="text-xs text-zinc-400">
+                                            <div className="min-w-0 pr-2">
+                                                <p className="font-bold text-sm truncate">{ag.servico_nome || 'Serviço'}</p>
+                                                <p className="text-xs text-zinc-400 truncate">Cliente: {ag.cliente_nome}</p>
+                                                <p className="text-xs text-zinc-400 truncate">Freelancer: {ag.barbeiro_nome}</p>
+                                                <p className="text-xs text-zinc-300">
                                                     {ag.data_hora_inicio ? new Date(ag.data_hora_inicio).toLocaleString('pt-BR') : 'Horário não definido'}
                                                 </p>
                                             </div>
                                             <div className={`text-xs px-2 py-1 rounded font-bold ${
                                                 ag.status === 'concluido' ? 'bg-green-600/20 text-green-400' :
+                                                ag.status === 'em_atendimento' ? 'bg-purple-600/20 text-purple-300' :
                                                 ag.status === 'confirmado' ? 'bg-blue-600/20 text-blue-400' :
                                                 ag.status === 'pendente' ? 'bg-yellow-600/20 text-yellow-400' :
                                                 'bg-red-600/20 text-red-400'
@@ -488,6 +737,43 @@ export default function ShopDashboard({ token, logout, notify, API_URL }) {
                                                 {ag.status.toUpperCase()}
                                             </div>
                                         </div>
+
+                                        {ag.status === 'confirmado' && (
+                                            <button
+                                                onClick={() => setChatTarget(ag.id)}
+                                                className="w-full bg-zinc-800 hover:bg-zinc-700 text-white rounded text-xs font-bold py-2"
+                                            >
+                                                Chat
+                                            </button>
+                                        )}
+
+                                        {ag.status === 'em_atendimento' && (
+                                            <div className="flex gap-2">
+                                                <button
+                                                    onClick={async () => {
+                                                        const res = await fetch(`${API_URL}/api/v1/chamados/${ag.id}/finalizar`, {
+                                                            method: 'PUT',
+                                                            headers: { 'Authorization': `Bearer ${token}` }
+                                                        });
+                                                        if (res.ok) {
+                                                            notify('Corte finalizado', 'success');
+                                                            if (typeof window !== 'undefined') window.location.reload();
+                                                        } else {
+                                                            notify('Não foi possível finalizar', 'error');
+                                                        }
+                                                    }}
+                                                    className="flex-1 bg-green-600 hover:bg-green-700 text-white rounded text-xs font-bold py-2"
+                                                >
+                                                    FINALIZAR_CORTE
+                                                </button>
+                                                <button
+                                                    onClick={() => setChatTarget(ag.id)}
+                                                    className="flex-1 bg-zinc-800 hover:bg-zinc-700 text-white rounded text-xs font-bold py-2"
+                                                >
+                                                    Chat
+                                                </button>
+                                            </div>
+                                        )}
 
                                         {/* ✅ APENAS VISUALIZAÇÃO - Dono não pode aceitar/recusar */}
                                         {ag.status === 'pendente' && (
@@ -536,15 +822,8 @@ export default function ShopDashboard({ token, logout, notify, API_URL }) {
                     </div>
                 )}
 
-                {tab === 'aprovar' && (
-                    <div className="p-2 sm:p-4">
-                        <h2 className="text-sm font-bold text-zinc-400 uppercase mb-4">Aprovações</h2>
-                        <p className="text-zinc-600 text-center py-12 text-xs">Nenhuma aprovação</p>
-                    </div>
-                )}
-
                 {tab === 'avaliar' && (
-                    <div className="p-2 sm:p-4 pb-20">
+                    <div className="p-2 sm:p-4 pb-20 max-w-3xl mx-auto w-full">
                         {userData ? (
                             <AbaPadronizadaAvaliacoes
                                 usuarioId={userData.id}
@@ -564,11 +843,17 @@ export default function ShopDashboard({ token, logout, notify, API_URL }) {
                 )}
 
                 {tab === 'perfil' && (
-                    <TelaPerfilUsuario userType="barbearia" token={token} onLogout={logout} onNotify={notify} />
+                    <TelaPerfilUsuario
+                        userType="barbearia"
+                        token={token}
+                        onLogout={logout}
+                        onNotify={notify}
+                        mostrarFinanceiroBarbearia={false}
+                    />
                 )}
 
                 {tab === 'assinatura' && barbeariaId && (
-                    <div className="p-2 sm:p-4 pb-24">
+                    <div className="p-2 sm:p-4 pb-24 max-w-3xl mx-auto w-full">
                         <TelaMensalidadeAssinatura
                             token={token}
                             barbeariaId={barbeariaId}
@@ -579,21 +864,34 @@ export default function ShopDashboard({ token, logout, notify, API_URL }) {
                 )}
 
                 {tab === 'pagamento' && (
-                    <div className="p-2 sm:p-4 pb-20">
+                    <div className="p-2 sm:p-4 pb-20 max-w-3xl mx-auto w-full">
                         <PaymentSection userType="barbearia" token={token} onNotify={notify} />
                     </div>
                 )}
 
+                {chatTarget && (
+                    <div className="fixed right-4 bottom-20 w-80 z-50">
+                        <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-2">
+                            <div className="flex items-center justify-between mb-2">
+                                <div>
+                                    <p className="font-bold text-sm">Chat do chamado #{chatTarget}</p>
+                                </div>
+                                <button onClick={() => setChatTarget(null)} className="text-xs text-zinc-400">Fechar</button>
+                            </div>
+                            <ChatRoom chamadoId={chatTarget} token={token} API_URL={API_URL} />
+                        </div>
+                    </div>
+                )}
             </div>
 
-            <div className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-[400px] h-16 bg-zinc-950/98 backdrop-blur-lg border-t border-zinc-800 flex justify-between items-center z-50 overflow-x-auto">
-                <button onClick={() => setTab('barbeiros')} className={`flex flex-col items-center justify-center gap-0.5 h-full flex-1 text-center transition-colors min-w-max ${tab === 'barbeiros' ? 'text-orange-500 bg-orange-500/5' : 'text-zinc-500 hover:text-zinc-400'}`}><Search size={14} /><span className="text-[7px] font-bold">Serviços</span></button>
-                <button onClick={() => setTab('agenda')} className={`flex flex-col items-center justify-center gap-0.5 h-full flex-1 text-center transition-colors min-w-max ${tab === 'agenda' ? 'text-orange-500 bg-orange-500/5' : 'text-zinc-500 hover:text-zinc-400'}`}><Calendar size={14} /><span className="text-[7px] font-bold">Agenda</span></button>
-                <button onClick={() => setTab('aprovar')} className={`flex flex-col items-center justify-center gap-0.5 h-full flex-1 text-center transition-colors min-w-max ${tab === 'aprovar' ? 'text-orange-500 bg-orange-500/5' : 'text-zinc-500 hover:text-zinc-400'}`}><ThumbsUp size={14} /><span className="text-[7px] font-bold">Aprovar</span></button>
-                <button onClick={() => setTab('avaliar')} className={`flex flex-col items-center justify-center gap-0.5 h-full flex-1 text-center transition-colors min-w-max ${tab === 'avaliar' ? 'text-orange-500 bg-orange-500/5' : 'text-zinc-500 hover:text-zinc-400'}`}><Star size={14} /><span className="text-[7px] font-bold">Avaliar</span></button>
-                <button onClick={() => setTab('assinatura')} className={`flex flex-col items-center justify-center gap-0.5 h-full flex-1 text-center transition-colors min-w-max ${tab === 'assinatura' ? 'text-orange-500 bg-orange-500/5' : 'text-zinc-500 hover:text-zinc-400'}`}><TrendingUp size={14} /><span className="text-[7px] font-bold">Plano</span></button>
-                <button onClick={() => setTab('perfil')} className={`flex flex-col items-center justify-center gap-0.5 h-full flex-1 text-center transition-colors min-w-max ${tab === 'perfil' ? 'text-orange-500 bg-orange-500/5' : 'text-zinc-500 hover:text-zinc-400'}`}><User size={14} /><span className="text-[7px] font-bold">Perfil</span></button>
-                <button onClick={() => setTab('pagamento')} className={`flex flex-col items-center justify-center gap-0.5 h-full flex-1 text-center transition-colors min-w-max ${tab === 'pagamento' ? 'text-orange-500 bg-orange-500/5' : 'text-zinc-500 hover:text-zinc-400'}`}><CreditCard size={14} /><span className="text-[7px] font-bold">Pagar</span></button>
+            <div className="sticky bottom-0 left-0 w-full h-[calc(4rem+env(safe-area-inset-bottom))] pb-[env(safe-area-inset-bottom)] bg-zinc-950/98 backdrop-blur-lg border-t border-zinc-800 flex justify-between items-center z-40 overflow-x-auto">
+                <button onClick={() => setTab('barbeiros')} className={`flex flex-col items-center justify-center gap-0.5 h-full flex-1 text-center transition-colors min-w-max ${tab === 'barbeiros' ? 'text-orange-500 bg-orange-500/5' : 'text-zinc-400 hover:text-zinc-200'}`}><Store size={14} /><span className="text-[7px] font-bold">Loja</span></button>
+                <button onClick={() => setTab('freelancers')} className={`flex flex-col items-center justify-center gap-0.5 h-full flex-1 text-center transition-colors min-w-max ${tab === 'freelancers' ? 'text-orange-500 bg-orange-500/5' : 'text-zinc-400 hover:text-zinc-200'}`}><Users size={14} /><span className="text-[7px] font-bold">Freelancers</span></button>
+                <button onClick={() => setTab('agenda')} className={`flex flex-col items-center justify-center gap-0.5 h-full flex-1 text-center transition-colors min-w-max ${tab === 'agenda' ? 'text-orange-500 bg-orange-500/5' : 'text-zinc-400 hover:text-zinc-200'}`}><Calendar size={14} /><span className="text-[7px] font-bold">Agenda</span></button>
+                <button onClick={() => setTab('avaliar')} className={`flex flex-col items-center justify-center gap-0.5 h-full flex-1 text-center transition-colors min-w-max ${tab === 'avaliar' ? 'text-orange-500 bg-orange-500/5' : 'text-zinc-400 hover:text-zinc-200'}`}><Star size={14} /><span className="text-[7px] font-bold">Avaliar</span></button>
+                <button onClick={() => setTab('assinatura')} className={`flex flex-col items-center justify-center gap-0.5 h-full flex-1 text-center transition-colors min-w-max ${tab === 'assinatura' ? 'text-orange-500 bg-orange-500/5' : 'text-zinc-400 hover:text-zinc-200'}`}><TrendingUp size={14} /><span className="text-[7px] font-bold">Plano</span></button>
+                <button onClick={() => setTab('perfil')} className={`flex flex-col items-center justify-center gap-0.5 h-full flex-1 text-center transition-colors min-w-max ${tab === 'perfil' ? 'text-orange-500 bg-orange-500/5' : 'text-zinc-400 hover:text-zinc-200'}`}><User size={14} /><span className="text-[7px] font-bold">Perfil</span></button>
+                <button onClick={() => setTab('pagamento')} className={`flex flex-col items-center justify-center gap-0.5 h-full flex-1 text-center transition-colors min-w-max ${tab === 'pagamento' ? 'text-orange-500 bg-orange-500/5' : 'text-zinc-400 hover:text-zinc-200'}`}><CreditCard size={14} /><span className="text-[7px] font-bold">Pagamentos</span></button>
             </div>
         </div>
     );

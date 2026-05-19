@@ -4,6 +4,7 @@
 import os
 import secrets
 import math
+import requests
 from datetime import datetime, timedelta
 from typing import List, Optional
 
@@ -12,14 +13,337 @@ from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 from sqlalchemy import func, and_, or_
+from pydantic import BaseModel
+from .realtime import broadcast_event
+from . import models
 
 from . import models, schemas
 from .database import get_db
 from .email_utils import send_email
 from .email_send import send_verification_email, send_welcome_email
 from .routes import get_current_user, oauth2_scheme, get_password_hash, create_email_verification_token, verify_email_token
+from fastapi import Body
 
 router = APIRouter()
+
+
+class ConfigurarEnderecoBarbeariaRequest(BaseModel):
+    endereco_texto: str
+
+
+class ConfigurarEnderecoPorGpsRequest(BaseModel):
+    latitude: float
+    longitude: float
+
+
+def _geocodificar_endereco_nominatim(endereco_texto: str) -> tuple[float, float, str]:
+    endereco_limpo = (endereco_texto or '').strip()
+    if not endereco_limpo:
+        raise HTTPException(status_code=400, detail='Endereço é obrigatório')
+
+    resposta = requests.get(
+        'https://nominatim.openstreetmap.org/search',
+        params={
+            'q': endereco_limpo,
+            'format': 'json',
+            'limit': 1,
+            'addressdetails': 1,
+        },
+        headers={'User-Agent': 'BarberMoveApp/1.0 (+https://barbermove.local)'} ,
+        timeout=15,
+    )
+    resposta.raise_for_status()
+    dados = resposta.json()
+
+    if not dados:
+        raise HTTPException(status_code=400, detail='Endereço não encontrado. Verifique os dados e tente novamente.')
+
+    try:
+        lat = float(dados[0]['lat'])
+        lon = float(dados[0]['lon'])
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail='Não foi possível ler as coordenadas retornadas pelo geocoder.') from exc
+
+    return lat, lon, endereco_limpo
+
+
+def _salvar_endereco_barbearia(db: Session, barbearia: models.Barbearia, endereco_texto: str) -> dict:
+    lat, lon, endereco_normalizado = _geocodificar_endereco_nominatim(endereco_texto)
+
+    barbearia.latitude = lat
+    barbearia.longitude = lon
+    barbearia.endereco = endereco_normalizado
+    db.add(barbearia)
+    db.commit()
+    db.refresh(barbearia)
+
+    return {
+        'status': 'Endereço atualizado com sucesso',
+        'barbearia_id': barbearia.id,
+        'nome': barbearia.nome,
+        'endereco': barbearia.endereco,
+        'coordenadas': [barbearia.latitude, barbearia.longitude],
+    }
+
+
+def _reverse_geocode_nominatim(lat: float, lon: float) -> str:
+    try:
+        resposta = requests.get(
+            'https://nominatim.openstreetmap.org/reverse',
+            params={
+                'lat': float(lat),
+                'lon': float(lon),
+                'format': 'json',
+                'addressdetails': 1,
+            },
+            headers={'User-Agent': 'BarberMoveApp/1.0 (+https://barbermove.local)'},
+            timeout=15,
+        )
+        resposta.raise_for_status()
+        dados = resposta.json()
+        display = dados.get('display_name') or ''
+        if not display:
+            raise HTTPException(status_code=400, detail='Não foi possível obter endereço a partir das coordenadas')
+        return display
+    except requests.HTTPError:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail='Erro no reverse geocoding') from exc
+
+
+@router.patch('/barbearia/{barbearia_id}/configurar-endereco')
+def configurar_endereco_barbearia(barbearia_id: int, payload: ConfigurarEnderecoBarbeariaRequest = Body(...), token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
+    user = get_current_user(token=token, db=db)
+    if user.tipo != 'barbearia':
+        raise HTTPException(status_code=403, detail='Apenas a barbearia pode configurar o endereço')
+
+    barbearia = db.query(models.Barbearia).filter(
+        models.Barbearia.id == barbearia_id,
+        models.Barbearia.usuario_id == user.id,
+    ).first()
+    if not barbearia:
+        raise HTTPException(status_code=404, detail='Barbearia não encontrada ou acesso negado')
+
+    return _salvar_endereco_barbearia(db, barbearia, payload.endereco_texto)
+
+
+@router.patch('/barbearia/minha/configurar-endereco')
+def configurar_endereco_minha_barbearia(payload: ConfigurarEnderecoBarbeariaRequest = Body(...), token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
+    user = get_current_user(token=token, db=db)
+    if user.tipo != 'barbearia':
+        raise HTTPException(status_code=403, detail='Apenas a barbearia pode configurar o endereço')
+
+    barbearia = db.query(models.Barbearia).filter(models.Barbearia.usuario_id == user.id).first()
+    if not barbearia:
+        raise HTTPException(status_code=404, detail='Sua barbearia não foi encontrada')
+
+    return _salvar_endereco_barbearia(db, barbearia, payload.endereco_texto)
+
+
+def _haversine_km(lat1, lon1, lat2, lon2) -> float:
+    try:
+        if lat1 is None or lon1 is None or lat2 is None or lon2 is None:
+            return 0.0
+        lat1 = float(lat1); lon1 = float(lon1); lat2 = float(lat2); lon2 = float(lon2)
+    except Exception:
+        return 0.0
+
+    R = 6371.0
+    dlat = math.radians(lat2 - lat1)
+    dlon = math.radians(lon2 - lon1)
+    a = math.sin(dlat/2)**2 + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * math.sin(dlon/2)**2
+    c = 2 * math.atan2(math.sqrt(a), math.sqrt(1-a))
+    return round(R * c, 3)
+
+
+@router.get('/debug/rastreamento/{chamado_id}', response_model=dict)
+def debug_rastreamento(chamado_id: int, db: Session = Depends(get_db)):
+    """Retorna coordenadas atuais do agendamento ativo para debug e calcula a distância.
+
+    Útil para inspecionar se o cliente/barbeiro/barbearia estão com coordenadas corretas.
+    """
+    ativo = db.query(models.AgendamentoAtivo).filter(models.AgendamentoAtivo.chamado_id == chamado_id).first()
+    if not ativo:
+        raise HTTPException(status_code=404, detail='Agendamento ativo não encontrado')
+
+    # Buscar barbearia e barbeiro para inspeção
+    barbearia = db.query(models.Barbearia).filter(models.Barbearia.id == ativo.barbearia_id).first()
+    barbeiro = db.query(models.Usuario).filter(models.Usuario.id == ativo.barbeiro_id).first() if ativo.barbeiro_id else None
+
+    distancia_cliente_barbeiro = _haversine_km(ativo.cliente_lat, ativo.cliente_lon, ativo.barbeiro_lat, ativo.barbeiro_lon)
+    distancia_cliente_barbearia = _haversine_km(ativo.cliente_lat, ativo.cliente_lon, barbearia.latitude if barbearia else None, barbearia.longitude if barbearia else None)
+
+    return {
+        'coordenadas': {
+            'cliente': [ativo.cliente_lat, ativo.cliente_lon],
+            'barbeiro': [ativo.barbeiro_lat, ativo.barbeiro_lon],
+            'barbearia': [barbearia.latitude if barbearia else None, barbearia.longitude if barbearia else None]
+        },
+        'distancias_km': {
+            'cliente_barbeiro': distancia_cliente_barbeiro,
+            'cliente_barbearia': distancia_cliente_barbearia
+        }
+    }
+
+
+class SincronizarLocalizacaoRequest(BaseModel):
+    barbearia_id: int
+    chamado_id: int | None = None
+    latitude: float | None = None
+    longitude: float | None = None
+
+
+@router.post('/debug/sincronizar-localizacao', response_model=dict)
+def sincronizar_localizacao(payload: SincronizarLocalizacaoRequest = Body(...), db: Session = Depends(get_db)):
+    """Força valores de latitude/longitude para testes: atualiza barbearia e (opcional) agendamento ativo do cliente.
+
+    Use com cuidado — apenas para debugging em ambiente de desenvolvimento.
+    """
+    # Recuperar coordenada de teste: usar fornecida ou a coordenada da barbearia (se existir)
+    lat = payload.latitude
+    lon = payload.longitude
+
+    barbearia = db.query(models.Barbearia).filter(models.Barbearia.id == payload.barbearia_id).first()
+    if not barbearia:
+        raise HTTPException(status_code=404, detail='Barbearia não encontrada')
+
+    if lat is None or lon is None:
+        # Se não foi enviado, usar coordenada atual da barbearia (se estiver definida)
+        if barbearia.latitude is None or barbearia.longitude is None:
+            raise HTTPException(status_code=400, detail='Latitude/longitude de teste obrigatórias quando barbearia não possui coordenada')
+        lat = barbearia.latitude
+        lon = barbearia.longitude
+
+    # Atualizar barbearia
+    barbearia.latitude = float(lat)
+    barbearia.longitude = float(lon)
+    db.add(barbearia)
+
+    resultado = {'barbearia': {'id': barbearia.id, 'latitude': barbearia.latitude, 'longitude': barbearia.longitude}}
+
+    # Atualizar agendamento ativo (se informado)
+    if payload.chamado_id:
+        ativo = db.query(models.AgendamentoAtivo).filter(models.AgendamentoAtivo.chamado_id == payload.chamado_id).first()
+        if not ativo:
+            raise HTTPException(status_code=404, detail='Agendamento ativo não encontrado')
+        ativo.cliente_lat = float(lat)
+        ativo.cliente_lon = float(lon)
+        ativo.cliente_localizacao_em = datetime.utcnow()
+        db.add(ativo)
+        resultado['agendamento_ativo'] = {'chamado_id': ativo.chamado_id, 'cliente_lat': ativo.cliente_lat, 'cliente_lon': ativo.cliente_lon}
+
+    db.commit()
+    return {'status': 'sincronizado', 'detalhes': resultado}
+
+
+@router.patch('/barbearia/minha/configurar-endereco-por-gps')
+def configurar_endereco_minha_barbearia_por_gps(payload: ConfigurarEnderecoPorGpsRequest = Body(...), token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
+    user = get_current_user(token=token, db=db)
+    if user.tipo != 'barbearia':
+        raise HTTPException(status_code=403, detail='Apenas a barbearia pode configurar o endereço')
+
+    barbearia = db.query(models.Barbearia).filter(models.Barbearia.usuario_id == user.id).first()
+    if not barbearia:
+        raise HTTPException(status_code=404, detail='Sua barbearia não foi encontrada')
+
+    lat = payload.latitude
+    lon = payload.longitude
+    # Reverse geocode to human-readable address
+    endereco_normalizado = _reverse_geocode_nominatim(lat, lon)
+
+    barbearia.latitude = float(lat)
+    barbearia.longitude = float(lon)
+    barbearia.endereco = endereco_normalizado
+    db.add(barbearia)
+    db.commit()
+    db.refresh(barbearia)
+
+    return {
+        'status': 'Endereço atualizado via GPS',
+        'barbearia_id': barbearia.id,
+        'nome': barbearia.nome,
+        'endereco': barbearia.endereco,
+        'coordenadas': [barbearia.latitude, barbearia.longitude],
+    }
+
+
+@router.get('/agendamento/{agendamento_id}/status-rastreamento', response_model=dict)
+def obter_status_rastreamento(agendamento_id: int, db: Session = Depends(get_db)):
+    """Retorna se o mapa de rastreamento pode ser mostrado e coordenadas mínimas quando disponível.
+
+    - Se o agendamento estiver em `PENDENTE`, retorna `mostrar_mapa: False`.
+    - Senão, retorna `mostrar_mapa: True` e as coordenadas do `AgendamentoAtivo` (se existirem) ou da barbearia.
+    """
+    chamado = db.query(models.Chamado).filter(models.Chamado.id == agendamento_id).first()
+    if not chamado:
+        raise HTTPException(status_code=404, detail='Agendamento não encontrado')
+
+    # Não permitir mapa quando ainda pendente
+    if chamado.status == models.StatusAgendamento.PENDENTE.value:
+        return {"mostrar_mapa": False, "status": chamado.status}
+
+    # Tentar obter snapshot ativo
+    ativo = db.query(models.AgendamentoAtivo).filter(models.AgendamentoAtivo.chamado_id == agendamento_id).first()
+    # Buscar coordenadas da barbearia como fallback
+    barbearia = None
+    if chamado.barbearia_id:
+        barbearia = db.query(models.Barbearia).filter(models.Barbearia.id == chamado.barbearia_id).first()
+
+    result = {"mostrar_mapa": True, "status": chamado.status}
+
+    if ativo:
+        result.update({
+            "cliente_lat": ativo.cliente_lat,
+            "cliente_lon": ativo.cliente_lon,
+            "barbeiro_lat": ativo.barbeiro_lat,
+            "barbeiro_lon": ativo.barbeiro_lon,
+        })
+    elif barbearia:
+        result.update({
+            "barbearia_lat": barbearia.latitude,
+            "barbearia_lon": barbearia.longitude,
+        })
+
+    return result
+
+
+@router.patch('/agendamento/{agendamento_id}/aceitar', response_model=dict)
+def aceitar_agendamento(agendamento_id: int, db: Session = Depends(get_db), token: str = Depends(oauth2_scheme)):
+    """Barbeiro aceita o agendamento: altera status e notifica via WebSocket.
+
+    Observações:
+    - Usa `StatusAgendamento.CONFIRMADO` como sinal de aceite para liberar o mapa.
+    - Define `horario_match` quando disponível.
+    """
+    # verificar token e permissões
+    user = get_current_user(token=token, db=db)
+    usuario_id = user.id
+
+    chamado = db.query(models.Chamado).filter(models.Chamado.id == agendamento_id).first()
+    if not chamado:
+        raise HTTPException(status_code=404, detail='Agendamento não encontrado')
+
+    # Checar se o usuário é o barbeiro designado ou se não há barbeiro definido ainda
+    if chamado.barbeiro_id and chamado.barbeiro_id != usuario_id:
+        raise HTTPException(status_code=403, detail='Apenas o barbeiro designado pode aceitar este chamado')
+
+    # Atualiza status para confirmado (aceite)
+    chamado.status = models.StatusAgendamento.CONFIRMADO.value
+    chamado.horario_match = datetime.utcnow()
+    db.add(chamado)
+    db.commit()
+    db.refresh(chamado)
+
+    # Notificar front-ends conectados via WebSocket
+    # Mensagem simples com tipo 'chamado_aceito' e id do chamado
+    try:
+        # broadcast_event é uma coroutine
+        import asyncio
+        asyncio.create_task(broadcast_event('chamado_aceito', chamado_id=chamado.id, status=chamado.status))
+    except Exception:
+        pass
+
+    return {"status": "Serviço aceito com sucesso", "chamado_id": chamado.id, "novo_status": chamado.status}
 
 # Templates para páginas HTML
 templates = Jinja2Templates(directory="app/templates")
@@ -676,11 +1000,16 @@ def buscar_barbearias_proximas(localizacao: schemas.BarbeariasProximasRequest, d
 
 @router.post("/chamados/agendar")
 def agendar_chamado_futuro(agendamento: schemas.AgendamentoFuturo, token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
-    """Agendar chamado para data/hora específica"""
+    """Agendamento por horário desativado: o fluxo agora é apenas chamado imediato."""
     user = get_current_user(token=token, db=db)
     
     if user.tipo != "cliente":
         raise HTTPException(status_code=403, detail="Apenas clientes podem agendar")
+
+    raise HTTPException(
+        status_code=400,
+        detail="Agendamento por horário não está disponível. Use apenas 'Chamar agora'."
+    )
     
     # Verificar se serviço existe
     servico = db.query(models.Servico).filter(models.Servico.id == agendamento.servico_id).first()
@@ -819,6 +1148,63 @@ def listar_mensagens_chat(chamado_id: int, token: str = Depends(oauth2_scheme), 
     ).order_by(models.MensagemChat.criado_em).all()
     
     return mensagens
+
+
+# ==================== INICIAR CHAT RÁPIDO ====================
+@router.post("/chat/iniciar", response_model=schemas.ChamadoResponse)
+def iniciar_chat(destinatario_id: int = None, token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
+    """Iniciar um chamado rápido para permitir chat entre cliente e barbeiro.
+
+    Regras:
+    - Se usuário for `cliente` e destinatario for `barbeiro`, cria um chamado entre eles.
+    - Usa o primeiro `Servico` encontrado da barbearia do barbeiro.
+    - Retorna o `Chamado` criado.
+    """
+    user = get_current_user(token=token, db=db)
+
+    if destinatario_id is None:
+        raise HTTPException(status_code=400, detail="destinatario_id obrigatório")
+
+    destinatario = db.query(models.Usuario).filter(models.Usuario.id == destinatario_id).first()
+    if not destinatario:
+        raise HTTPException(status_code=404, detail="Usuário destinatário não encontrado")
+
+    # Apenas cliente <-> barbeiro por enquanto
+    if user.tipo == 'cliente' and destinatario.tipo == 'barbeiro':
+        cliente = user
+        barbeiro = destinatario
+    elif user.tipo == 'barbeiro' and destinatario.tipo == 'cliente':
+        cliente = destinatario
+        barbeiro = user
+    else:
+        raise HTTPException(status_code=400, detail="Somente conversas entre clientes e barbeiros são permitidas")
+
+    chamado_existente = db.query(models.Chamado).filter(
+        models.Chamado.cliente_id == cliente.id,
+        models.Chamado.barbeiro_id == barbeiro.id,
+        models.Chamado.status.in_([
+            models.StatusAgendamento.CONFIRMADO.value,
+            models.StatusAgendamento.EM_ATENDIMENTO.value,
+        ])
+    ).order_by(models.Chamado.criado_em.desc()).first()
+
+    if chamado_existente:
+        return chamado_existente
+
+    raise HTTPException(status_code=400, detail="Conversa disponível somente após o serviço ser aceito")
+
+    notificacao = models.Notificacao(
+        usuario_id=barbeiro.id,
+        titulo='Nova conversa',
+        mensagem=f'{cliente.nome or "Cliente"} iniciou uma conversa com você.',
+        tipo='chat'
+    )
+    db.add(notificacao)
+
+    db.commit()
+    db.refresh(novo_chamado)
+
+    return novo_chamado
 
 
 # ==================== VERIFICAÇÃO DE EMAIL ====================

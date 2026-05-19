@@ -81,10 +81,10 @@ def solicitar_saque(
             detail="Apenas barbeiros podem solicitar saques"
         )
     
-    if dados.valor < 50:
+    if dados.valor <= 0:
         raise HTTPException(
             status_code=400,
-            detail="Valor mínimo de saque é R$ 50,00"
+            detail="Valor de saque deve ser maior que zero"
         )
     
     saldos = _calcular_saldo_barbeiro(db, current_user.id)

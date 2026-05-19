@@ -4,17 +4,26 @@ import './index.css'
 import App from './App.jsx'
 import ErrorBoundary from './components/ErrorBoundary.jsx'
 
-// Em localhost, evita cache antigo de service worker durante debug.
-const isLocalhost = typeof window !== 'undefined' && (
-  window.location.hostname === 'localhost' ||
-  window.location.hostname === '127.0.0.1'
+// Em app nativo e em desenvolvimento, evita cache antigo de service worker
+// que pode manter bundle velho mesmo após instalar um APK novo.
+const isDev = import.meta.env.DEV
+const isNativeApp = typeof window !== 'undefined' && (
+  window.location.protocol === 'capacitor:' ||
+  window.location.protocol === 'ionic:' ||
+  window.Capacitor?.isNativePlatform?.() === true
 )
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', async () => {
-    if (isLocalhost) {
+    if (isDev || isNativeApp) {
       const regs = await navigator.serviceWorker.getRegistrations()
       await Promise.all(regs.map((reg) => reg.unregister()))
+
+      if ('caches' in window) {
+        const cacheKeys = await caches.keys()
+        await Promise.all(cacheKeys.map((key) => caches.delete(key)))
+      }
+
       return
     }
 

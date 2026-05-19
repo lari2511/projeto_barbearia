@@ -1,7 +1,9 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { DollarSign, CreditCard, Wallet, Clock, Eye, EyeOff, RefreshCw } from 'lucide-react';
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+const DEFAULT_HOST = typeof window !== 'undefined' ? window.location.hostname : 'localhost';
+const DEFAULT_PROTOCOL = typeof window !== 'undefined' && window.location.protocol === 'https:' ? 'https' : 'http';
+const API_URL = import.meta.env.VITE_API_URL || `${DEFAULT_PROTOCOL}://${DEFAULT_HOST}:8000`;
 
 export default function PaymentSection({ userType, token, onNotify }) {
   const [loading, setLoading] = useState(true);
@@ -113,8 +115,8 @@ export default function PaymentSection({ userType, token, onNotify }) {
   }, [carregarDadosPagamento]);
 
   const solicitarSaque = async () => {
-    if (!saldoDetalhado.saldoDisponivel || saldoDetalhado.saldoDisponivel < 50) {
-      onNotify?.('Saldo mínimo de R$ 50 necessário para saque', 'warning');
+    if (!saldoDetalhado.saldoDisponivel || saldoDetalhado.saldoDisponivel <= 0) {
+      onNotify?.('Saldo indisponível para saque', 'warning');
       return;
     }
 
@@ -279,7 +281,7 @@ export default function PaymentSection({ userType, token, onNotify }) {
             {userType === 'barbeiro' && (
               <button
                 onClick={solicitarSaque}
-                disabled={!saldoDetalhado.saldoDisponivel || saldoDetalhado.saldoDisponivel < 50}
+                disabled={!saldoDetalhado.saldoDisponivel || saldoDetalhado.saldoDisponivel <= 0}
                 className="w-full bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 disabled:from-zinc-700 disabled:to-zinc-700 disabled:cursor-not-allowed text-white py-3 rounded-xl text-sm font-bold transition"
               >
                 Solicitar Saque

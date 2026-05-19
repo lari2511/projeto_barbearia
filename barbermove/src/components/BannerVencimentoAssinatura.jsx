@@ -6,7 +6,9 @@ import { AlertTriangle, X, CreditCard } from 'lucide-react';
  * para avisar sobre vencimento próximo ou bloqueio
  */
 export default function BannerVencimentoAssinatura({ token, onNavigateToPagamento }) {
-  const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+  const defaultHost = typeof window !== 'undefined' ? window.location.hostname : 'localhost';
+  const defaultProtocol = typeof window !== 'undefined' && window.location.protocol === 'https:' ? 'https' : 'http';
+  const API_URL = import.meta.env.VITE_API_URL || `${defaultProtocol}://${defaultHost}:8000`;
   
   const [status, setStatus] = useState(null);
   const [dismissed, setDismissed] = useState(false);

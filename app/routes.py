@@ -3,9 +3,12 @@
 
 import os
 import secrets
+import math
+import json
 from dotenv import load_dotenv
+from urllib.request import urlopen
 
-from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks, Request
 from sqlalchemy.orm import Session
 from sqlalchemy import or_, and_, func
 from datetime import timedelta
@@ -14,14 +17,24 @@ from passlib.exc import UnknownHashError
 from datetime import datetime
 from jose import JWTError, jwt
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
+from pydantic import BaseModel
 
 from . import models, schemas
 from .database import get_db
 from .email_utils import send_email
 from .email_send import send_verification_email
+from . import firebase_config
+from .realtime import broadcast_event
 
 # Carrega variáveis do arquivo .env
 load_dotenv()
+
+
+def env_bool(key: str, default: bool = False) -> bool:
+    val = os.getenv(key)
+    if val is None:
+        return default
+    return str(val).strip().lower() in {"1", "true", "yes", "on"}
 
 router = APIRouter()
 
@@ -103,7 +116,10 @@ def is_horario_disponivel(db: Session, barbeiro_id: int, inicio: datetime, fim: 
     conflito = db.query(models.Chamado).filter(
         and_(
             models.Chamado.barbeiro_id == barbeiro_id,
-            models.Chamado.status == models.StatusAgendamento.CONFIRMADO.value,
+            models.Chamado.status.in_([
+                models.StatusAgendamento.CONFIRMADO.value,
+                models.StatusAgendamento.EM_ATENDIMENTO.value,
+            ]),
             models.Chamado.data_hora_inicio.isnot(None),
             models.Chamado.data_hora_fim.isnot(None),
             and_(
@@ -116,20 +132,348 @@ def is_horario_disponivel(db: Session, barbeiro_id: int, inicio: datetime, fim: 
     
     return conflito is None
 
-def esta_em_servico_agora(db: Session, barbeiro_id: int) -> bool:
+
+def _contar_chamados_ativos_fila(db: Session, barbeiro_id: int, barbearia_id: int) -> int:
+    return db.query(models.Chamado).filter(
+        models.Chamado.barbeiro_id == barbeiro_id,
+        models.Chamado.barbearia_id == barbearia_id,
+        models.Chamado.status.in_([
+            models.StatusAgendamento.PENDENTE.value,
+            models.StatusAgendamento.CONFIRMADO.value,
+            models.StatusAgendamento.EM_ATENDIMENTO.value,
+        ])
+    ).count()
+
+
+def _buscar_proximo_chamado_fila(db: Session, barbeiro_id: int, barbearia_id: int, exclude_id: int = None):
+    query = db.query(models.Chamado).filter(
+        models.Chamado.barbeiro_id == barbeiro_id,
+        models.Chamado.barbearia_id == barbearia_id,
+        models.Chamado.status.in_([
+            models.StatusAgendamento.PENDENTE.value,
+            models.StatusAgendamento.CONFIRMADO.value,
+        ])
+    )
+    if exclude_id is not None:
+        query = query.filter(models.Chamado.id != exclude_id)
+    return query.order_by(models.Chamado.criado_em.asc(), models.Chamado.id.asc()).first()
+
+
+def haversine(lon1: float, lat1: float, lon2: float, lat2: float) -> float:
     """
-    Verifica se o barbeiro está em um serviço ATIVO no momento.
-    
-    Considera em serviço se há um agendamento confirmado
-    onde o horário atual está entre data_hora_inicio e data_hora_fim.
+    Calcula distância em km entre dois pontos (lat/lon) usando a fórmula de Haversine.
     
     Args:
-        db: Sessão do banco de dados
-        barbeiro_id: ID do barbeiro
+        lon1: Longitude do primeiro ponto
+        lat1: Latitude do primeiro ponto
+        lon2: Longitude do segundo ponto
+        lat2: Latitude do segundo ponto
         
     Returns:
-        True se está em serviço ativo, False caso contrário
+        Distância em quilômetros
     """
+    lon1, lat1, lon2, lat2 = map(math.radians, [lon1, lat1, lon2, lat2])
+    dlon = lon2 - lon1
+    dlat = lat2 - lat1
+    a = math.sin(dlat/2)**2 + math.cos(lat1) * math.cos(lat2) * math.sin(dlon/2)**2
+    c = 2 * math.asin(math.sqrt(a))
+    km = 6371 * c
+    return km
+
+
+def _calcular_taxa_cancelamento(chamado: models.Chamado, barbeiro: models.Usuario | None) -> tuple[float, int, str]:
+    """
+    Calcula a taxa de cancelamento conforme as regras:
+    1. Se cancelar ANTES do barbeiro aceitar (status PENDENTE): taxa = 0
+    2. Se freelancer está PRESENTE na barbearia: taxa = 8.00 (sempre)
+    3. Se tempo desde match <= 5 min: taxa = 0
+    4. Se tempo desde match > 5 min: taxa = 8.00
+    """
+    janela_gratuita_minutos = 5
+    taxa_padrao = 8.0
+
+    # ✅ REGRA 1: Se ainda está pendente (barbeiro não aceitou), cancelamento é grátis
+    if chamado.status == models.StatusAgendamento.PENDENTE.value:
+        return 0.0, 0, "Cancelamento antes da confirmação do barbeiro"
+
+    # ✅ REGRA 2: Se freelancer está PRESENTE na barbearia, taxa é sempre 8.00
+    if barbeiro and barbeiro.presente_em_local and barbeiro.barbearia_atual_id == chamado.barbearia_id:
+        return taxa_padrao, 0, "Freelancer presente na barbearia - taxa aplicada"
+
+    # ✅ REGRA 3 & 4: Calcular tempo desde o match (horario_match)
+    # Se não há horario_match, usar aprovado_barbeiro_em como fallback (compatibilidade)
+    referencia_inicio = chamado.horario_match or chamado.aprovado_barbeiro_em or chamado.criado_em or datetime.utcnow()
+    diferenca_minutos = max(0, int((datetime.utcnow() - referencia_inicio).total_seconds() // 60))
+
+    if diferenca_minutos > janela_gratuita_minutos:
+        return taxa_padrao, diferenca_minutos, "Cancelamento fora da janela gratuita de 5 minutos - taxa aplicada"
+
+    return 0.0, diferenca_minutos, "Cancelamento dentro da janela gratuita de 5 minutos"
+
+
+def _finalizar_chamado_e_avancar_fila(db: Session, chamado: models.Chamado, barbeiro: models.Usuario):
+    status_anterior = chamado.status
+    chamado.status = models.StatusAgendamento.CONCLUIDO.value
+    chamado.data_hora_fim = datetime.now()
+
+    cadeira_liberada_id = chamado.cadeira_id
+    if cadeira_liberada_id:
+        cadeira = db.query(models.Cadeira).filter(models.Cadeira.id == cadeira_liberada_id).first()
+        if cadeira:
+            cadeira.status = models.StatusCadeira.DISPONIVEL
+            cadeira.freelancer_id = None
+            cadeira.chamado_id = None
+            cadeira.liberada_em = datetime.now()
+
+    barber = db.query(models.Usuario).filter(models.Usuario.id == barbeiro.id).first()
+    if barber:
+        barber.disponivel = True
+        barber.em_atendimento = False
+        barber.ocupado_ate = None
+
+    proximo = _buscar_proximo_chamado_fila(db, barbeiro.id, chamado.barbearia_id, exclude_id=chamado.id)
+    if proximo:
+        if not proximo.cadeira_id and cadeira_liberada_id:
+            proximo.cadeira_id = cadeira_liberada_id
+        servico_proximo, _, cadeira_proxima, agora = _iniciar_atendimento_chamado(db, proximo, barbeiro)
+        db.add(models.ChamadoHistorico(
+            chamado_id=proximo.id,
+            status_anterior=proximo.status,
+            status_novo=models.StatusAgendamento.EM_ATENDIMENTO.value,
+            usuario_id=barbeiro.id,
+            observacao=f"Fila avançou automaticamente após finalização de {chamado.id}"
+        ))
+        db.add(models.Notificacao(
+            usuario_id=proximo.cliente_id,
+            titulo="Seu atendimento começou",
+            mensagem=f"O barbeiro {barbeiro.nome} começou seu atendimento agora.",
+            tipo="chamado",
+            referencia_id=proximo.id
+        ))
+        return {
+            "status_anterior": status_anterior,
+            "proximo": proximo,
+            "servico_proximo": servico_proximo,
+            "cadeira_proxima": cadeira_proxima,
+            "agora": agora,
+            "barbeiro": barber,
+            "cadeira_liberada_id": cadeira_liberada_id,
+        }
+
+    return {
+        "status_anterior": status_anterior,
+        "proximo": None,
+        "barbeiro": barber,
+        "cadeira_liberada_id": cadeira_liberada_id,
+    }
+
+
+def calcular_distancia_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    # Calcula distância em km entre dois pontos via Haversine.
+    # Se alguma coordenada estiver ausente ou inválida, retorna 0.0 para evitar resultados errôneos.
+    try:
+        if lat1 is None or lon1 is None or lat2 is None or lon2 is None:
+            return 0.0
+
+        # Valores não numéricos devem ser tratados
+        lat1 = float(lat1); lon1 = float(lon1); lat2 = float(lat2); lon2 = float(lon2)
+    except Exception:
+        return 0.0
+
+    raio_terra_km = 6371.0
+
+    lat1_rad = math.radians(lat1)
+    lon1_rad = math.radians(lon1)
+    lat2_rad = math.radians(lat2)
+    lon2_rad = math.radians(lon2)
+
+    delta_lat = lat2_rad - lat1_rad
+    delta_lon = lon2_rad - lon1_rad
+
+    a = (
+        math.sin(delta_lat / 2) ** 2
+        + math.cos(lat1_rad) * math.cos(lat2_rad) * math.sin(delta_lon / 2) ** 2
+    )
+    c = 2 * math.asin(math.sqrt(a))
+    return round(raio_terra_km * c, 3)
+
+
+def estimar_tempo_minutos(distancia_km: float, velocidade_media_kmh: float = 30.0) -> int:
+    # Estima ETA em minutos com velocidade média urbana.
+    if distancia_km <= 0:
+        return 0
+    if velocidade_media_kmh <= 0:
+        velocidade_media_kmh = 30.0
+    return max(1, int(round((distancia_km / velocidade_media_kmh) * 60)))
+
+
+class AtualizarPosicaoTrackingRequest(BaseModel):
+    latitude: float
+    longitude: float
+
+
+class AtualizarLocalizacaoCompatRequest(BaseModel):
+    latitude: float
+    longitude: float
+    chamado_id: int | None = None
+
+
+def _calcular_eta_osrm_minutos(
+    origem_lat: float,
+    origem_lon: float,
+    destino_lat: float,
+    destino_lon: float,
+) -> int | None:
+    """Calcula ETA via OSRM público; retorna None em falha para usar fallback."""
+    try:
+        url = (
+            "http://router.project-osrm.org/route/v1/driving/"
+            f"{origem_lon},{origem_lat};{destino_lon},{destino_lat}?overview=false"
+        )
+        with urlopen(url, timeout=2.5) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+
+        routes = payload.get("routes") if isinstance(payload, dict) else None
+        if not routes:
+            return None
+
+        duration_seconds = routes[0].get("duration")
+        if duration_seconds is None:
+            return None
+
+        return max(1, int(round(float(duration_seconds) / 60.0)))
+    except Exception:
+        return None
+
+
+def _calcular_distancia_eta(
+    origem_lat: float,
+    origem_lon: float,
+    destino_lat: float,
+    destino_lon: float,
+) -> tuple[float, int]:
+    distancia_km = calcular_distancia_km(origem_lat, origem_lon, destino_lat, destino_lon)
+    eta_osrm = _calcular_eta_osrm_minutos(origem_lat, origem_lon, destino_lat, destino_lon)
+    if eta_osrm is not None:
+        return distancia_km, eta_osrm
+    return distancia_km, estimar_tempo_minutos(distancia_km, velocidade_media_kmh=40.0)
+
+
+def _buscar_chamado_para_tracking(db: Session, chamado_id: int) -> models.Chamado:
+    chamado = db.query(models.Chamado).filter(models.Chamado.id == chamado_id).first()
+    if not chamado:
+        raise HTTPException(status_code=404, detail="Chamado não encontrado")
+    return chamado
+
+
+def _validar_acesso_tracking(db: Session, user: models.Usuario, chamado: models.Chamado) -> None:
+    if user.tipo == "cliente" and chamado.cliente_id == user.id:
+        return
+    if user.tipo == "barbeiro" and chamado.barbeiro_id == user.id:
+        return
+    if user.tipo == "barbearia":
+        barbearia = db.query(models.Barbearia).filter(
+            models.Barbearia.id == chamado.barbearia_id,
+            models.Barbearia.usuario_id == user.id,
+        ).first()
+        if barbearia:
+            return
+    raise HTTPException(status_code=403, detail="Sem permissão para acessar o tracking deste chamado")
+
+
+def _obter_ou_criar_agendamento_ativo(db: Session, chamado: models.Chamado) -> models.AgendamentoAtivo:
+    ativo = db.query(models.AgendamentoAtivo).filter(
+        models.AgendamentoAtivo.chamado_id == chamado.id
+    ).first()
+
+    cliente = db.query(models.Usuario).filter(models.Usuario.id == chamado.cliente_id).first()
+    barbeiro = db.query(models.Usuario).filter(models.Usuario.id == chamado.barbeiro_id).first() if chamado.barbeiro_id else None
+
+    if not ativo:
+        ativo = models.AgendamentoAtivo(
+            chamado_id=chamado.id,
+            cliente_id=chamado.cliente_id,
+            barbearia_id=chamado.barbearia_id,
+            barbeiro_id=chamado.barbeiro_id,
+            cliente_lat=cliente.latitude if cliente else None,
+            cliente_lon=cliente.longitude if cliente else None,
+            barbeiro_lat=barbeiro.latitude if barbeiro else None,
+            barbeiro_lon=barbeiro.longitude if barbeiro else None,
+            cliente_localizacao_em=datetime.utcnow() if cliente and cliente.latitude is not None and cliente.longitude is not None else None,
+            barbeiro_localizacao_em=datetime.utcnow() if barbeiro and barbeiro.latitude is not None and barbeiro.longitude is not None else None,
+        )
+        db.add(ativo)
+        db.flush()
+    else:
+        ativo.cliente_id = chamado.cliente_id
+        ativo.barbearia_id = chamado.barbearia_id
+        ativo.barbeiro_id = chamado.barbeiro_id
+
+    return ativo
+
+
+def _montar_payload_tracking(db: Session, chamado: models.Chamado, ativo: models.AgendamentoAtivo) -> dict:
+    barbearia = db.query(models.Barbearia).filter(models.Barbearia.id == chamado.barbearia_id).first()
+    cliente = db.query(models.Usuario).filter(models.Usuario.id == chamado.cliente_id).first()
+    barbeiro = db.query(models.Usuario).filter(models.Usuario.id == chamado.barbeiro_id).first() if chamado.barbeiro_id else None
+
+    cliente_lat = ativo.cliente_lat if ativo.cliente_lat is not None else (cliente.latitude if cliente else None)
+    cliente_lon = ativo.cliente_lon if ativo.cliente_lon is not None else (cliente.longitude if cliente else None)
+    barbeiro_lat = ativo.barbeiro_lat if ativo.barbeiro_lat is not None else (barbeiro.latitude if barbeiro else None)
+    barbeiro_lon = ativo.barbeiro_lon if ativo.barbeiro_lon is not None else (barbeiro.longitude if barbeiro else None)
+
+    cliente_distancia = None
+    cliente_eta = None
+    barbeiro_distancia = None
+    barbeiro_eta = None
+
+    if barbearia and barbearia.latitude is not None and barbearia.longitude is not None:
+        if cliente_lat is not None and cliente_lon is not None:
+            cliente_distancia, cliente_eta = _calcular_distancia_eta(
+                cliente_lat,
+                cliente_lon,
+                barbearia.latitude,
+                barbearia.longitude,
+            )
+
+        if barbeiro_lat is not None and barbeiro_lon is not None:
+            barbeiro_distancia, barbeiro_eta = _calcular_distancia_eta(
+                barbeiro_lat,
+                barbeiro_lon,
+                barbearia.latitude,
+                barbearia.longitude,
+            )
+
+    return {
+        "chamado_id": chamado.id,
+        "status": chamado.status,
+        "barbearia": {
+            "id": barbearia.id if barbearia else chamado.barbearia_id,
+            "nome": barbearia.nome if barbearia else None,
+            "endereco": barbearia.endereco if barbearia else None,
+            "telefone": barbearia.telefone if barbearia else None,
+            "latitude": barbearia.latitude if barbearia else None,
+            "longitude": barbearia.longitude if barbearia else None,
+        },
+        "coordenadas_cliente": {
+            "lat": cliente_lat,
+            "lon": cliente_lon,
+            "atualizado_em": ativo.cliente_localizacao_em.isoformat() if ativo.cliente_localizacao_em else None,
+        },
+        "coordenadas_barbeiro": {
+            "lat": barbeiro_lat,
+            "lon": barbeiro_lon,
+            "atualizado_em": ativo.barbeiro_localizacao_em.isoformat() if ativo.barbeiro_localizacao_em else None,
+        },
+        "cliente_distancia_ate_barbearia_km": cliente_distancia,
+        "cliente_eta_ate_barbearia_min": cliente_eta,
+        "freelancer_distancia_ate_barbearia_km": barbeiro_distancia,
+        "freelancer_eta_ate_barbearia_min": barbeiro_eta,
+        "atualizado_em": datetime.utcnow().isoformat(),
+    }
+
+def esta_em_servico_agora(db: Session, barbeiro_id: int) -> bool:
+    # Verifica se o barbeiro está em um serviço ATIVO no momento.
     from datetime import datetime
     from sqlalchemy import and_
     
@@ -150,6 +494,41 @@ def esta_em_servico_agora(db: Session, barbeiro_id: int) -> bool:
     ).first()
     
     return servico_ativo is not None
+
+
+@router.get("/barbeiro/{barbeiro_id}/pode-receber-chamado")
+def pode_receber_chamado(barbeiro_id: int, db: Session = Depends(get_db)):
+    """Verifica se um barbeiro pode receber novo chamado imediatamente.
+
+    Regras:
+    - Se `ocupado_ate` não estiver definido ou já passou -> disponível
+    - Se `ocupado_ate` definido e faltar 15 minutos ou menos -> disponível (liberação antecipada)
+    - Caso contrário -> não disponível e retorna minutos restantes até permitir
+    """
+    barbeiro = db.query(models.Usuario).filter(models.Usuario.id == barbeiro_id).first()
+    agora = datetime.now()
+    if not barbeiro:
+        raise HTTPException(status_code=404, detail="Barbeiro não encontrado")
+
+    ocupado_ate = getattr(barbeiro, 'ocupado_ate', None)
+    if not ocupado_ate:
+        return {"disponivel": True}
+
+    if ocupado_ate <= agora:
+        # Já passou
+        return {"disponivel": True}
+
+    minutos_restantes = (ocupado_ate - agora).total_seconds() / 60
+    if minutos_restantes <= 15:
+        return {
+            "disponivel": True,
+            "aviso": f"Finalizando corte em {int(round(minutos_restantes))} min. Já pode aceitar o próximo."
+        }
+
+    return {
+        "disponivel": False,
+        "minutos_para_liberar": int(math.ceil(minutos_restantes - 15))
+    }
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     if not hashed_password:
@@ -177,7 +556,7 @@ def create_access_token(data: dict, expires_delta: timedelta | None = None) -> s
 EMAIL_TOKEN_EXPIRE_HOURS = 24
 
 def create_email_verification_token(email: str) -> str:
-    """Gera um token JWT específico para verificação de e-mail (válido por 24h)"""
+    # Token JWT específico para verificação de e-mail (válido por 24h)
     expire = datetime.now() + timedelta(hours=EMAIL_TOKEN_EXPIRE_HOURS)
     # Colocamos um 'type' para diferenciar de tokens de login
     to_encode = {"sub": email, "exp": expire, "type": "email_verification"}
@@ -185,10 +564,7 @@ def create_email_verification_token(email: str) -> str:
     return encoded_jwt
 
 def verify_email_token(token: str) -> str | None:
-    """
-    Verifica e decodifica o token de e-mail.
-    Retorna o email se válido, None caso contrário.
-    """
+    # Retorna o email se o token for válido.
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         email: str = payload.get("sub")
@@ -201,7 +577,7 @@ def verify_email_token(token: str) -> str | None:
 
 
 def dispatch_verification_email(user: models.Usuario) -> None:
-    """Send email verification link if SMTP is configured."""
+    # Send email verification link if SMTP is configured.
     if not user.token_verificacao:
         return
 
@@ -256,11 +632,7 @@ def cadastrar_cliente(
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db)
 ):
-    """
-    Cadastrar novo cliente
-    
-    Após o registro, um e-mail de verificação será enviado automaticamente.
-    """
+    # Cadastrar novo cliente; envia e-mail de verificação automaticamente.
     usuario_existente = db.query(models.Usuario).filter(models.Usuario.email == cliente.email).first()
     if usuario_existente:
         raise HTTPException(status_code=400, detail="Email já cadastrado")
@@ -292,6 +664,24 @@ def cadastrar_cliente(
     )
     db.add(novo_usuario)
     db.commit()
+    # Enviar push para o cliente informando conclusão (se disponível)
+    try:
+        cliente = db.query(models.Usuario).filter(models.Usuario.id == chamado.cliente_id).first()
+        if cliente and getattr(cliente, 'device_token', None) and firebase_config.FIREBASE_DISPONIVEL:
+            try:
+                msg = firebase_config.messaging.Message(
+                    notification=firebase_config.messaging.Notification(
+                        title="Serviço Concluído",
+                        body="Seu serviço foi concluído! Não esqueça de avaliar."
+                    ),
+                    data={"tipo": "chamado_concluido", "chamado_id": str(chamado.id)},
+                    token=cliente.device_token
+                )
+                firebase_config.messaging.send(msg)
+            except Exception:
+                pass
+    except Exception:
+        pass
     db.refresh(novo_usuario)
     
     # Enviar e-mail de verificação em background (não bloqueia a resposta)
@@ -319,11 +709,7 @@ def cadastrar_barbeiro(
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db)
 ):
-    """
-    Cadastrar novo barbeiro
-    
-    Após o registro, um e-mail de verificação será enviado automaticamente.
-    """
+    # Cadastrar novo barbeiro; envia e-mail de verificação automaticamente.
     usuario_existente = db.query(models.Usuario).filter(models.Usuario.email == barbeiro.email).first()
     if usuario_existente:
         raise HTTPException(status_code=400, detail="Email já cadastrado")
@@ -390,11 +776,7 @@ def cadastrar_barbearia(
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db)
 ):
-    """
-    Cadastrar nova barbearia e vincular usuário/barbearia
-    
-    Após o registro, um e-mail de verificação será enviado automaticamente.
-    """
+    # Cadastrar nova barbearia e vincular usuário/barbearia.
     usuario_existente = db.query(models.Usuario).filter(models.Usuario.email == barbearia.email).first()
     if usuario_existente:
         raise HTTPException(status_code=400, detail="Email já cadastrado")
@@ -478,7 +860,7 @@ def cadastrar_barbearia(
 
 @router.post("/login/cliente/")
 def login_cliente(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
-    """Login para cliente"""
+    # Login para cliente.
     email = form_data.username
     senha = form_data.password
     
@@ -507,7 +889,7 @@ def login_cliente(form_data: OAuth2PasswordRequestForm = Depends(), db: Session 
 
 @router.post("/login/barbeiro/")
 def login_barbeiro(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
-    """Login para barbeiro"""
+    # Login para barbeiro.
     email = form_data.username
     senha = form_data.password
     
@@ -530,7 +912,7 @@ def login_barbeiro(form_data: OAuth2PasswordRequestForm = Depends(), db: Session
 
 @router.post("/login/barbearia/")
 def login_barbearia(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
-    """Login para barbearia"""
+    # Login para barbearia.
     email = form_data.username
     senha = form_data.password
     
@@ -564,7 +946,7 @@ def login_barbearia(form_data: OAuth2PasswordRequestForm = Depends(), db: Sessio
 
 @router.post("/login/admin/")
 def login_admin(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
-    """Login para admin"""
+    # Login para admin.
     email = form_data.username
     senha = form_data.password
     
@@ -589,13 +971,13 @@ def login_admin(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = 
 
 @router.get("/barbearias/todas")
 def listar_todas_barbearias(db: Session = Depends(get_db)):
-    """Listar todas as barbearias cadastradas"""
+    # Listar todas as barbearias cadastradas.
     barbearias = db.query(models.Barbearia).all()
     return barbearias
 
 @router.get("/barbearia/{id}/servicos")
 def listar_servicos_barbearia(id: int, db: Session = Depends(get_db)):
-    """Listar serviços de uma barbearia específica"""
+    # Listar serviços de uma barbearia específica.
     servicos = db.query(models.Servico).filter(models.Servico.barbearia_id == id).all()
     return servicos
 
@@ -604,7 +986,7 @@ def listar_servicos_barbearia(id: int, db: Session = Depends(get_db)):
 
 @router.get("/barbearia/minha")
 def obter_minha_barbearia(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
-    """Retorna a barbearia vinculada ao usuário autenticado"""
+    # Retorna a barbearia vinculada ao usuário autenticado.
     user = get_current_user(token=token, db=db)
     if user.tipo != "barbearia":
         raise HTTPException(status_code=403, detail="Apenas barbearias")
@@ -626,7 +1008,7 @@ def obter_minha_barbearia(token: str = Depends(oauth2_scheme), db: Session = Dep
 
 @router.post("/chamados")
 def criar_chamado(chamado: schemas.ChamadoCreate, token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
-    """Criar novo chamado (agendamento)"""
+    # Criar novo chamado (agendamento).
     # Validar token e obter usuário
     user = get_current_user(token=token, db=db)
     
@@ -640,12 +1022,30 @@ def criar_chamado(chamado: schemas.ChamadoCreate, token: str = Depends(oauth2_sc
     if servico.barbearia_id != barbearia.id:
         raise HTTPException(status_code=400, detail="Serviço não pertence a essa barbearia")
 
+    if chamado.cliente_latitude is None or chamado.cliente_longitude is None:
+        raise HTTPException(
+            status_code=400,
+            detail="A localização é obrigatória para realizar um chamado em tempo real."
+        )
+
+    user.latitude = chamado.cliente_latitude
+    user.longitude = chamado.cliente_longitude
+    print(f"[criar_chamado] cliente coords: {chamado.cliente_latitude},{chamado.cliente_longitude}")
+
     # Validação defensiva: evita criação para barbeiro diferente do selecionado na UI.
     if chamado.barbeiro_id and chamado.barbeiro_selecionado_id and chamado.barbeiro_id != chamado.barbeiro_selecionado_id:
         raise HTTPException(
             status_code=400,
             detail="Conflito no barbeiro selecionado. Atualize a tela e tente novamente."
         )
+
+    if chamado.barbeiro_id:
+        ativos = _contar_chamados_ativos_fila(db, chamado.barbeiro_id, chamado.barbearia_id)
+        if ativos >= 2:
+            raise HTTPException(
+                status_code=400,
+                detail="Este freelancer já está com 1 cliente em atendimento e 1 na fila. Tente novamente depois."
+            )
     
     # ✅ GUARDIÃO 1: Validar data/hora do agendamento
     if not chamado.data_hora_inicio:
@@ -696,17 +1096,60 @@ def criar_chamado(chamado: schemas.ChamadoCreate, token: str = Depends(oauth2_sc
                         status_code=403,
                         detail=f"Barbeiro não possui a especialidade em '{servico.categoria}' necessária para este serviço. Suas especialidades: {', '.join(tipos_especialidade)}."
                     )
+
+    print(f"[criar_chamado] barbearia coords: {barbearia.latitude},{barbearia.longitude}")
+    if barbearia.latitude == 0.0 and barbearia.longitude == 0.0:
+        print("[criar_chamado] Atenção: barbearia tem coordenadas 0.0,0.0 - verifique cadastro")
+
+    if barbearia.latitude is None or barbearia.longitude is None:
+        raise HTTPException(
+            status_code=400,
+            detail="A barbearia não possui localização cadastrada"
+        )
+
+    distancia_cliente_km = haversine(
+        chamado.cliente_longitude,
+        chamado.cliente_latitude,
+        barbearia.longitude,
+        barbearia.latitude,
+    )
+    tempo_estimado_minutos_cliente = int((distancia_cliente_km / 40) * 60)
+    enforce_distance_limit = env_bool("ENFORCE_DISTANCE_LIMIT", True)
+    if enforce_distance_limit and tempo_estimado_minutos_cliente > 10:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Você está a aproximadamente {tempo_estimado_minutos_cliente} minutos da barbearia. Para chamar agora, fique a no máximo 10 minutos de distância."
+        )
     
     # ✅ GUARDIÃO 2: Verificar se horário está disponível para o barbeiro
     # Nota: Apenas verifica se barbeiro foi especificado
     if chamado.barbeiro_id:
+        # Primeiro, verificar ocupação direta do barbeiro (ocupado_ate)
+        barbeiro_check = db.query(models.Usuario).filter(models.Usuario.id == chamado.barbeiro_id).first()
+        agora = datetime.now()
+        if barbeiro_check and getattr(barbeiro_check, 'ocupado_ate', None):
+            try:
+                if barbeiro_check.ocupado_ate > agora:
+                    minutos_restantes = (barbeiro_check.ocupado_ate - chamado.data_hora_inicio).total_seconds() / 60
+                    # Se faltar 15 minutos ou menos, permitimos criar chamado (liberação antecipada)
+                    if minutos_restantes <= 15:
+                        pass  # permitir, o chamado ficará na fila e será aceito quando possível
+                    else:
+                        raise HTTPException(
+                            status_code=400,
+                            detail=f"Barbeiro ainda ocupado por aproximadamente {int(math.ceil(minutos_restantes))} minutos. Tente novamente mais tarde."
+                        )
+            except Exception:
+                # qualquer problema com cálculo, prosseguir para validação padrão
+                pass
+
         disponivel = is_horario_disponivel(
             db,
             chamado.barbeiro_id,
             chamado.data_hora_inicio,
             hora_fim
         )
-        
+
         if not disponivel:
             raise HTTPException(
                 status_code=400,
@@ -733,7 +1176,10 @@ def criar_chamado(chamado: schemas.ChamadoCreate, token: str = Depends(oauth2_sc
         # ✅ GUARDIÃO: Verificar se cadeira já tem agendamento CONFIRMADO nesse período
         conflito = db.query(models.Chamado).filter(
             models.Chamado.cadeira_id == cadeira.id,
-            models.Chamado.status == models.StatusAgendamento.CONFIRMADO.value,
+            models.Chamado.status.in_([
+                models.StatusAgendamento.CONFIRMADO.value,
+                models.StatusAgendamento.EM_ATENDIMENTO.value,
+            ]),
             models.Chamado.data_hora_inicio < hora_fim,  # Agendamento começa antes do fim
             models.Chamado.data_hora_fim > chamado.data_hora_inicio  # Agendamento termina depois do início
         ).first()
@@ -811,6 +1257,54 @@ def criar_chamado(chamado: schemas.ChamadoCreate, token: str = Depends(oauth2_sc
     )
     db.add(notificacao)
     db.commit()
+
+    # Enviar push via Firebase para o barbeiro (se aplicável) e registrar notificação
+    try:
+        if novo_chamado.barbeiro_id:
+            barbeiro = db.query(models.Usuario).filter(models.Usuario.id == novo_chamado.barbeiro_id).first()
+            if barbeiro:
+                # Criar notificação para barbeiro no banco
+                notif_bar = models.Notificacao(
+                    usuario_id=barbeiro.id,
+                    titulo="Novo Chamado!",
+                    mensagem=f"{user.nome} solicitou {servico.nome}",
+                    tipo="novo_chamado",
+                    referencia_id=novo_chamado.id
+                )
+                db.add(notif_bar)
+                db.commit()
+
+                # Enviar push se Firebase estiver configurado e houver device_token
+                try:
+                    token = getattr(barbeiro, 'device_token', None)
+                    nome_barb = barbearia.nome if barbearia else None
+                    if token:
+                        firebase_config.enviar_notificacao_novo_chamado(token, user.nome, servico.nome, nome_barb)
+                except Exception:
+                    pass
+
+        # Enviar push de confirmação para o cliente (quem criou o chamado)
+        try:
+            token_cli = getattr(user, 'device_token', None)
+            if token_cli and firebase_config.FIREBASE_DISPONIVEL:
+                # enviar notificação simples informando criação
+                mensagem = firebase_config.messaging.Message(
+                    notification=firebase_config.messaging.Notification(
+                        title="Chamado criado",
+                        body=f"Seu chamado para {servico.nome} foi criado com sucesso"
+                    ),
+                    data={"tipo": "chamado_criado", "chamado_id": str(novo_chamado.id)},
+                    token=token_cli
+                )
+                try:
+                    firebase_config.messaging.send(mensagem)
+                except Exception:
+                    pass
+        except Exception:
+            pass
+    except Exception:
+        # Não falhar a criação do chamado se notificação falhar
+        pass
     
     return {
         "id": novo_chamado.id,
@@ -818,12 +1312,18 @@ def criar_chamado(chamado: schemas.ChamadoCreate, token: str = Depends(oauth2_sc
         "cliente_id": novo_chamado.cliente_id,
         "servico_id": novo_chamado.servico_id,
         "descricao": servico.nome,
-        "valor": servico.valor
+        "valor": novo_chamado.valor_total if novo_chamado.valor_total is not None else servico.valor,
+        "valor_total": novo_chamado.valor_total,
+        "data_hora_inicio": novo_chamado.data_hora_inicio.isoformat() if novo_chamado.data_hora_inicio else None,
+        "data_hora_fim": novo_chamado.data_hora_fim.isoformat() if novo_chamado.data_hora_fim else None,
+        "cliente_latitude": chamado.cliente_latitude,
+        "cliente_longitude": chamado.cliente_longitude,
+        "rastreamento_ativo": True
     }
 
 @router.get("/chamados/debug-abertos")
 def debug_chamados_abertos(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
-    """DEBUG: Ver por que chamados nao aparecem"""
+    # DEBUG: Ver por que chamados nao aparecem.
     user = get_current_user(token=token, db=db)
     if user.tipo != "barbeiro":
         raise HTTPException(status_code=403, detail="Apenas barbeiros podem ver chamados abertos")
@@ -865,7 +1365,7 @@ def debug_chamados_abertos(token: str = Depends(oauth2_scheme), db: Session = De
 
 @router.get("/chamados/abertos")
 def listar_chamados_abertos(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db), debug: str = None):
-    """Listar chamados abertos (para barbeiros)"""
+    # Listar chamados abertos (para barbeiros).
     user = get_current_user(token=token, db=db)
     if user.tipo != "barbeiro":
         raise HTTPException(status_code=403, detail="Apenas barbeiros podem ver chamados abertos")
@@ -895,153 +1395,65 @@ def listar_chamados_abertos(token: str = Depends(oauth2_scheme), db: Session = D
             "chamados_ids": [c.id for c in chamados_encontrados],
             "user_presente_em_local": user.presente_em_local
         }
-    
+
     # 🎯 FILTRO: Validar especialidade do freelancer
     freelancer_perfil = db.query(models.Freelancer).filter(
         models.Freelancer.usuario_id == user.id
     ).first()
-    
+
     tipos_especialidade = []
     if freelancer_perfil:
         especialidades = db.query(models.EspecialidadeFreelancer).filter(
             models.EspecialidadeFreelancer.freelancer_id == freelancer_perfil.id
         ).all()
         tipos_especialidade = [esp.tipo for esp in especialidades]
-    
-    # Filtrar chamados por especialidade apenas fora do modo "presente no local".
-    # Quando o barbeiro está presente em uma barbearia específica, ele deve ver
-    # todas as solicitações pendentes daquela unidade.
-    chamados = []
+
+    resultado = []
     for c in chamados_encontrados:
         servico = db.query(models.Servico).filter(models.Servico.id == c.servico_id).first()
 
-        # Chamados já direcionados a este barbeiro devem sempre aparecer para
-        # ele aceitar/recusar, independentemente de filtros complementares.
         if c.barbeiro_id == user.id:
-            chamados.append(c)
-            continue
-
-        if user.presente_em_local and user.barbearia_atual_id:
-            chamados.append(c)
-            continue
-
-        # Se não tem especialidades cadastradas, mostra todos (compatibilidade).
-        # Se tem, filtra só os que correspondem à especialidade.
-        if not tipos_especialidade or (servico and servico.categoria in tipos_especialidade):
-            chamados.append(c)
+            deve_incluir = True
+        elif user.presente_em_local and user.barbearia_atual_id:
+            deve_incluir = True
         else:
-            continue  # Pula este chamado - freelancer não tem especialidade
-    
-    resultado = []
-    for c in chamados:
+            deve_incluir = not tipos_especialidade or (servico and servico.categoria in tipos_especialidade)
+
+        if not deve_incluir:
+            continue
+
         cliente = db.query(models.Usuario).filter(models.Usuario.id == c.cliente_id).first()
-        servico = db.query(models.Servico).filter(models.Servico.id == c.servico_id).first()
         barbearia = db.query(models.Barbearia).filter(models.Barbearia.id == c.barbearia_id).first()
-        
-        resultado.append({
-            "id": c.id,
-            "cliente_id": c.cliente_id,
-            "nome_cliente": cliente.nome if cliente else "Desconhecido",
-            "cliente_telefone": cliente.telefone if cliente else "",
-            "cliente_email": cliente.email if cliente else "",
-            "descricao": servico.nome if servico else "Serviço",
-            "valor": servico.valor if servico else 0,
-            "endereco": cliente.endereco if cliente else "Não informado",
-            "nome_barbearia": barbearia.nome if barbearia else "Barbearia",
-            "endereco_barbearia": barbearia.endereco if barbearia else "",
-            "data_hora_inicio": c.data_hora_inicio.isoformat() if c.data_hora_inicio else None,
-            "status": c.status
-        })
-    
-    return resultado
-
-@router.get("/cliente/meus_pedidos")
-def listar_meus_pedidos(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
-    """Listar meus pedidos (para cliente)"""
-    user = get_current_user(token=token, db=db)
-    
-    chamados = db.query(models.Chamado).filter(models.Chamado.cliente_id == user.id).all()
-    
-    resultado = []
-    for c in chamados:
-        servico = db.query(models.Servico).filter(models.Servico.id == c.servico_id).first()
-        barbearia = db.query(models.Barbearia).filter(models.Barbearia.id == c.barbearia_id).first()
-        barbeiro = db.query(models.Usuario).filter(models.Usuario.id == c.barbeiro_id).first() if c.barbeiro_id else None
-        
-        ja_avaliado_generico = db.query(models.Avaliacao).filter(
-            models.Avaliacao.chamado_id == c.id,
-            models.Avaliacao.avaliador_id == user.id
-        ).first() is not None
-
-        # Avaliacao de freelancer pode estar salva com freelancer_id = usuario_id
-        # (fluxo legado) ou freelancer_id = freelancers.id (fluxo atual).
-        ja_avaliou_freelancer_direto = db.query(models.AvaliacaoFreelancer).filter(
-            models.AvaliacaoFreelancer.chamado_id == c.id,
-            models.AvaliacaoFreelancer.avaliador_id == user.id,
-            models.AvaliacaoFreelancer.freelancer_id == c.barbeiro_id,
-        ).first() is not None
-
-        freelancer_rel = db.query(models.Freelancer).filter(
-            models.Freelancer.usuario_id == c.barbeiro_id
-        ).first() if c.barbeiro_id else None
-
-        ja_avaliou_freelancer_rel = False
-        if freelancer_rel:
-            ja_avaliou_freelancer_rel = db.query(models.AvaliacaoFreelancer).filter(
-                models.AvaliacaoFreelancer.chamado_id == c.id,
-                models.AvaliacaoFreelancer.avaliador_id == user.id,
-                models.AvaliacaoFreelancer.freelancer_id == freelancer_rel.id,
-            ).first() is not None
-
-        ja_avaliou_freelancer = ja_avaliou_freelancer_direto or ja_avaliou_freelancer_rel
-
-        ja_avaliou_barbearia = db.query(models.AvaliacaoBarbearia).filter(
-            models.AvaliacaoBarbearia.chamado_id == c.id,
-            models.AvaliacaoBarbearia.avaliador_id == user.id,
-            models.AvaliacaoBarbearia.barbearia_id == c.barbearia_id,
-        ).first() is not None
-
-        ja_avaliado = ja_avaliado_generico or ja_avaliou_freelancer or ja_avaliou_barbearia
 
         resultado.append({
             "id": c.id,
             "cliente_id": c.cliente_id,
             "barbeiro_id": c.barbeiro_id,
             "barbearia_id": c.barbearia_id,
-            "barbearia_usuario_id": barbearia.usuario_id if barbearia else None,
             "servico_id": c.servico_id,
+            "nome_cliente": cliente.nome if cliente else "Desconhecido",
+            "cliente_telefone": cliente.telefone if cliente else "",
+            "cliente_email": cliente.email if cliente else "",
+            "cliente_latitude": cliente.latitude if cliente else None,
+            "cliente_longitude": cliente.longitude if cliente else None,
             "descricao": servico.nome if servico else "Serviço",
-            "servico_nome": servico.nome if servico else "Serviço",
             "valor": servico.valor if servico else 0,
+            "endereco": cliente.endereco if cliente else "Não informado",
             "nome_barbearia": barbearia.nome if barbearia else "Barbearia",
-            "barbeiro_nome": barbeiro.nome if barbeiro else "Barbeiro",
-            "endereco": barbearia.endereco if barbearia else "Não informado",
+            "endereco_barbearia": barbearia.endereco if barbearia else "",
+            "barbearia_latitude": barbearia.latitude if barbearia else None,
+            "barbearia_longitude": barbearia.longitude if barbearia else None,
+            "barbearia_telefone": barbearia.telefone if barbearia else "",
             "status": c.status,
             "data_hora_inicio": c.data_hora_inicio.isoformat() if c.data_hora_inicio else None,
-            "avaliado": ja_avaliado,
-            "avaliado_freelancer": ja_avaliou_freelancer,
-            "avaliado_barbearia": ja_avaliou_barbearia
+            "data_hora_fim": c.data_hora_fim.isoformat() if c.data_hora_fim else None,
         })
-    
+
     return resultado
 
 @router.get("/barbeiro/{barbeiro_id}/agendamentos")
 def listar_agendamentos_barbeiro(barbeiro_id: int, db: Session = Depends(get_db)):
-    """
-    Lista todos os agendamentos de um barbeiro específico.
-    
-    JSON de entrada: 
-    - GET /api/v1/barbeiro/{barbeiro_id}/agendamentos
-    
-    Retorna lista com:
-    - id: ID do agendamento
-    - cliente_nome: Nome do cliente
-    - servico: Nome do serviço
-    - valor: Valor do serviço
-    - status: Status (ABERTO, ACEITO, CONCLUÍDO)
-    - data_agendamento: Data/hora do agendamento
-    - barbearia_nome: Nome da barbearia
-    """
+    # Lista todos os agendamentos de um barbeiro específico.
     
     barbeiro = db.query(models.Usuario).filter(models.Usuario.id == barbeiro_id).first()
     if not barbeiro:
@@ -1060,6 +1472,7 @@ def listar_agendamentos_barbeiro(barbeiro_id: int, db: Session = Depends(get_db)
         cliente = db.query(models.Usuario).filter(models.Usuario.id == chamado.cliente_id).first()
         servico = db.query(models.Servico).filter(models.Servico.id == chamado.servico_id).first()
         barbearia = db.query(models.Barbearia).filter(models.Barbearia.id == chamado.barbearia_id).first()
+        cadeira = db.query(models.Cadeira).filter(models.Cadeira.id == chamado.cadeira_id).first() if chamado.cadeira_id else None
         
         ja_avaliado = db.query(models.Avaliacao).filter(
             models.Avaliacao.chamado_id == chamado.id,
@@ -1077,10 +1490,19 @@ def listar_agendamentos_barbeiro(barbeiro_id: int, db: Session = Depends(get_db)
             "descricao": servico.nome if servico else "Serviço",
             "valor": servico.valor if servico else 0,
             "status": chamado.status,
+            "cadeira_id": chamado.cadeira_id,
+            "cadeira_numero": cadeira.numero if cadeira else None,
             "data_hora_inicio": chamado.data_hora_inicio.isoformat() if chamado.data_hora_inicio else None,
             "data_agendamento": chamado.data_agendamento.isoformat() if chamado.data_agendamento else None,
             "criado_em": chamado.criado_em.isoformat() if chamado.criado_em else None,
             "barbearia_nome": barbearia.nome if barbearia else "Barbearia",
+            "barbearia_endereco": barbearia.endereco if barbearia else "",
+            "barbearia_latitude": barbearia.latitude if barbearia else None,
+            "barbearia_longitude": barbearia.longitude if barbearia else None,
+            "barbearia_telefone": barbearia.telefone if barbearia else "",
+            "cliente_latitude": cliente.latitude if cliente else None,
+            "cliente_longitude": cliente.longitude if cliente else None,
+            "cliente_endereco": cliente.endereco if cliente else "",
             "avaliado": ja_avaliado
         })
     
@@ -1088,9 +1510,7 @@ def listar_agendamentos_barbeiro(barbeiro_id: int, db: Session = Depends(get_db)
 
 @router.get("/barbeiro/agendamentos/meus")
 def listar_meus_agendamentos(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
-    """
-    Lista agendamentos do barbeiro autenticado (versão protegida por token).
-    """
+    # Lista agendamentos do barbeiro autenticado (versão protegida por token).
     user = get_current_user(token=token, db=db)
     
     if user.tipo != "barbeiro":
@@ -1105,17 +1525,7 @@ def filtrar_agendamentos_barbeiro(
     filtro: dict = None,
     db: Session = Depends(get_db)
 ):
-    """
-    Filtra agendamentos de um barbeiro por status, data, etc.
-    
-    JSON de entrada:
-    {
-        "status": "ACEITO",  # opcional: ABERTO, ACEITO, CONCLUÍDO
-        "data_inicio": "2025-01-01",  # opcional
-        "data_fim": "2025-01-31"  # opcional
-    }
-    """
-    
+    # Filtra agendamentos de um barbeiro por status, data, etc.
     barbeiro = db.query(models.Usuario).filter(models.Usuario.id == barbeiro_id).first()
     if not barbeiro or barbeiro.tipo != "barbeiro":
         raise HTTPException(status_code=404, detail="Barbeiro não encontrado")
@@ -1164,22 +1574,9 @@ def atualizar_status_freelancer(
     token: str = Depends(oauth2_scheme), 
     db: Session = Depends(get_db)
 ):
-    """
-    ✅ SISTEMA DE STATUS DO FREELANCER
-    
-    Atualiza o status do freelancer para controlar conflito de agenda.
-    
-    Status possíveis:
-    - "offline": Não pode receber chamados, não aparece em buscas
-    - "online_region": Pode receber chamados de qualquer barbearia da região
-    - "present_local": Presente em uma barbearia específica, só recebe chamados dela
-    
-    JSON de entrada:
-    {
-        "status": "online_region"  // ou "offline" ou "present_local"
-        "barbearia_id": 1  // Obrigatório se status = "present_local"
-    }
-    """
+    # Atualiza o status do freelancer para controlar conflito de agenda.
+    # Status possíveis: offline, online_region, present_local.
+    # Se o status for present_local, barbearia_id é obrigatório.
     user = get_current_user(token=token, db=db)
     
     if user.tipo != "barbeiro":
@@ -1194,6 +1591,7 @@ def atualizar_status_freelancer(
         )
     
     # Validar barbearia_id se status = present_local
+    barbearia = None
     if status_valido == "present_local":
         if not dados.barbearia_id:
             raise HTTPException(
@@ -1242,7 +1640,7 @@ def atualizar_status_freelancer(
     status_map = {
         "offline": "OFFLINE",
         "online_region": "ONLINE_REGIÃO",
-        "present_local": f"PRESENTE EM {barbearia.nome if status_valido == 'present_local' else ''}"
+        "present_local": f"PRESENTE EM {barbearia.nome if barbearia else 'BARBEARIA'}"
     }
     
     return {
@@ -1263,14 +1661,7 @@ def atualizar_disponibilidade(
     token: str = Depends(oauth2_scheme), 
     db: Session = Depends(get_db)
 ):
-    """
-    Atualiza a disponibilidade do barbeiro para aparecer nas proximidades.
-    
-    JSON de entrada:
-    {
-        "disponivel": true ou false
-    }
-    """
+    # Atualiza a disponibilidade do barbeiro para aparecer nas proximidades.
     user = get_current_user(token=token, db=db)
     
     if user.tipo != "barbeiro":
@@ -1295,10 +1686,7 @@ def sair_da_barbearia(
     token: str = Depends(oauth2_scheme),
     db: Session = Depends(get_db)
 ):
-    """
-    Barbeiro sai da barbearia atual.
-    Desvincula o barbeiro da barbearia e muda seu status para OFFLINE.
-    """
+    # Barbeiro sai da barbearia atual e muda seu status para OFFLINE.
     user = get_current_user(token=token, db=db)
     
     if user.tipo != "barbeiro":
@@ -1365,7 +1753,7 @@ def sair_da_barbearia(
 
 @router.put("/chamados/{id}/aceitar")
 def aceitar_chamado(id: int, token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
-    """Barbeiro aceita um chamado"""
+    # Barbeiro aceita um chamado.
     user = get_current_user(token=token, db=db)
     if user.tipo != "barbeiro":
         raise HTTPException(status_code=403, detail="Apenas barbeiros podem aceitar chamados")
@@ -1403,9 +1791,18 @@ def aceitar_chamado(id: int, token: str = Depends(oauth2_scheme), db: Session = 
             ).all()
             
             tipos_especialidade = [esp.tipo for esp in especialidades_freelancer]
-            
-            # Validar se tem a especialidade requerida (usar categoria do serviço)
-            if servico.categoria not in tipos_especialidade:
+            tipos_especialidade_normalizados = [str(tipo).strip().lower() for tipo in tipos_especialidade if tipo]
+            categoria_servico = str(servico.categoria or '').strip().lower()
+
+            # Compatibilidade:
+            # - Se não há especialidades cadastradas, permite aceite.
+            # - Categoria 'outros' não bloqueia aceite por especialidade.
+            if (
+                tipos_especialidade_normalizados
+                and categoria_servico
+                and categoria_servico != 'outros'
+                and categoria_servico not in tipos_especialidade_normalizados
+            ):
                 raise HTTPException(
                     status_code=403,
                     detail=f"Você não possui a especialidade em '{servico.categoria}' necessária para este serviço. Suas especialidades: {', '.join(tipos_especialidade) if tipos_especialidade else 'nenhuma cadastrada'}. Atualize seu perfil!"
@@ -1424,7 +1821,10 @@ def aceitar_chamado(id: int, token: str = Depends(oauth2_scheme), db: Session = 
         if chamado.data_hora_inicio and chamado.data_hora_fim:
             conflito = db.query(models.Chamado).filter(
                 models.Chamado.cadeira_id == chamado.cadeira_id,
-                models.Chamado.status == models.StatusAgendamento.CONFIRMADO.value,
+                models.Chamado.status.in_([
+                    models.StatusAgendamento.CONFIRMADO.value,
+                    models.StatusAgendamento.EM_ATENDIMENTO.value,
+                ]),
                 models.Chamado.id != id,  # Não contar o próprio agendamento
                 models.Chamado.data_hora_inicio < chamado.data_hora_fim,
                 models.Chamado.data_hora_fim > chamado.data_hora_inicio
@@ -1436,21 +1836,48 @@ def aceitar_chamado(id: int, token: str = Depends(oauth2_scheme), db: Session = 
                     status_code=400,
                     detail=f"Cadeira {cadeira.numero} já possui agendamento confirmado de {horario_conflito}. Não é possível aceitar este agendamento."
                 )
-    
-    # ✅ CALCULAR HORÁRIOS DO SERVIÇO (baseado na duração do serviço)
-    agora = datetime.now()
-    duracao_minutos = servico.duracao_minutos if servico else 40  # Default 40min
-    
-    # Se já tem horário agendado, respeita. Senão, começa AGORA
-    if not chamado.data_hora_inicio:
-        chamado.data_hora_inicio = agora
-    if not chamado.data_hora_fim:
-        chamado.data_hora_fim = chamado.data_hora_inicio + timedelta(minutes=duracao_minutos)
+    else:
+        # Se o chamado não veio com cadeira definida, tenta alocar automaticamente
+        # uma cadeira disponível da barbearia sem conflito de horário.
+        cadeiras_disponiveis = db.query(models.Cadeira).filter(
+            models.Cadeira.barbearia_id == chamado.barbearia_id,
+            models.Cadeira.status == models.StatusCadeira.DISPONIVEL
+        ).order_by(models.Cadeira.numero.asc()).all()
+
+        cadeira_alocada = None
+        for cadeira_candidata in cadeiras_disponiveis:
+            if chamado.data_hora_inicio and chamado.data_hora_fim:
+                conflito = db.query(models.Chamado).filter(
+                    models.Chamado.cadeira_id == cadeira_candidata.id,
+                    models.Chamado.status.in_([
+                        models.StatusAgendamento.CONFIRMADO.value,
+                        models.StatusAgendamento.EM_ATENDIMENTO.value,
+                    ]),
+                    models.Chamado.id != id,
+                    models.Chamado.data_hora_inicio < chamado.data_hora_fim,
+                    models.Chamado.data_hora_fim > chamado.data_hora_inicio
+                ).first()
+                if conflito:
+                    continue
+
+            cadeira_alocada = cadeira_candidata
+            break
+
+        if not cadeira_alocada:
+            raise HTTPException(
+                status_code=400,
+                detail="Nenhuma cadeira disponível na barbearia para este horário."
+            )
+
+        chamado.cadeira_id = cadeira_alocada.id
     
     status_anterior = chamado.status
     chamado.barbeiro_id = user.id
     chamado.status = models.StatusAgendamento.CONFIRMADO.value  # Usar Enum
     chamado.observacao = None  # Limpar observação quando barbeiro aceita
+    chamado.aprovado_barbeiro = True
+    chamado.aprovado_barbeiro_em = datetime.utcnow()
+    chamado.horario_match = datetime.utcnow()  # ✅ Iniciar contagem de 5 minutos para cancelamento
 
     # ✅ BLOQUEAR CADEIRA ASSOCIADA AO CHAMADO AO ACEITAR
     if chamado.cadeira_id:
@@ -1461,12 +1888,12 @@ def aceitar_chamado(id: int, token: str = Depends(oauth2_scheme), db: Session = 
             cadeira_aceita.chamado_id = chamado.id
             cadeira_aceita.ocupada_em = datetime.now()
     
-    # ✅ MARCAR BARBEIRO COMO INDISPONÍVEL até o fim do serviço
+    # ✅ MARCAR BARBEIRO COMO RESERVADO PARA ESTA FILA
     if not barbeiro:
         raise HTTPException(status_code=500, detail="Erro ao recuperar dados do barbeiro")
     
     barbeiro.disponivel = False
-    barbeiro.em_atendimento = True
+    barbeiro.em_atendimento = False
     barbeiro.ocupado_ate = chamado.data_hora_fim
     
     db.commit()
@@ -1492,12 +1919,256 @@ def aceitar_chamado(id: int, token: str = Depends(oauth2_scheme), db: Session = 
     )
     db.add(notificacao)
     db.commit()
+
+    # Enviar push FCM para o cliente (se disponível)
+    try:
+        cliente = db.query(models.Usuario).filter(models.Usuario.id == chamado.cliente_id).first()
+        if cliente and getattr(cliente, 'device_token', None) and firebase_config.FIREBASE_DISPONIVEL:
+            try:
+                msg = firebase_config.messaging.Message(
+                    notification=firebase_config.messaging.Notification(
+                        title="Chamado Aceito",
+                        body=f"O barbeiro {user.nome} aceitou seu chamado."
+                    ),
+                    data={"tipo": "chamado_aceito", "chamado_id": str(chamado.id)},
+                    token=cliente.device_token
+                )
+                firebase_config.messaging.send(msg)
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+    cadeira_reservada = None
+    if chamado.cadeira_id:
+        cadeira_reservada = db.query(models.Cadeira).filter(
+            models.Cadeira.id == chamado.cadeira_id
+        ).first()
     
-    return {"id": chamado.id, "status": chamado.status}
+    return {
+        "id": chamado.id,
+        "status": chamado.status,
+        "data_hora_inicio": chamado.data_hora_inicio.isoformat() if chamado.data_hora_inicio else None,
+        "data_hora_fim": chamado.data_hora_fim.isoformat() if chamado.data_hora_fim else None,
+        "cadeira": {
+            "id": cadeira_reservada.id,
+            "numero": cadeira_reservada.numero,
+            "status": cadeira_reservada.status,
+        } if cadeira_reservada else None
+    }
+
+
+@router.put("/chamados/{id}/cancelar")
+def cancelar_chamado_cliente(id: int, token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
+    # Cliente cancela o chamado com regra de janela grátis.
+    user = get_current_user(token=token, db=db)
+    if user.tipo != "cliente":
+        raise HTTPException(status_code=403, detail="Apenas clientes podem cancelar este chamado")
+
+    chamado = db.query(models.Chamado).filter(models.Chamado.id == id).first()
+    if not chamado:
+        raise HTTPException(status_code=404, detail="Chamado não encontrado")
+
+    if chamado.cliente_id != user.id:
+        raise HTTPException(status_code=403, detail="Você não pode cancelar um chamado de outro cliente")
+
+    status_normalizado = (chamado.status or "").strip().lower()
+    if status_normalizado in {models.StatusAgendamento.CONCLUIDO.value, models.StatusAgendamento.CANCELADO.value}:
+        raise HTTPException(status_code=400, detail="Este chamado já foi finalizado")
+
+    if status_normalizado == models.StatusAgendamento.EM_ATENDIMENTO.value:
+        raise HTTPException(status_code=400, detail="O atendimento já foi iniciado e não pode ser cancelado por aqui")
+
+    barbeiro = db.query(models.Usuario).filter(models.Usuario.id == chamado.barbeiro_id).first() if chamado.barbeiro_id else None
+    valor_taxa, tempo_cancelamento_minutos, motivo_regra = _calcular_taxa_cancelamento(chamado, barbeiro)
+
+    status_anterior = chamado.status
+    chamado.status = models.StatusAgendamento.CANCELADO.value
+    chamado.cancelado_em = datetime.utcnow()
+    chamado.tempo_cancelamento_minutos = tempo_cancelamento_minutos
+    chamado.valor_taxa_cancelamento = valor_taxa
+    chamado.motivo_cancelamento = motivo_regra
+    chamado.observacao = motivo_regra
+
+    if chamado.cadeira_id:
+        cadeira = db.query(models.Cadeira).filter(models.Cadeira.id == chamado.cadeira_id).first()
+        if cadeira and cadeira.chamado_id == chamado.id:
+            cadeira.status = models.StatusCadeira.DISPONIVEL
+            cadeira.freelancer_id = None
+            cadeira.chamado_id = None
+            cadeira.liberada_em = datetime.utcnow()
+
+    if barbeiro:
+        barbeiro.disponivel = True
+        barbeiro.em_atendimento = False
+        barbeiro.ocupado_ate = None
+
+    db.add(models.ChamadoHistorico(
+        chamado_id=chamado.id,
+        status_anterior=status_anterior,
+        status_novo=models.StatusAgendamento.CANCELADO.value,
+        usuario_id=user.id,
+        observacao=f"Cancelado pelo cliente. {motivo_regra}. Taxa: R$ {valor_taxa:.2f}"
+    ))
+
+    mensagem_taxa = "sem taxa" if valor_taxa == 0 else f"com taxa de R$ {valor_taxa:.2f}"
+    db.add(models.Notificacao(
+        usuario_id=user.id,
+        titulo="Chamado cancelado",
+        mensagem=f"Seu chamado foi cancelado {mensagem_taxa}. {motivo_regra}.",
+        tipo="chamado",
+        referencia_id=chamado.id
+    ))
+
+    if barbeiro:
+        db.add(models.Notificacao(
+            usuario_id=barbeiro.id,
+            titulo="Chamado cancelado pelo cliente",
+            mensagem=f"O cliente cancelou o chamado {chamado.id}. {motivo_regra}.",
+            tipo="chamado",
+            referencia_id=chamado.id
+        ))
+
+    db.commit()
+    db.refresh(chamado)
+
+    # Enviar push FCM para o barbeiro e cliente sobre cancelamento
+    try:
+        if firebase_config.FIREBASE_DISPONIVEL:
+            if barbeiro and getattr(barbeiro, 'device_token', None):
+                try:
+                    msg = firebase_config.messaging.Message(
+                        notification=firebase_config.messaging.Notification(
+                            title="Chamado Cancelado",
+                            body=f"O cliente cancelou o chamado {chamado.id}."
+                        ),
+                        data={"tipo": "chamado_cancelado", "chamado_id": str(chamado.id)},
+                        token=barbeiro.device_token
+                    )
+                    firebase_config.messaging.send(msg)
+                except Exception:
+                    pass
+
+            # Também notificar o cliente por push (confirmação)
+            try:
+                user_token = getattr(user, 'device_token', None)
+                if user_token:
+                    msgc = firebase_config.messaging.Message(
+                        notification=firebase_config.messaging.Notification(
+                            title="Chamado Cancelado",
+                            body=f"Seu chamado {chamado.id} foi cancelado {mensagem_taxa}."
+                        ),
+                        data={"tipo": "chamado_cancelado", "chamado_id": str(chamado.id)},
+                        token=user_token
+                    )
+                    firebase_config.messaging.send(msgc)
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+    return {
+        "id": chamado.id,
+        "status": chamado.status,
+        "valor_taxa_cancelamento": valor_taxa,
+        "tempo_cancelamento_minutos": tempo_cancelamento_minutos,
+        "motivo_cancelamento": motivo_regra,
+        "cancelado_em": chamado.cancelado_em.isoformat() if chamado.cancelado_em else None,
+        "message": "Chamado cancelado com sucesso"
+    }
+
+
+@router.put("/chamados/{id}/iniciar-corte")
+def iniciar_corte(id: int, token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
+    # Inicia o corte quando o cliente senta na cadeira.
+    user = get_current_user(token=token, db=db)
+    if user.tipo != "barbeiro":
+        raise HTTPException(status_code=403, detail="Apenas barbeiros podem iniciar cortes")
+
+    chamado = db.query(models.Chamado).filter(models.Chamado.id == id).first()
+    if not chamado:
+        raise HTTPException(status_code=404, detail="Chamado não encontrado")
+
+    if chamado.barbeiro_id != user.id:
+        raise HTTPException(status_code=403, detail="Este chamado não pertence a você")
+
+    if chamado.status not in {models.StatusAgendamento.CONFIRMADO.value, models.StatusAgendamento.PENDENTE.value}:
+        raise HTTPException(status_code=400, detail="Este chamado não está pronto para iniciar")
+
+    servico = db.query(models.Servico).filter(models.Servico.id == chamado.servico_id).first()
+    if not servico:
+        raise HTTPException(status_code=404, detail="Serviço não encontrado")
+
+    agora = datetime.now()
+    duracao_minutos = servico.duracao_minutos if servico.duracao_minutos else 30
+    status_anterior = chamado.status
+    chamado.status = models.StatusAgendamento.EM_ATENDIMENTO.value
+    chamado.data_hora_inicio = agora
+    chamado.data_hora_fim = agora + timedelta(minutes=duracao_minutos)
+
+    barbeiro = db.query(models.Usuario).filter(models.Usuario.id == user.id).first()
+    if barbeiro:
+        barbeiro.disponivel = False
+        barbeiro.em_atendimento = True
+        barbeiro.ocupado_ate = chamado.data_hora_fim
+
+    if chamado.cadeira_id:
+        cadeira = db.query(models.Cadeira).filter(models.Cadeira.id == chamado.cadeira_id).first()
+        if cadeira:
+            cadeira.status = models.StatusCadeira.OCUPADA
+            cadeira.freelancer_id = user.id
+            cadeira.chamado_id = chamado.id
+            cadeira.ocupada_em = agora
+
+    db.commit()
+    db.refresh(chamado)
+
+    db.add(models.ChamadoHistorico(
+        chamado_id=chamado.id,
+        status_anterior=status_anterior,
+        status_novo=models.StatusAgendamento.EM_ATENDIMENTO.value,
+        usuario_id=user.id,
+        observacao=f"Atendimento iniciado por {user.nome}"
+    ))
+    db.add(models.Notificacao(
+        usuario_id=chamado.cliente_id,
+        titulo="Atendimento iniciado",
+        mensagem=f"O barbeiro {user.nome} começou seu atendimento.",
+        tipo="chamado",
+        referencia_id=chamado.id
+    ))
+    # Enviar push para o cliente informando início
+    try:
+        cliente = db.query(models.Usuario).filter(models.Usuario.id == chamado.cliente_id).first()
+        if cliente and getattr(cliente, 'device_token', None) and firebase_config.FIREBASE_DISPONIVEL:
+            try:
+                msg = firebase_config.messaging.Message(
+                    notification=firebase_config.messaging.Notification(
+                        title="Atendimento Iniciado",
+                        body=f"O barbeiro {user.nome} iniciou seu atendimento."
+                    ),
+                    data={"tipo": "atendimento_iniciado", "chamado_id": str(chamado.id)},
+                    token=cliente.device_token
+                )
+                firebase_config.messaging.send(msg)
+            except Exception:
+                pass
+    except Exception:
+        pass
+    db.commit()
+
+    return {
+        "id": chamado.id,
+        "status": chamado.status,
+        "data_hora_inicio": chamado.data_hora_inicio.isoformat() if chamado.data_hora_inicio else None,
+        "data_hora_fim": chamado.data_hora_fim.isoformat() if chamado.data_hora_fim else None,
+        "duracao_minutos": duracao_minutos,
+        "message": "Atendimento iniciado"
+    }
 
 @router.put("/chamados/{id}/rejeitar")
 def rejeitar_chamado(id: int, token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
-    """Barbeiro rejeita um chamado"""
+    # Barbeiro rejeita um chamado.
     user = get_current_user(token=token, db=db)
     if user.tipo != "barbeiro":
         raise HTTPException(status_code=403, detail="Apenas barbeiros podem rejeitar chamados")
@@ -1532,15 +2203,31 @@ def rejeitar_chamado(id: int, token: str = Depends(oauth2_scheme), db: Session =
     )
     db.add(notificacao)
     db.commit()
-    
+    # Enviar push para o cliente informando recusa (se disponível)
+    try:
+        cliente = db.query(models.Usuario).filter(models.Usuario.id == chamado.cliente_id).first()
+        if cliente and getattr(cliente, 'device_token', None) and firebase_config.FIREBASE_DISPONIVEL:
+            try:
+                msg = firebase_config.messaging.Message(
+                    notification=firebase_config.messaging.Notification(
+                        title="Agendamento Recusado",
+                        body=f"O barbeiro {user.nome} recusou seu agendamento."
+                    ),
+                    data={"tipo": "chamado_rejeitado", "chamado_id": str(chamado.id)},
+                    token=cliente.device_token
+                )
+                firebase_config.messaging.send(msg)
+            except Exception:
+                pass
+    except Exception:
+        pass
+
     return {"id": chamado.id, "status": chamado.status}
 
 @router.put("/chamados/{id}/finalizar")
 def finalizar_servico_manualmente(id: int, token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
-    """
-    Barbeiro finaliza o serviço manualmente antes do tempo previsto.
-    Libera o barbeiro para aceitar novos chamados imediatamente.
-    """
+    # Barbeiro finaliza o serviço manualmente antes do tempo previsto.
+    # Libera o barbeiro para aceitar novos chamados imediatamente.
     user = get_current_user(token=token, db=db)
     if user.tipo != "barbeiro":
         raise HTTPException(status_code=403, detail="Apenas barbeiros podem finalizar serviços")
@@ -1584,50 +2271,74 @@ def finalizar_servico_manualmente(id: int, token: str = Depends(oauth2_scheme), 
             cadeira.chamado_id = None
         cadeira.liberada_em = datetime.now()
     
-    # Atualizar status do chamado para CONCLUIDO
-    status_anterior = chamado.status
-    chamado.status = models.StatusAgendamento.CONCLUIDO.value
-    chamado.data_hora_fim = datetime.now()  # Atualiza hora de fim real
-    
-    db.commit()
-    db.refresh(chamado)
-    db.refresh(barbeiro)
-    
-    # Criar histórico
-    historico = models.ChamadoHistorico(
+    resultado = _finalizar_chamado_e_avancar_fila(db, chamado, barbeiro)
+    db.add(models.ChamadoHistorico(
         chamado_id=chamado.id,
-        status_anterior=status_anterior,
+        status_anterior=resultado["status_anterior"],
         status_novo=models.StatusAgendamento.CONCLUIDO.value,
         usuario_id=user.id,
         observacao=f"Finalizado manualmente por {user.nome}"
-    )
-    db.add(historico)
-    
-    # Notificar cliente
-    notificacao = models.Notificacao(
+    ))
+    db.add(models.Notificacao(
         usuario_id=chamado.cliente_id,
         titulo="Serviço Concluído",
         mensagem=f"O barbeiro {user.nome} finalizou seu atendimento!",
         tipo="chamado",
         referencia_id=chamado.id
-    )
-    db.add(notificacao)
+    ))
     db.commit()
-    
+
+    # Enviar push para o cliente informando conclusão (se disponível)
+    try:
+        cliente = db.query(models.Usuario).filter(models.Usuario.id == chamado.cliente_id).first()
+        if cliente and getattr(cliente, 'device_token', None) and firebase_config.FIREBASE_DISPONIVEL:
+            try:
+                msg = firebase_config.messaging.Message(
+                    notification=firebase_config.messaging.Notification(
+                        title="Serviço Concluído",
+                        body=f"O barbeiro {user.nome} finalizou seu atendimento!"
+                    ),
+                    data={"tipo": "chamado_concluido", "chamado_id": str(chamado.id)},
+                    token=cliente.device_token
+                )
+                firebase_config.messaging.send(msg)
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+    if resultado["proximo"]:
+        return {
+            "id": chamado.id,
+            "status": chamado.status,
+            "message": "Serviço finalizado! Próximo cliente já foi iniciado.",
+            "barbeiro": {
+                "disponivel": False,
+                "em_atendimento": True,
+                "ocupado_ate": resultado["barbeiro"].ocupado_ate.isoformat() if resultado["barbeiro"].ocupado_ate else None
+            },
+            "proximo_chamado": {
+                "id": resultado["proximo"].id,
+                "status": resultado["proximo"].status,
+                "data_hora_inicio": resultado["proximo"].data_hora_inicio.isoformat() if resultado["proximo"].data_hora_inicio else None,
+                "data_hora_fim": resultado["proximo"].data_hora_fim.isoformat() if resultado["proximo"].data_hora_fim else None,
+            }
+        }
+
     return {
         "id": chamado.id,
         "status": chamado.status,
         "message": "Serviço finalizado! Você está disponível para novos chamados.",
         "barbeiro": {
-            "disponivel": barbeiro.disponivel,
-            "em_atendimento": barbeiro.em_atendimento,
+            "disponivel": resultado["barbeiro"].disponivel,
+            "em_atendimento": resultado["barbeiro"].em_atendimento,
             "ocupado_ate": None
         }
     }
 
 @router.put("/chamados/{id}/barbearia/aceitar")
 def barbearia_aceitar_chamado(id: int, token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
-    """❌ BLOQUEADO: Apenas o freelancer pode aceitar agendamentos"""
+    # BLOQUEADO: Apenas o freelancer pode aceitar agendamentos.
     user = get_current_user(token=token, db=db)
     if user.tipo != "barbearia":
         raise HTTPException(status_code=403, detail="Apenas barbearias podem confirmar disponibilidade")
@@ -1665,7 +2376,7 @@ def barbearia_aceitar_chamado(id: int, token: str = Depends(oauth2_scheme), db: 
 
 @router.put("/chamados/{id}/barbearia/recusar")
 def barbearia_recusar_chamado(id: int, token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
-    """Barbearia recusa o agendamento (sem cadeira disponível)"""
+    # Barbearia recusa o agendamento (sem cadeira disponível).
     user = get_current_user(token=token, db=db)
     if user.tipo != "barbearia":
         raise HTTPException(status_code=403, detail="Apenas barbearias podem recusar agendamentos")
@@ -1674,7 +2385,7 @@ def barbearia_recusar_chamado(id: int, token: str = Depends(oauth2_scheme), db: 
 
 @router.put("/chamados/{id}/finalizar")
 def finalizar_chamado(id: int, token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
-    """Finalizar um chamado - APENAS FREELANCER"""
+    # Finalizar um chamado - APENAS FREELANCER.
     user = get_current_user(token=token, db=db)
     
     # ❌ REGRA: Apenas freelancer (barbeiro) pode finalizar
@@ -1762,20 +2473,13 @@ def listar_barbeiros_proximos(
     raio_km: float = 10.0,
     db: Session = Depends(get_db)
 ):
-    """
-    Listar barbeiros próximos à localização do cliente
-    
-    Usa fórmula de Haversine para calcular distância
-    
-    ✅ FILTROS:
-    - perfil_aprovado = True (apenas barbeiros aprovados)
-    - disponivel = True (apenas barbeiros disponíveis)
-    - latitude/longitude não nulas
-    """
+    # Lista barbeiros próximos à localização do cliente.
+    # Usa fórmula de Haversine para calcular distância.
+    # Filtros: aprovados, disponíveis e com coordenadas válidas.
     from math import radians, cos, sin, asin, sqrt
     
     def haversine(lon1, lat1, lon2, lat2):
-        """Calcula distância em km entre dois pontos (lat/lon)"""
+        # Calcula distância em km entre dois pontos (lat/lon).
         lon1, lat1, lon2, lat2 = map(radians, [lon1, lat1, lon2, lat2])
         dlon = lon2 - lon1
         dlat = lat2 - lat1
@@ -1833,7 +2537,8 @@ def listar_barbeiros_proximos(
                 "presente_em_local": b.presente_em_local or False,
                 "barbearia_atual_id": b.barbearia_atual_id,
                 "barbearia_atual_nome": barbearia_nome,
-                "online_regiao": b.online_regiao or False
+                "online_regiao": b.online_regiao or False,
+                "pode_receber_chamado_agora": bool(b.presente_em_local and b.barbearia_atual_id)
             })
     
     # Ordenar por distância
@@ -1843,7 +2548,7 @@ def listar_barbeiros_proximos(
 
 @router.get("/barbeiros/todos")
 def listar_todos_barbeiros(db: Session = Depends(get_db)):
-    """Listar todos os barbeiros cadastrados (INCLUINDO os presentes em barbearias)"""
+    # Listar todos os barbeiros cadastrados, incluindo os presentes em barbearias.
     # ✅ INCLUIR barbeiros presentes - eles também podem receber agendamentos
     barbeiros = db.query(models.Usuario).filter(
         models.Usuario.tipo == "barbeiro"
@@ -1870,6 +2575,7 @@ def listar_todos_barbeiros(db: Session = Depends(get_db)):
             "barbearia_atual_id": b.barbearia_atual_id,
             "barbearia_atual_nome": barbearia_nome,
             "online_regiao": b.online_regiao or False,
+            "pode_receber_chamado_agora": bool(b.presente_em_local and b.barbearia_atual_id),
             "foto_perfil": b.foto_perfil,
             "latitude": b.latitude,
             "longitude": b.longitude
@@ -1880,12 +2586,34 @@ def listar_todos_barbeiros(db: Session = Depends(get_db)):
 
 @router.get("/freelancer/todos")
 def listar_todos_freelancers_alias(db: Session = Depends(get_db)):
-    """Alias legada para manter compatibilidade com clientes antigos."""
+    # Alias legada para manter compatibilidade com clientes antigos.
     return listar_todos_barbeiros(db=db)
+
+
+@router.get("/barbeiro/{barbeiro_id}/disponibilidade-imediata")
+def verificar_disponibilidade_imediata_barbeiro(barbeiro_id: int, db: Session = Depends(get_db)):
+    # Alias para integrações externas: presença real = presente_em_local + barbearia_atual_id.
+    barbeiro = db.query(models.Usuario).filter(
+        models.Usuario.id == barbeiro_id,
+        models.Usuario.tipo == "barbeiro"
+    ).first()
+
+    if not barbeiro:
+        raise HTTPException(status_code=404, detail="Barbeiro não encontrado")
+
+    pode_receber_chamado_agora = bool(barbeiro.presente_em_local and barbeiro.barbearia_atual_id)
+
+    return {
+        "barbeiro_id": barbeiro.id,
+        "nome": barbeiro.nome,
+        "pode_receber_chamado_agora": pode_receber_chamado_agora,
+        "presente_em_local": bool(barbeiro.presente_em_local),
+        "barbearia_id": barbeiro.barbearia_atual_id
+    }
 
 @router.get("/barbeiro/{barbeiro_id}/barbearias")
 def listar_barbearias_do_barbeiro(barbeiro_id: int, db: Session = Depends(get_db)):
-    """Listar barbearias onde um barbeiro específico atende"""
+    # Listar barbearias onde um barbeiro específico atende.
     barbeiro = db.query(models.Usuario).filter(
         models.Usuario.id == barbeiro_id,
         models.Usuario.tipo == "barbeiro"
@@ -1958,7 +2686,7 @@ def listar_agendamentos_barbearia(
     token: str = Depends(oauth2_scheme),
     db: Session = Depends(get_db)
 ):
-    """Listar agendamentos confirmados de uma barbearia"""
+    # Listar agendamentos confirmados de uma barbearia.
     user = get_current_user(token=token, db=db)
     
     # Verificar se é dono da barbearia
@@ -1985,6 +2713,31 @@ def listar_agendamentos_barbearia(
         cliente = db.query(models.Usuario).filter(models.Usuario.id == ag.cliente_id).first()
         barbeiro = db.query(models.Usuario).filter(models.Usuario.id == ag.barbeiro_id).first() if ag.barbeiro_id else None
         servico = db.query(models.Servico).filter(models.Servico.id == ag.servico_id).first()
+        barbearia_usuario = db.query(models.Usuario).filter(models.Usuario.id == user.id).first()
+
+        cliente_distancia = None
+        cliente_eta = None
+        freelancer_distancia = None
+        freelancer_eta = None
+
+        if barbearia_usuario and barbearia_usuario.latitude and barbearia_usuario.longitude:
+            if cliente and cliente.latitude and cliente.longitude:
+                cliente_distancia = calcular_distancia_km(
+                    cliente.latitude,
+                    cliente.longitude,
+                    barbearia_usuario.latitude,
+                    barbearia_usuario.longitude
+                )
+                cliente_eta = max(1, int(round(cliente_distancia * 4)))
+
+            if barbeiro and barbeiro.latitude and barbeiro.longitude:
+                freelancer_distancia = calcular_distancia_km(
+                    barbeiro.latitude,
+                    barbeiro.longitude,
+                    barbearia_usuario.latitude,
+                    barbearia_usuario.longitude
+                )
+                freelancer_eta = max(1, int(round(freelancer_distancia * 4)))
         
         ja_avaliado = db.query(models.Avaliacao).filter(
             models.Avaliacao.chamado_id == ag.id,
@@ -2001,10 +2754,250 @@ def listar_agendamentos_barbearia(
             "descricao": servico.nome if servico else "Serviço",
             "data_hora_inicio": ag.data_hora_inicio,
             "status": ag.status,
+            "cliente_distancia_ate_barbearia_km": cliente_distancia,
+            "cliente_eta_ate_barbearia_min": cliente_eta,
+            "freelancer_distancia_ate_barbearia_km": freelancer_distancia,
+            "freelancer_eta_ate_barbearia_min": freelancer_eta,
             "avaliado": ja_avaliado
         })
     
     return result
+
+
+@router.get("/cliente/meus_pedidos")
+def listar_meus_pedidos_cliente(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
+    # Lista os chamados/agendamentos do cliente autenticado.
+    user = get_current_user(token=token, db=db)
+
+    if user.tipo != "cliente":
+        raise HTTPException(status_code=403, detail="Apenas clientes podem acessar este endpoint")
+
+    chamados = db.query(models.Chamado).filter(
+        models.Chamado.cliente_id == user.id
+    ).order_by(models.Chamado.criado_em.desc(), models.Chamado.id.desc()).all()
+
+    resultado = []
+    for chamado in chamados:
+        barbearia = db.query(models.Barbearia).filter(models.Barbearia.id == chamado.barbearia_id).first()
+        barbeiro = db.query(models.Usuario).filter(models.Usuario.id == chamado.barbeiro_id).first() if chamado.barbeiro_id else None
+        servico = db.query(models.Servico).filter(models.Servico.id == chamado.servico_id).first()
+        cadeira = db.query(models.Cadeira).filter(models.Cadeira.id == chamado.cadeira_id).first() if chamado.cadeira_id else None
+
+        cliente_distancia = None
+        cliente_eta = None
+        freelancer_distancia = None
+        freelancer_eta = None
+
+        if barbearia and barbearia.latitude is not None and barbearia.longitude is not None:
+            if user.latitude is not None and user.longitude is not None:
+                cliente_distancia = calcular_distancia_km(
+                    user.latitude,
+                    user.longitude,
+                    barbearia.latitude,
+                    barbearia.longitude,
+                )
+                cliente_eta = max(1, int(round(cliente_distancia * 4))) if cliente_distancia > 0 else 0
+
+            if barbeiro and barbeiro.latitude is not None and barbeiro.longitude is not None:
+                freelancer_distancia = calcular_distancia_km(
+                    barbeiro.latitude,
+                    barbeiro.longitude,
+                    barbearia.latitude,
+                    barbearia.longitude,
+                )
+                freelancer_eta = max(1, int(round(freelancer_distancia * 4))) if freelancer_distancia > 0 else 0
+
+        resultado.append({
+            "id": chamado.id,
+            "cliente_id": chamado.cliente_id,
+            "barbeiro_id": chamado.barbeiro_id,
+            "barbearia_id": chamado.barbearia_id,
+            "servico_id": chamado.servico_id,
+            "servico_nome": servico.nome if servico else None,
+            "descricao": servico.nome if servico else None,
+            "valor": servico.valor if servico else 0,
+            "status": chamado.status,
+            "cadeira_id": chamado.cadeira_id,
+            "cadeira_numero": cadeira.numero if cadeira else None,
+            "data_hora_inicio": chamado.data_hora_inicio.isoformat() if chamado.data_hora_inicio else None,
+            "data_agendamento": chamado.data_agendamento.isoformat() if chamado.data_agendamento else None,
+            "aprovado_barbeiro": chamado.aprovado_barbeiro,
+            "aprovado_barbeiro_em": chamado.aprovado_barbeiro_em.isoformat() if chamado.aprovado_barbeiro_em else None,
+            "barbeiro_presente_em_local": bool(barbeiro.presente_em_local) if barbeiro else False,
+            "barbeiro_barbearia_atual_id": barbeiro.barbearia_atual_id if barbeiro else None,
+            "criado_em": chamado.criado_em.isoformat() if chamado.criado_em else None,
+            "barbearia_nome": barbearia.nome if barbearia else "Barbearia",
+            "barbearia_endereco": barbearia.endereco if barbearia else None,
+            "barbearia_latitude": barbearia.latitude if barbearia else None,
+            "barbearia_longitude": barbearia.longitude if barbearia else None,
+            "barbeiro_nome": barbeiro.nome if barbeiro else None,
+            "cliente_latitude": user.latitude,
+            "cliente_longitude": user.longitude,
+            "barbeiro_latitude": barbeiro.latitude if barbeiro else None,
+            "barbeiro_longitude": barbeiro.longitude if barbeiro else None,
+            "cliente_distancia_ate_barbearia_km": cliente_distancia,
+            "cliente_eta_ate_barbearia_min": cliente_eta,
+            "freelancer_distancia_ate_barbearia_km": freelancer_distancia,
+            "freelancer_eta_ate_barbearia_min": freelancer_eta,
+            "avaliado": False,
+        })
+
+    return resultado
+
+
+@router.get("/tracking/chamados/{chamado_id}/eta")
+async def obter_eta_tracking_chamado(
+    chamado_id: int,
+    token: str = Depends(oauth2_scheme),
+    db: Session = Depends(get_db),
+):
+    """Retorna snapshot de tracking e ETA para cliente/barbeiro/barbearia do chamado."""
+    user = get_current_user(token=token, db=db)
+    chamado = _buscar_chamado_para_tracking(db, chamado_id)
+    _validar_acesso_tracking(db, user, chamado)
+
+    ativo = _obter_ou_criar_agendamento_ativo(db, chamado)
+    db.commit()
+    db.refresh(ativo)
+
+    return _montar_payload_tracking(db, chamado, ativo)
+
+
+@router.patch("/tracking/chamados/{chamado_id}/posicao-cliente")
+async def atualizar_posicao_cliente_tracking(
+    chamado_id: int,
+    payload: AtualizarPosicaoTrackingRequest,
+    token: str = Depends(oauth2_scheme),
+    db: Session = Depends(get_db),
+):
+    """Atualiza posição GPS do cliente no chamado ativo e propaga evento em websocket."""
+    user = get_current_user(token=token, db=db)
+    chamado = _buscar_chamado_para_tracking(db, chamado_id)
+
+    if user.tipo != "cliente" or chamado.cliente_id != user.id:
+        raise HTTPException(status_code=403, detail="Apenas o cliente do chamado pode atualizar essa posição")
+
+    ativo = _obter_ou_criar_agendamento_ativo(db, chamado)
+    # AUDITORIA: logar coordenadas recebidas e atuais para diagnóstico de GPS
+    try:
+        print('\n=== AUDITORIA GPS: posicao-cliente ===')
+        print(f'Chamado: {chamado_id} | Usuario: {user.id}')
+        print(f'Coordenadas recebidas -> lat: {payload.latitude}, lon: {payload.longitude}')
+        print(f'Coordenadas ativas no DB -> cliente_lat: {ativo.cliente_lat}, cliente_lon: {ativo.cliente_lon}')
+    except Exception:
+        pass
+    ativo.cliente_lat = payload.latitude
+    ativo.cliente_lon = payload.longitude
+    ativo.cliente_localizacao_em = datetime.utcnow()
+
+    user.latitude = payload.latitude
+    user.longitude = payload.longitude
+
+    db.commit()
+    db.refresh(ativo)
+
+    tracking = _montar_payload_tracking(db, chamado, ativo)
+    await broadcast_event("tracking_update", chamado_id=chamado.id, source="cliente", tracking=tracking)
+    return {"status": "ok", "tracking": tracking}
+
+
+@router.patch("/tracking/chamados/{chamado_id}/posicao-barbeiro")
+async def atualizar_posicao_barbeiro_tracking(
+    chamado_id: int,
+    payload: AtualizarPosicaoTrackingRequest,
+    token: str = Depends(oauth2_scheme),
+    db: Session = Depends(get_db),
+):
+    """Atualiza posição GPS do barbeiro no chamado ativo e propaga evento em websocket."""
+    user = get_current_user(token=token, db=db)
+    chamado = _buscar_chamado_para_tracking(db, chamado_id)
+
+    if user.tipo != "barbeiro" or chamado.barbeiro_id != user.id:
+        raise HTTPException(status_code=403, detail="Apenas o barbeiro do chamado pode atualizar essa posição")
+
+    ativo = _obter_ou_criar_agendamento_ativo(db, chamado)
+    # AUDITORIA: logar coordenadas recebidas e atuais para diagnóstico de GPS
+    try:
+        print('\n=== AUDITORIA GPS: posicao-barbeiro ===')
+        print(f'Chamado: {chamado_id} | Usuario: {user.id}')
+        print(f'Coordenadas recebidas -> lat: {payload.latitude}, lon: {payload.longitude}')
+        print(f'Coordenadas ativas no DB -> barbeiro_lat: {ativo.barbeiro_lat}, barbeiro_lon: {ativo.barbeiro_lon}')
+    except Exception:
+        pass
+    ativo.barbeiro_lat = payload.latitude
+    ativo.barbeiro_lon = payload.longitude
+    ativo.barbeiro_localizacao_em = datetime.utcnow()
+
+    user.latitude = payload.latitude
+    user.longitude = payload.longitude
+
+    db.commit()
+    db.refresh(ativo)
+
+    tracking = _montar_payload_tracking(db, chamado, ativo)
+    await broadcast_event("tracking_update", chamado_id=chamado.id, source="barbeiro", tracking=tracking)
+    return {"status": "ok", "tracking": tracking}
+
+
+@router.post("/atualizar-localizacao")
+async def atualizar_localizacao_compat(
+    payload: AtualizarLocalizacaoCompatRequest,
+    token: str = Depends(oauth2_scheme),
+    http_request: Request = None,
+    db: Session = Depends(get_db),
+):
+    """
+    Endpoint legado de localização.
+
+    Mantém compatibilidade com clients antigos e, quando `chamado_id` é enviado,
+    atualiza também o snapshot de tracking do chamado.
+    """
+    user = get_current_user(token=token, db=db)
+    # DEBUG: registrar headers e payload para diagnosticar GPS
+    try:
+        print('\n=== [DEBUG] POST /api/v1/atualizar-localizacao (compat) ===')
+        if http_request is not None:
+            print('Headers:', dict(http_request.headers))
+        print('Has token:', bool(token))
+        try:
+            print('Payload:', payload.dict())
+        except Exception:
+            print('Payload (repr):', repr(payload))
+    except Exception:
+        pass
+    user.latitude = payload.latitude
+    user.longitude = payload.longitude
+
+    tracking = None
+    if payload.chamado_id is not None:
+        chamado = _buscar_chamado_para_tracking(db, payload.chamado_id)
+        _validar_acesso_tracking(db, user, chamado)
+        ativo = _obter_ou_criar_agendamento_ativo(db, chamado)
+
+        agora = datetime.utcnow()
+        if user.tipo == "cliente" and chamado.cliente_id == user.id:
+            ativo.cliente_lat = payload.latitude
+            ativo.cliente_lon = payload.longitude
+            ativo.cliente_localizacao_em = agora
+        elif user.tipo == "barbeiro" and chamado.barbeiro_id == user.id:
+            ativo.barbeiro_lat = payload.latitude
+            ativo.barbeiro_lon = payload.longitude
+            ativo.barbeiro_localizacao_em = agora
+
+        db.commit()
+        db.refresh(ativo)
+        tracking = _montar_payload_tracking(db, chamado, ativo)
+        await broadcast_event("tracking_update", chamado_id=chamado.id, source=user.tipo, tracking=tracking)
+    else:
+        db.commit()
+
+    return {
+        "status": "localização atualizada",
+        "usuario_id": user.id,
+        "latitude": user.latitude,
+        "longitude": user.longitude,
+        "tracking": tracking,
+    }
 
 
 @router.get("/barbearia/{barbearia_id}/barbeiros-presentes")
@@ -2012,7 +3005,7 @@ def listar_barbeiros_presentes(
     barbearia_id: int,
     db: Session = Depends(get_db)
 ):
-    """Lista barbeiros que estão presentes fisicamente na barbearia"""
+    # Lista barbeiros que estão presentes fisicamente na barbearia.
     # Buscar todos os barbeiros que estão presentes nesta barbearia
     barbeiros_presentes = db.query(models.Usuario).filter(
         models.Usuario.tipo == 'barbeiro',
@@ -2079,7 +3072,7 @@ def listar_barbeiros_presentes(
 
 @router.put("/barbearia/cadeira")
 def atualizar_status_cadeira(livre: bool, token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
-    """Atualizar status da cadeira (livre/ocupada)"""
+    # Atualizar status da cadeira (livre/ocupada).
     user = get_current_user(token=token, db=db)
     
     user.cadeira_livre = livre
@@ -2090,7 +3083,7 @@ def atualizar_status_cadeira(livre: bool, token: str = Depends(oauth2_scheme), d
 
 @router.post("/barbearia/servicos")
 def criar_servico(servico: schemas.ServicoCreate, token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
-    """Criar novo serviço na barbearia"""
+    # Criar novo serviço na barbearia.
     user = get_current_user(token=token, db=db)
     
     barbearia = db.query(models.Barbearia).filter(models.Barbearia.usuario_id == user.id).first()
@@ -2110,7 +3103,7 @@ def criar_servico(servico: schemas.ServicoCreate, token: str = Depends(oauth2_sc
 
 @router.get("/usuarios/saldo")
 def get_usuario_saldo(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
-    """Retorna o saldo disponível do usuário (apenas para barbeiros)"""
+    # Retorna o saldo disponível do usuário (apenas para barbeiros).
     user = get_current_user(token=token, db=db)
     
     if user.tipo != "barbeiro":

@@ -15,20 +15,22 @@ Login:
 """
 
 import uvicorn
-import sys
+import os
 
 if __name__ == "__main__":
+    port = int(os.getenv("PORT", "9000"))
+
     print("\n" + "=" * 80)
     print("🔧 INICIANDO ADMIN DASHBOARD WEB")
     print("=" * 80)
-    print("\n📍 Acesse em: http://localhost:9000/admin")
+    print(f"\n📍 Acesse em: http://localhost:{port}/admin")
     print("🔐 Login: admin@barbermovie.local / admin123456")
     print("\n" + "=" * 80 + "\n")
     
     uvicorn.run(
         "app.main:app",
         host="0.0.0.0",
-        port=9000,
+        port=port,
         reload=False,
         log_level="info"
     )

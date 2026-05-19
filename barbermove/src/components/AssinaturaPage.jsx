@@ -1,27 +1,111 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { CreditCard, Check, AlertCircle, TrendingDown, QrCode, Copy } from 'lucide-react';
 
-const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
+const DEFAULT_HOST = typeof window !== 'undefined' ? window.location.hostname : 'localhost';
+const API_URL = import.meta.env.VITE_API_URL || `http://${DEFAULT_HOST}:8000`;
+const MIXED_CONTENT_RISK =
+    typeof window !== 'undefined' &&
+    window.location.protocol === 'https:' &&
+    API_URL.startsWith('http://');
+
+const pareceQrEmImagem = (valor) => {
+    if (!valor || typeof valor !== 'string') return false;
+    const conteudo = valor.trim();
+    if (!conteudo) return false;
+    if (conteudo.startsWith('data:image')) return true;
+    if (conteudo.startsWith('iVBORw0KGgo')) return true;
+    if (conteudo.startsWith('000201')) return false;
+    return conteudo.length > 200 && /^[A-Za-z0-9+/=\s]+$/.test(conteudo);
+};
+
+const pareceCodigoPix = (valor) => {
+    if (!valor || typeof valor !== 'string') return false;
+    const conteudo = valor.trim();
+    if (!conteudo) return false;
+    if (conteudo.startsWith('000201')) return true;
+    return conteudo.includes('BR.GOV.BCB.PIX');
+};
+
+const getPixQrSrc = (qrcodeBase64) => {
+    if (!qrcodeBase64 || typeof qrcodeBase64 !== 'string') return '';
+    const conteudo = qrcodeBase64.trim();
+    if (!conteudo) return '';
+    if (conteudo.startsWith('data:image')) return conteudo;
+    if (conteudo.startsWith('http://') || conteudo.startsWith('https://')) {
+        if (MIXED_CONTENT_RISK && conteudo.startsWith('http://')) {
+            if (import.meta.env.DEV) {
+                console.warn('URL HTTP de QR bloqueada por mixed content. Usando fallback por copia e cola.');
+            }
+            return '';
+        }
+        return conteudo;
+    }
+
+    const conteudoLimpo = conteudo.replace(/\s/g, '');
+    if (!conteudoLimpo) return '';
+    return `data:image/png;base64,${conteudoLimpo}`;
+};
 
 const normalizarPixPayload = (data) => {
     const payload = data?.pix || data?.dados_pix || data || {};
+    const candidatosImagem = [
+        payload.qrcode_base64,
+        payload.qr_code_base64,
+        payload.qrCodeBase64,
+        payload.qrcode,
+        payload.qr_code,
+    ];
+    const candidatosTexto = [
+        payload.pix_copia_cola,
+        payload.codigo_pix,
+        payload.copia_cola,
+        payload.emv,
+        payload.qrcode,
+        payload.qr_code,
+    ];
+
+    const qrcodeBase64 = candidatosImagem.find((item) => pareceQrEmImagem(item)) || null;
+    const pixCopiaCola =
+        candidatosTexto.find((item) => pareceCodigoPix(item)) ||
+        candidatosTexto.find((item) => typeof item === 'string' && item.trim()) ||
+        '';
+
     return {
         ...payload,
-        qrcode_base64:
-            payload.qrcode_base64 ||
-            payload.qr_code_base64 ||
-            payload.qrcode ||
-            payload.qr_code ||
-            payload.qrCodeBase64 ||
-            null,
-        pix_copia_cola:
-            payload.pix_copia_cola ||
-            payload.codigo_pix ||
-            payload.copia_cola ||
-            payload.emv ||
-            '',
+        qrcode_base64: qrcodeBase64,
+        pix_copia_cola: pixCopiaCola,
         valor: payload.valor ?? payload.amount ?? payload.valor_mensalidade ?? 0,
     };
+};
+
+const PIX_CACHE_KEY = 'barbearia.assinatura.pixMensalidade';
+
+const lerPixCache = () => {
+    try {
+        if (typeof window === 'undefined') return null;
+        const cache = window.sessionStorage.getItem(PIX_CACHE_KEY);
+        if (!cache) return null;
+        const valor = JSON.parse(cache);
+        if (valor && (valor.qrcode_base64 || valor.pix_copia_cola)) {
+            return valor;
+        }
+    } catch (_err) {
+        // Ignora cache invalido.
+    }
+    return null;
+};
+
+const salvarPixCache = (valor) => {
+    try {
+        if (typeof window === 'undefined') return;
+        if (valor && (valor.qrcode_base64 || valor.pix_copia_cola)) {
+            window.sessionStorage.setItem(PIX_CACHE_KEY, JSON.stringify(valor));
+        } else {
+            window.sessionStorage.removeItem(PIX_CACHE_KEY);
+        }
+    } catch (_err) {
+        // Ignora falhas de storage.
+    }
 };
 
 export default function AssinaturaPage({ token, notify }) {
@@ -31,7 +115,9 @@ export default function AssinaturaPage({ token, notify }) {
     const [pagamentoProcessando, setPagamentoProcessando] = useState(false);
     const [metodoPagamento, setMetodoPagamento] = useState('pix');
     const [tipoCartao, setTipoCartao] = useState('cartao_credito');
-    const [pixMensalidade, setPixMensalidade] = useState(null);
+    const [pixMensalidade, setPixMensalidade] = useState(() => lerPixCache());
+    const [pixQrFallbackSrc, setPixQrFallbackSrc] = useState('');
+    const [pixQrImagemInvalida, setPixQrImagemInvalida] = useState(false);
     const [cartao, setCartao] = useState({
         numero_cartao: '',
         titular: '',
@@ -72,6 +158,9 @@ export default function AssinaturaPage({ token, notify }) {
                 if (data.cadeiras_ativas) {
                     setQtdCadeiras(data.cadeiras_ativas);
                 }
+            } else if (res.status === 401) {
+                notify('Sessao expirada. Faca login novamente.', 'error');
+                window.dispatchEvent(new CustomEvent('auth:expired'));
             } else if (res.status !== 404) {
                 notify('Erro ao carregar assinatura', 'error');
             }
@@ -86,6 +175,70 @@ export default function AssinaturaPage({ token, notify }) {
     useEffect(() => {
         carregarAssinatura();
     }, [carregarAssinatura]);
+
+    useEffect(() => {
+        salvarPixCache(pixMensalidade);
+    }, [pixMensalidade]);
+
+    useEffect(() => {
+        const aoMudarStorage = (event) => {
+            if (event.key === PIX_CACHE_KEY) {
+                setPixMensalidade(lerPixCache());
+            }
+        };
+        if (typeof window !== 'undefined') {
+            window.addEventListener('storage', aoMudarStorage);
+        }
+        return () => {
+            if (typeof window !== 'undefined') {
+                window.removeEventListener('storage', aoMudarStorage);
+            }
+        };
+    }, [pixMensalidade]);
+
+    useEffect(() => {
+        let ativo = true;
+
+        const gerarQrFallback = async () => {
+            if (!pixMensalidade?.pix_copia_cola) {
+                setPixQrFallbackSrc('');
+                setPixQrImagemInvalida(false);
+                return;
+            }
+
+            setPixQrImagemInvalida(false);
+
+            try {
+                const QRCode = (await import('qrcode')).default;
+                const dataUrl = await QRCode.toDataURL(pixMensalidade.pix_copia_cola, {
+                    width: 320,
+                    margin: 1,
+                    errorCorrectionLevel: 'M',
+                });
+
+                if (ativo) {
+                    setPixQrFallbackSrc(dataUrl);
+                }
+            } catch (err) {
+                console.error('Erro ao gerar QR fallback no frontend:', err);
+                if (ativo) {
+                    setPixQrFallbackSrc('');
+                }
+            }
+        };
+
+        gerarQrFallback();
+
+        return () => {
+            ativo = false;
+        };
+    }, [pixMensalidade]);
+
+    useEffect(() => {
+        if (import.meta.env.DEV) {
+            console.log('Estado atual do pixMensalidade:', pixMensalidade);
+        }
+    }, [pixMensalidade]);
 
     const criarOuAtualizarPlano = async (metodo) => {
         const res = await fetch(`${API_URL}/api/v1/assinaturas/criar`, {
@@ -129,6 +282,7 @@ export default function AssinaturaPage({ token, notify }) {
             }
 
             setPixMensalidade(null);
+            salvarPixCache(null);
             notify('Pagamento PIX confirmado com sucesso!', 'success');
             await carregarAssinatura();
         } catch (err) {
@@ -152,7 +306,10 @@ export default function AssinaturaPage({ token, notify }) {
         setPagamentoProcessando(true);
         try {
             if (metodoPagamento === 'pix') {
-                await criarOuAtualizarPlano('pix');
+                const assinaturaPayload = await criarOuAtualizarPlano('pix');
+                if (assinaturaPayload?.id) {
+                    setAssinaturaAtual(assinaturaPayload);
+                }
 
                 const pixRes = await fetch(`${API_URL}/api/v1/assinaturas/pagar-mensalidade/pix`, {
                     method: 'POST',
@@ -163,17 +320,51 @@ export default function AssinaturaPage({ token, notify }) {
 
                 const pixData = await pixRes.json().catch(() => ({}));
                 if (!pixRes.ok) {
+                    if (pixRes.status === 401) {
+                        window.dispatchEvent(new CustomEvent('auth:expired'));
+                    }
                     throw new Error(pixData.detail || 'Erro ao gerar PIX da mensalidade');
                 }
 
                 const pixNormalizado = normalizarPixPayload(pixData);
-                if (!pixNormalizado.qrcode_base64 && !pixNormalizado.pix_copia_cola) {
+                const payloadBruto = pixData?.pix || pixData?.dados_pix || pixData || {};
+                const pixFinal = {
+                    ...payloadBruto,
+                    ...pixNormalizado,
+                    qrcode_base64:
+                        pixNormalizado.qrcode_base64 ||
+                        payloadBruto.qrcode_base64 ||
+                        payloadBruto.qr_code_base64 ||
+                        payloadBruto.qrCodeBase64 ||
+                        null,
+                    pix_copia_cola:
+                        pixNormalizado.pix_copia_cola ||
+                        payloadBruto.pix_copia_cola ||
+                        payloadBruto.codigo_pix ||
+                        payloadBruto.copia_cola ||
+                        payloadBruto.emv ||
+                        payloadBruto.qrcode ||
+                        payloadBruto.qr_code ||
+                        '',
+                    valor:
+                        pixNormalizado.valor ??
+                        payloadBruto.valor ??
+                        payloadBruto.amount ??
+                        payloadBruto.valor_mensalidade ??
+                        0,
+                };
+                if (!pixFinal.qrcode_base64 && !pixFinal.pix_copia_cola) {
                     throw new Error('PIX gerado sem QR Code e sem codigo copia e cola');
                 }
 
-                setPixMensalidade(pixNormalizado);
+                if (import.meta.env.DEV) {
+                    console.log('PIX bruto (AssinaturaPage):', pixData);
+                    console.log('PIX final (AssinaturaPage):', pixFinal);
+                }
+
+                salvarPixCache(pixFinal);
+                setPixMensalidade(pixFinal);
                 notify('PIX gerado! Escaneie o QR Code ou use o copia e cola.', 'success');
-                await carregarAssinatura();
                 return;
             }
 
@@ -200,6 +391,9 @@ export default function AssinaturaPage({ token, notify }) {
 
             const cardData = await cardRes.json().catch(() => ({}));
             if (!cardRes.ok) {
+                if (cardRes.status === 401) {
+                    window.dispatchEvent(new CustomEvent('auth:expired'));
+                }
                 throw new Error(cardData.detail || 'Erro ao pagar com cartao');
             }
 
@@ -254,7 +448,7 @@ export default function AssinaturaPage({ token, notify }) {
     }
 
     return (
-        <div className="min-h-screen bg-black text-white p-4 pb-24">
+        <div className="relative z-10 min-h-screen bg-black text-white p-4 pb-40">
             <div className="max-w-2xl mx-auto">
                 {/* Header */}
                 <div className="mb-6">
@@ -425,15 +619,24 @@ export default function AssinaturaPage({ token, notify }) {
                             </div>
                             <p className="text-xs text-zinc-400">Valor: R$ {Number(pixMensalidade.valor || 0).toFixed(2)}</p>
 
-                            {pixMensalidade.qrcode_base64 && (
+                            {getPixQrSrc(pixMensalidade.qrcode_base64) && !pixQrImagemInvalida && (
                                 <img
-                                    src={`data:image/png;base64,${pixMensalidade.qrcode_base64}`}
+                                    src={getPixQrSrc(pixMensalidade.qrcode_base64)}
+                                    alt="QR Code PIX"
+                                    className="w-44 h-44 bg-white rounded p-2 mx-auto"
+                                    onError={() => setPixQrImagemInvalida(true)}
+                                />
+                            )}
+
+                            {(pixQrImagemInvalida || !getPixQrSrc(pixMensalidade.qrcode_base64)) && pixQrFallbackSrc && (
+                                <img
+                                    src={pixQrFallbackSrc}
                                     alt="QR Code PIX"
                                     className="w-44 h-44 bg-white rounded p-2 mx-auto"
                                 />
                             )}
 
-                            {!pixMensalidade.qrcode_base64 && (
+                            {(pixQrImagemInvalida || !getPixQrSrc(pixMensalidade.qrcode_base64)) && !pixQrFallbackSrc && (
                                 <p className="text-[11px] text-yellow-300">
                                     QR Code indisponivel. Use o codigo copia e cola abaixo.
                                 </p>

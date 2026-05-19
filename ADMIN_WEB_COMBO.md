@@ -71,6 +71,61 @@ http://localhost:8001/admin
 
 ---
 
+## 🌐 DEPLOY VIA GITHUB (ADMIN WEB)
+
+O painel admin já está dentro do mesmo backend em `/admin`.
+Então você sobe o projeto no GitHub e faz deploy do backend normalmente.
+
+### 1) Subir para GitHub
+
+```bash
+cd c:\projeto_barbearia
+git init
+git add .
+git commit -m "admin web pronto para deploy"
+git branch -M main
+git remote add origin https://github.com/SEU_USUARIO/SEU_REPO.git
+git push -u origin main
+```
+
+### 2) Deploy no Render (rápido e grátis para teste)
+
+1. Criar conta no Render e conectar com GitHub
+2. New + > Web Service
+3. Selecionar o repositório
+4. Build Command:
+
+```bash
+pip install -r requirements.txt
+```
+
+5. Start Command:
+
+```bash
+uvicorn app.main:app --host 0.0.0.0 --port $PORT
+```
+
+6. Variáveis de ambiente: configurar as mesmas usadas no backend (DB, JWT, etc.)
+
+### 3) URL do painel admin em produção
+
+Depois do deploy, acessar:
+
+```text
+https://SEU-SERVICO.onrender.com/admin
+```
+
+E logar com usuário admin.
+
+### 4) Segurança recomendada (produção)
+
+- Trocar senha padrão do admin imediatamente
+- Desativar qualquer usuário admin de teste
+- Usar banco PostgreSQL gerenciado
+- Habilitar HTTPS (Render já entrega)
+
+---
+
 ## 📊 DASHBOARD WEB - FEATURES
 
 ### **Seção de Estatísticas**

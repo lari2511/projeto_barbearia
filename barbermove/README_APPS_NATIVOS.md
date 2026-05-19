@@ -106,3 +106,13 @@ Consulte o arquivo [GUIA_ANDROID_IOS.md](./GUIA_ANDROID_IOS.md) para:
 ---
 
 **Pronto para começar! 🎉**
+
+## Testes de Geolocalização em HTTP (Dev)
+
+Se você estiver testando o frontend via HTTP local (ex.: `http://192.168.1.7:5173`) e o navegador bloquear o acesso ao GPS, habilite a flag temporária no Chrome para tratar a origem como segura:
+
+- Abra `chrome://flags/#unsafely-treat-insecure-origin-as-secure`
+- Adicione a origem `http://SEU_IP:PORTA` (ex.: `http://192.168.1.7:5173`) e marque como Enabled
+- Reinicie o Chrome e tente novamente
+
+Use essa opção apenas para desenvolvimento local — em produção sirva via HTTPS.
