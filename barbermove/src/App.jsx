@@ -176,10 +176,7 @@ export default function App() {
     };
   }, [token, userType, view, gpsRetryCounter]);
 
-  const gpsBloqueado = view === 'dashboard'
-    && userApproved
-    && (userType === 'cliente' || userType === 'barbearia')
-    && !gpsObrigatorioAtivo;
+  const gpsBloqueado = false;
 
   const GpsObrigatorioOverlay = () => (
     <div className="fixed bottom-4 left-4 right-4 z-[95] flex justify-center pointer-events-none">
