@@ -44,6 +44,15 @@ export const getApiBaseUrl = () => {
     return normalizeUrlHost(envUrl, protocol, hostname);
   }
 
+  // Quando servido de um host público (por exemplo via ngrok), evitar usar
+  // a porta 8000 direta (que não estará exposta). Em vez disso, apontamos
+  // para um caminho proxy relativo que o Vite dev server já encaminha para
+  // o backend local (`/proxy -> http://127.0.0.1:8000`). Isso permite testar
+  // o frontend público sem alterar variáveis de ambiente.
+  if (!isPrivateHost(hostname)) {
+    return `${protocol}://${hostname}/proxy`;
+  }
+
   return `${protocol}://${hostname}:8000`;
 };
 
