@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import PainelClienteChamado from './PainelClienteChamado';
 import PainelBarbeiroChamado from './PainelBarbeiroChamado';
 import { useRealTimeUpdates } from '../hooks/useRealTimeUpdates';
+import { getApiBaseUrl } from '../utils/api';
 
 /**
  * TelaDoChamado: Gerencia o fluxo de aceite de chamado
@@ -17,7 +18,7 @@ export default function TelaDoChamado({ chamadoId, userType }) {
   const [loading, setLoading] = useState(true);
   
   const token = localStorage.getItem('access_token');
-  const API_BASE = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000';
+  const API_BASE = import.meta.env.VITE_API_URL?.trim() || getApiBaseUrl();
 
   // 1. Carregar status inicial
   useEffect(() => {
@@ -110,7 +111,7 @@ export default function TelaDoChamado({ chamadoId, userType }) {
 
   if (loading) {
     return (
-      <div style={{ padding: '20px', textAlign: 'center' }}>
+      <div className="p-5 text-center">
         <p>Carregando...</p>
       </div>
     );

@@ -1,6 +1,9 @@
 import React, { useState } from 'react';
 import MapaRastreamento from './MapaRastreamento';
 
+const STATUS_PENDENTE = 'pendente';
+const STATUS_LIBERADO = new Set(['aceito', 'confirmado', 'em_atendimento']);
+
 /**
  * PainelBarbeiroChamado: Visão do barbeiro
  * - Mostra botão "Aceitar Chamado" quando PENDENTE
@@ -15,6 +18,9 @@ export default function PainelBarbeiroChamado({
 }) {
   const [loading, setLoading] = useState(false);
   const [erro, setErro] = useState(null);
+  const statusNormalizado = String(status || '').toLowerCase();
+  const aguardandoAceite = statusNormalizado === STATUS_PENDENTE;
+  const mapaLiberado = STATUS_LIBERADO.has(statusNormalizado) && mostrarMapa;
 
   const handleAceitar = async () => {
     setLoading(true);
@@ -26,7 +32,8 @@ export default function PainelBarbeiroChamado({
         throw new Error('Token não encontrado. Faça login novamente.');
       }
 
-      const API_BASE = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000';
+      const { getApiBaseUrl } = await import('../utils/api');
+      const API_BASE = import.meta.env.VITE_API_URL?.trim() || getApiBaseUrl();
       const resp = await fetch(
         `${API_BASE}/api/v1/agendamento/${chamadoId}/aceitar`,
         {
@@ -59,67 +66,33 @@ export default function PainelBarbeiroChamado({
   };
 
   // Se ainda PENDENTE: mostrar botão de aceite
-  if (status === 'pendente') {
+  if (aguardandoAceite) {
     return (
-      <div style={{
-        padding: '30px 20px',
-        backgroundColor: '#fff3cd',
-        borderRadius: '8px',
-        margin: '20px',
-        border: '1px solid #ffc107',
-      }}>
-        <h3>📱 Novo Chamado Recebido</h3>
-        <p style={{ marginBottom: '20px' }}>
-          Um cliente está esperando por você. Aceitar para iniciar o rastreamento.
-        </p>
+      <div className="p-5 bg-zinc-900 rounded-2xl m-5 border border-zinc-800">
+        <h3 className="text-white">Novo Chamado: Cliente aguardando</h3>
+        <p className="mb-5 text-zinc-400">Aceite para liberar o rastreamento.</p>
 
         {erro && (
-          <div style={{
-            backgroundColor: '#f8d7da',
-            color: '#721c24',
-            padding: '10px',
-            borderRadius: '4px',
-            marginBottom: '20px',
-          }}>
-            ❌ {erro}
-          </div>
+          <div className="bg-rose-900 text-rose-200 p-3 rounded mb-4">❌ {erro}</div>
         )}
 
         <button
           onClick={handleAceitar}
           disabled={loading}
-          style={{
-            backgroundColor: '#28a745',
-            color: 'white',
-            padding: '12px 30px',
-            border: 'none',
-            borderRadius: '4px',
-            fontSize: '16px',
-            fontWeight: 'bold',
-            cursor: loading ? 'not-allowed' : 'pointer',
-            opacity: loading ? 0.6 : 1,
-            transition: 'opacity 0.3s',
-          }}
+          className={`w-full px-4 py-3 rounded-md font-bold ${loading ? 'opacity-60 cursor-not-allowed' : ''}`}
+          style={{ background: 'linear-gradient(135deg, var(--brand-orange), #ea580c)' }}
         >
-          {loading ? '⏳ Aceeitando...' : '✓ Aceitar Chamado'}
+          {loading ? '⏳ Aceitando...' : '✓ Aceitar Serviço'}
         </button>
       </div>
     );
   }
 
-  // Se CONFIRMADO+: mostrar mapa e coordenadas
-  if (mostrarMapa) {
+  // Se ACEITO/CONFIRMADO+: mostrar mapa e coordenadas
+  if (mapaLiberado) {
     return (
-      <div style={{ padding: '20px' }}>
-        <div style={{
-          backgroundColor: '#d4edda',
-          color: '#155724',
-          padding: '12px',
-          borderRadius: '4px',
-          marginBottom: '20px',
-        }}>
-          ✓ Chamado aceito! Veja a localização do cliente em tempo real:
-        </div>
+      <div className="p-5">
+        <div className="bg-zinc-800 text-white p-3 rounded mb-5 border border-zinc-700">✓ Chamado aceito! Veja a localização do cliente em tempo real:</div>
 
         {coordenadas && (
           <MapaRastreamento
@@ -134,5 +107,5 @@ export default function PainelBarbeiroChamado({
     );
   }
 
-  return <div>Status desconhecido: {status}</div>;
+  return <div className="p-5 text-white">Carregando rastreamento...</div>;
 }

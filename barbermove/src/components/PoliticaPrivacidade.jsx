@@ -3,12 +3,12 @@ import { ArrowLeft, Shield, Lock, Database, UserCheck } from 'lucide-react';
 
 export default function PoliticaPrivacidade({ onVoltar }) {
   return (
-    <div className="h-full overflow-y-auto bg-gray-50 py-8 px-4">
-      <div className="max-w-4xl mx-auto bg-white rounded-lg shadow-lg p-8">
+    <div className="h-full overflow-y-auto bg-black py-8 px-4">
+      <div className="max-w-4xl mx-auto bg-zinc-900 rounded-lg shadow-lg p-8 border border-zinc-800">
         {onVoltar && (
           <button
             onClick={onVoltar}
-            className="flex items-center text-blue-600 hover:text-blue-700 mb-6"
+            className="flex items-center text-orange-500 hover:text-orange-400 mb-6"
           >
             <ArrowLeft className="w-5 h-5 mr-2" />
             Voltar
@@ -16,25 +16,24 @@ export default function PoliticaPrivacidade({ onVoltar }) {
         )}
 
         <div className="flex items-center gap-3 mb-6">
-          <Shield className="w-10 h-10 text-blue-600" />
-          <h1 className="text-3xl font-bold text-gray-900">
+          <Shield className="w-10 h-10 text-orange-500" />
+          <h1 className="text-3xl font-bold text-white">
             Política de Privacidade
           </h1>
         </div>
-
-        <p className="text-sm text-gray-500 mb-8">
+        <p className="text-sm text-zinc-400 mb-8">
           <strong>Última atualização:</strong> Janeiro de 2026
         </p>
         
-        <div className="prose max-w-none space-y-6 text-gray-700">
+        <div className="prose max-w-none space-y-6 text-zinc-300">
           <section>
-            <h2 className="text-2xl font-semibold text-gray-900 mb-4">1. Introdução</h2>
+            <h2 className="text-2xl font-semibold text-white mb-4">1. Introdução</h2>
             <p>
               O <strong>BarberMove</strong> respeita sua privacidade e está comprometido em proteger 
               seus dados pessoais conforme a <strong>Lei Geral de Proteção de Dados (LGPD - Lei 13.709/2018)</strong>.
             </p>
-            <div className="bg-blue-50 border-l-4 border-blue-400 p-4 my-4">
-              <p className="font-semibold">Esta Política explica:</p>
+            <div className="bg-blue-900/20 border-l-4 border-orange-500 p-4 my-4">
+              <p className="font-semibold text-white">Esta Política explica:</p>
               <ul className="list-disc pl-6 mt-2 space-y-1">
                 <li>Quais dados coletamos</li>
                 <li>Como usamos seus dados</li>
@@ -261,10 +260,10 @@ export default function PoliticaPrivacidade({ onVoltar }) {
           <section className="bg-gray-50 p-6 rounded-lg mt-8">
             <h2 className="text-2xl font-semibold text-gray-900 mb-4">Reclamações</h2>
             <p className="mb-2">Se não estiver satisfeito com nossa resposta, você pode reclamar à:</p>
-            <div className="bg-white p-4 rounded border border-gray-200">
-              <p className="font-semibold">🏛️ ANPD (Autoridade Nacional de Proteção de Dados)</p>
-              <p className="text-sm mt-1">Site: www.gov.br/anpd</p>
-              <p className="text-sm">E-mail: comunicacao@anpd.gov.br</p>
+            <div className="bg-zinc-900 p-4 rounded border border-zinc-800">
+              <p className="font-semibold text-white">🏛️ ANPD (Autoridade Nacional de Proteção de Dados)</p>
+              <p className="text-sm mt-1 text-zinc-300">Site: www.gov.br/anpd</p>
+              <p className="text-sm text-zinc-300">E-mail: comunicacao@anpd.gov.br</p>
             </div>
           </section>
 

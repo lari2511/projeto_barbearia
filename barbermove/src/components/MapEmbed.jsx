@@ -13,7 +13,7 @@ export default function MapEmbed({ endereco, nome = "Local", height = "250px" })
   const mapaUrl = `https://maps.google.com/maps?q=${encodeURIComponent(query)}&t=&z=15&ie=UTF8&iwloc=&output=embed`;
 
   return (
-    <div className="w-full rounded-lg overflow-hidden border border-zinc-700 bg-black/40 mt-3">
+    <div className="map-wrapper mt-3">
       <div className="flex items-center gap-2 p-3 bg-zinc-900/50 border-b border-zinc-700">
         <MapPin size={16} className="text-orange-500" />
         <p className="text-xs font-bold text-zinc-400">Localização</p>
@@ -27,10 +27,7 @@ export default function MapEmbed({ endereco, nome = "Local", height = "250px" })
         marginHeight="0"
         marginWidth="0"
         title="Mapa do Local"
-        style={{
-          border: 'none',
-          display: 'block'
-        }}
+        className="block w-full h-full border-0"
       />
       <div className="p-3 bg-zinc-900/30 text-xs text-zinc-400">
         <p className="truncate">{endereco}</p>

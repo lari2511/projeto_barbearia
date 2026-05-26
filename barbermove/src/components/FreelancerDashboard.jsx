@@ -1,5 +1,6 @@
 // Dashboard do Freelancer - BarberMovie
 import React, { useState, useEffect, useCallback } from 'react';
+import ScreenWrapper from './ScreenWrapper';
 import { 
   MapPin, Upload, Image as ImageIcon, Star, 
   DollarSign, Pause, Play, Check, X, Calendar,
@@ -75,12 +76,13 @@ export default function FreelancerDashboard() {
   // HOME
   if (view === 'home') {
     return (
-      <div className="min-h-screen bg-gray-50 pb-20">
-        <div className="bg-gradient-to-r from-green-500 to-green-600 text-white p-6">
+      <ScreenWrapper>
+      <div className="min-h-screen bg-black text-white pb-20">
+        <div className="bg-gradient-to-r from-zinc-900 to-zinc-950 text-white p-4 border-b border-zinc-800">
           <div className="flex justify-between items-center">
             <div>
-              <h1 className="text-2xl font-bold">Olá, {user?.nome || 'Freelancer'}!</h1>
-              <p className="text-green-100">Pronto para atender?</p>
+              <h1 className="text-2xl font-black">Olá, {user?.nome || 'Freelancer'}!</h1>
+              <p className="text-zinc-400">Pronto para atender?</p>
             </div>
             <Button 
               variant={statusPausado ? 'success' : 'secondary'}
@@ -95,30 +97,30 @@ export default function FreelancerDashboard() {
         <div className="p-4 space-y-4">
           {/* Cards de resumo */}
           <div className="grid grid-cols-2 gap-4">
-            <div className="bg-white rounded-xl p-4 shadow-md">
-              <div className="flex items-center gap-2 text-blue-600 mb-2">
+            <div className="bg-[#1e1e24] rounded-2xl p-4 shadow-md border border-zinc-800/50">
+              <div className="flex items-center gap-2 text-orange-400 mb-2">
                 <Calendar size={20} />
                 <span className="text-sm font-medium">Hoje</span>
               </div>
               <p className="text-2xl font-bold">0</p>
-              <p className="text-sm text-gray-600">atendimentos</p>
+              <p className="text-sm text-zinc-400">atendimentos</p>
             </div>
 
-            <div className="bg-white rounded-xl p-4 shadow-md">
-              <div className="flex items-center gap-2 text-green-600 mb-2">
+            <div className="bg-[#1e1e24] rounded-2xl p-4 shadow-md border border-zinc-800/50">
+              <div className="flex items-center gap-2 text-emerald-400 mb-2">
                 <DollarSign size={20} />
                 <span className="text-sm font-medium">Ganhos</span>
               </div>
               <p className="text-2xl font-bold">R$ 0</p>
-              <p className="text-sm text-gray-600">no mês</p>
+              <p className="text-sm text-zinc-400">no mês</p>
             </div>
           </div>
 
           {/* Solicitações pendentes */}
-          <div className="bg-white rounded-xl p-4 shadow-md">
-            <h2 className="font-bold text-lg mb-3">Solicitações Pendentes</h2>
+          <div className="bg-[#1e1e24] rounded-2xl p-4 shadow-md border border-zinc-800/50">
+            <h2 className="font-bold text-lg mb-3 text-white">Solicitações Pendentes</h2>
             {solicitacoes.length === 0 ? (
-              <p className="text-gray-500 text-center py-8">Nenhuma solicitação no momento</p>
+              <p className="text-zinc-500 text-center py-8">Nenhuma solicitação no momento</p>
             ) : (
               <div className="space-y-3">
                 {solicitacoes.map(sol => (
@@ -129,9 +131,9 @@ export default function FreelancerDashboard() {
           </div>
 
           {/* Barbearias próximas */}
-          <div className="bg-white rounded-xl p-4 shadow-md">
+          <div className="bg-[#1e1e24] rounded-2xl p-4 shadow-md border border-zinc-800/50">
             <div className="flex justify-between items-center mb-3">
-              <h2 className="font-bold text-lg">Barbearias Próximas</h2>
+              <h2 className="font-bold text-lg text-white">Barbearias Próximas</h2>
               <Button variant="outline" onClick={buscarBarbeariasProximas}>
                 <MapPin size={16} />
                 Buscar
@@ -139,7 +141,7 @@ export default function FreelancerDashboard() {
             </div>
             
             {barbearias.length === 0 ? (
-              <p className="text-gray-500 text-center py-8">
+              <p className="text-zinc-500 text-center py-8">
                 Clique em "Buscar" para ver barbearias próximas
               </p>
             ) : (
@@ -243,9 +245,10 @@ function SolicitacaoCard({ solicitacao }) {
         >
           Recusar
         </Button>
+        </div>
       </div>
-    </div>
-  );
+      </ScreenWrapper>
+    );
 }
 
 // View de Portfólio
@@ -288,18 +291,18 @@ function PortfolioView({ portfolio, onBack, onUpload }) {
   }, {});
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <div className="bg-white border-b sticky top-0 z-10">
+    <div className="min-h-screen bg-black">
+      <div className="bg-zinc-950/80 border-b border-zinc-800 sticky top-0 z-10">
         <div className="p-4 flex items-center gap-3">
-          <button onClick={onBack} className="text-gray-600">←</button>
-          <h1 className="text-xl font-bold">Meu Portfólio</h1>
+          <button onClick={onBack} className="text-zinc-300">←</button>
+          <h1 className="text-xl font-bold text-white">Meu Portfólio</h1>
         </div>
       </div>
 
       <div className="p-4 space-y-6">
         {/* Upload de nova foto */}
-        <div className="bg-white rounded-xl p-4 shadow-md">
-          <h2 className="font-bold mb-3">Adicionar Foto</h2>
+        <div className="bg-zinc-900 rounded-xl p-4 shadow-md border border-zinc-800">
+          <h2 className="font-bold mb-3 text-white">Adicionar Foto</h2>
           <form onSubmit={handleUpload} className="space-y-3">
             <div>
               <label className="block text-sm font-medium mb-1">Tipo de Serviço</label>
@@ -337,8 +340,8 @@ function PortfolioView({ portfolio, onBack, onUpload }) {
 
         {/* Galeria por tipo */}
         {tipos.map(tipo => (
-          <div key={tipo} className="bg-white rounded-xl p-4 shadow-md">
-            <h3 className="font-bold mb-3 capitalize">{tipo}</h3>
+          <div key={tipo} className="bg-zinc-900 rounded-xl p-4 shadow-md border border-zinc-800">
+            <h3 className="font-bold mb-3 capitalize text-white">{tipo}</h3>
             <div className="grid grid-cols-2 gap-3">
               {portfolioPorTipo[tipo]?.length > 0 ? (
                 portfolioPorTipo[tipo].map(foto => (
@@ -356,7 +359,7 @@ function PortfolioView({ portfolio, onBack, onUpload }) {
                   </div>
                 ))
               ) : (
-                <div className="col-span-2 text-center py-8 text-gray-500">
+                <div className="col-span-2 text-center py-8 text-zinc-500">
                   Nenhuma foto ainda
                 </div>
               )}
@@ -392,18 +395,18 @@ function GanhosView({ onBack }) {
   if (loading) return <Loading fullScreen />;
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <div className="bg-white border-b sticky top-0 z-10">
+    <div className="min-h-screen bg-black">
+      <div className="bg-zinc-950/80 border-b sticky top-0 z-10">
         <div className="p-4 flex items-center gap-3">
-          <button onClick={onBack} className="text-gray-600">←</button>
-          <h1 className="text-xl font-bold">Ganhos e Comissões</h1>
+          <button onClick={onBack} className="text-zinc-300">←</button>
+          <h1 className="text-xl font-bold text-white">Ganhos e Comissões</h1>
         </div>
       </div>
 
       <div className="p-4 space-y-4">
         {/* Cards de resumo */}
         <div className="grid grid-cols-2 gap-4">
-          <div className="bg-white rounded-xl p-4 shadow-md">
+          <div className="bg-zinc-900 rounded-xl p-4 shadow-md border border-zinc-800">
             <div className="flex items-center gap-2 text-blue-600 mb-2">
               <TrendingUp size={20} />
               <span className="text-sm font-medium">Ganhos Brutos</span>
@@ -411,7 +414,7 @@ function GanhosView({ onBack }) {
             <p className="text-2xl font-bold">R$ {relatorio?.ganhos_brutos?.toFixed(2) || '0.00'}</p>
           </div>
 
-          <div className="bg-white rounded-xl p-4 shadow-md">
+          <div className="bg-zinc-900 rounded-xl p-4 shadow-md border border-zinc-800">
             <div className="flex items-center gap-2 text-red-600 mb-2">
               <DollarSign size={20} />
               <span className="text-sm font-medium">Comissões</span>
@@ -426,15 +429,15 @@ function GanhosView({ onBack }) {
         </div>
 
         {/* Detalhes */}
-        <div className="bg-white rounded-xl p-4 shadow-md">
-          <h2 className="font-bold mb-3">Detalhes</h2>
+        <div className="bg-zinc-900 rounded-xl p-4 shadow-md border border-zinc-800">
+          <h2 className="font-bold mb-3 text-white">Detalhes</h2>
           <div className="space-y-2 text-sm">
             <div className="flex justify-between">
-              <span className="text-gray-600">Total de atendimentos:</span>
-              <span className="font-semibold">{relatorio?.total_atendimentos || 0}</span>
+              <span className="text-zinc-400">Total de atendimentos:</span>
+              <span className="font-semibold text-white">{relatorio?.total_atendimentos || 0}</span>
             </div>
             <div className="flex justify-between">
-              <span className="text-gray-600">Via BarberMovie:</span>
+              <span className="text-zinc-400">Via BarberMovie:</span>
               <span className="font-semibold">{relatorio?.total_atendimentos_app || 0}</span>
             </div>
             <div className="flex justify-between">
@@ -464,18 +467,19 @@ function BottomNav({ active, onChange, type }) {
   };
 
   return (
-    <div className="fixed bottom-0 left-0 right-0 bg-white border-t shadow-lg">
+    <div className="bm-bottom-nav fixed bottom-0 left-0 right-0 shadow-lg">
       <div className="flex justify-around py-2">
         {items[type].map(item => (
           <button
             key={item.id}
             onClick={() => onChange(item.id)}
-            className={`flex flex-col items-center gap-1 px-4 py-2 ${
-              active === item.id ? 'text-blue-600' : 'text-gray-600'
+            data-active={active === item.id}
+            className={`bm-bottom-nav-btn flex flex-col items-center gap-1 px-4 py-2 ${
+              active === item.id ? 'text-orange-500' : 'text-zinc-500'
             }`}
           >
             <span className="text-xl">{item.icon}</span>
-            <span className="text-xs font-medium">{item.label}</span>
+            <span>{item.label}</span>
           </button>
         ))}
       </div>

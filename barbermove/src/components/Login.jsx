@@ -18,9 +18,14 @@ export default function Login({ onLoginSuccess }) {
 
   const handleLogin = async (e) => {
     e.preventDefault();
-    const success = await login(email, senha, selectedType);
-    if (success && onLoginSuccess) {
-      onLoginSuccess();
+    try {
+      const success = await login(email, senha, selectedType);
+      if (success && onLoginSuccess) {
+        onLoginSuccess();
+      }
+    } catch (erro) {
+      console.error('ERRO REAL DETECTADO NO LOGIN:', erro);
+      alert('Falha na conexão: ' + (erro && erro.message ? erro.message : String(erro)));
     }
   };
 
@@ -50,31 +55,34 @@ export default function Login({ onLoginSuccess }) {
 
   if (step === 'escolha') {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center p-4">
-        <div className="max-w-4xl w-full">
+      <div className="min-h-screen bg-black text-white flex items-center justify-center p-4">
+        <div className="w-full max-w-[430px]">
           <div className="text-center mb-8">
-            <h1 className="text-4xl font-bold text-gray-900 mb-2">BarberMovie</h1>
-            <p className="text-gray-600">Conectando barbearias, freelancers e clientes</p>
+            <div className="mx-auto mb-4 w-24 h-24 rounded-3xl border border-zinc-800 bg-[#1e1e24] flex items-center justify-center shadow-[0_12px_30px_rgba(0,0,0,0.35)]">
+              <span className="text-4xl font-black text-orange-500">B</span>
+            </div>
+            <h1 className="text-3xl font-black text-white mb-2">BarberMovie</h1>
+            <p className="text-zinc-500 text-sm">Conectando barbearias, freelancers e clientes</p>
           </div>
 
-          <div className="grid md:grid-cols-3 gap-6">
+          <div className="grid gap-3">
             {userTypes.map(({ type, title, description, icon, color }) => {
               const IconComponent = icon;
               const colors = {
-                blue: 'from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700',
-                green: 'from-green-500 to-green-600 hover:from-green-600 hover:to-green-700',
-                purple: 'from-purple-500 to-purple-600 hover:from-purple-600 hover:to-purple-700',
+                blue: 'from-sky-600 to-sky-700',
+                green: 'from-emerald-600 to-emerald-700',
+                purple: 'from-orange-600 to-orange-700',
               };
 
               return (
                 <div
                   key={type}
                   onClick={() => handleTypeSelect(type)}
-                  className={`bg-gradient-to-br ${colors[color]} text-white rounded-2xl p-6 cursor-pointer transform transition-all hover:scale-105 hover:shadow-xl`}
+                  className={`bg-gradient-to-br ${colors[color]} text-white rounded-2xl p-5 cursor-pointer transform transition-all hover:scale-[1.01] hover:shadow-xl border border-white/5`}
                 >
-                  <IconComponent size={48} className="mb-4" />
-                  <h2 className="text-2xl font-bold mb-2">{title}</h2>
-                  <p className="text-white/90">{description}</p>
+                  <IconComponent size={36} className="mb-4" />
+                  <h2 className="text-xl font-black mb-2">{title}</h2>
+                  <p className="text-white/90 text-sm">{description}</p>
                   <div className="mt-4 flex items-center text-sm font-semibold">
                     <span>Entrar</span>
                     <ArrowRight size={16} className="ml-1" />
@@ -85,9 +93,9 @@ export default function Login({ onLoginSuccess }) {
           </div>
 
           <div className="text-center mt-8">
-            <p className="text-gray-600">
+            <p className="text-zinc-500 text-sm">
               Não tem conta?{' '}
-              <button onClick={() => setStep('cadastro')} className="text-blue-600 font-semibold hover:underline">
+              <button onClick={() => setStep('cadastro')} className="text-orange-400 font-semibold hover:underline">
                 Cadastre-se
               </button>
             </p>
@@ -101,19 +109,19 @@ export default function Login({ onLoginSuccess }) {
     const selectedUserType = userTypes.find(t => t.type === selectedType);
 
     return (
-      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center p-4">
-        <div className="bg-white rounded-2xl shadow-xl p-8 max-w-md w-full">
+      <div className="min-h-screen bg-black text-white flex items-center justify-center p-4">
+        <div className="bg-[#1e1e24] rounded-2xl shadow-xl p-5 max-w-[430px] w-full border border-zinc-800/50">
           <button
             onClick={() => setStep('escolha')}
-            className="text-gray-600 hover:text-gray-900 mb-4 flex items-center"
+            className="text-zinc-400 hover:text-white mb-4 flex items-center"
           >
             ← Voltar
           </button>
 
           <div className="text-center mb-6">
-            <selectedUserType.icon size={48} className="mx-auto mb-2 text-blue-600" />
-            <h2 className="text-2xl font-bold">{selectedUserType.title}</h2>
-            <p className="text-gray-600 mt-1">{selectedUserType.description}</p>
+            <selectedUserType.icon size={36} className="mx-auto mb-2 text-orange-400" />
+            <h2 className="text-2xl font-black text-white">{selectedUserType.title}</h2>
+            <p className="text-zinc-500 mt-1 text-sm">{selectedUserType.description}</p>
           </div>
 
           <form onSubmit={handleLogin}>
@@ -141,15 +149,15 @@ export default function Login({ onLoginSuccess }) {
           </form>
 
           <div className="mt-6 text-center">
-            <button className="text-sm text-blue-600 hover:underline">
+            <button className="text-sm text-zinc-400 hover:text-white hover:underline">
               Esqueci minha senha
             </button>
           </div>
 
           <div className="mt-4 text-center">
-            <p className="text-gray-600 text-sm">
+            <p className="text-zinc-500 text-sm">
               Não tem conta?{' '}
-              <button onClick={() => setStep('cadastro')} className="text-blue-600 font-semibold hover:underline">
+              <button onClick={() => setStep('cadastro')} className="text-orange-400 font-semibold hover:underline">
                 Cadastre-se
               </button>
             </p>

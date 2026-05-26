@@ -143,13 +143,13 @@ export const CadastroServicosOnboarding = ({ barbearia_id, token, apiUrl }) => {
           <h3 className="font-bold text-green-800 mb-3">✅ Seus Serviços</h3>
           <div className="space-y-2">
             {servicos.map(s => (
-              <div key={s.id} className="flex justify-between items-center bg-white p-3 rounded border border-green-100">
+              <div key={s.id} className="flex justify-between items-center bg-zinc-900 p-3 rounded border border-zinc-800">
                 <div>
-                  <p className="font-semibold">{s.nome}</p>
-                  <p className="text-sm text-gray-500">{s.duracao_minutos} min</p>
+                  <p className="font-semibold text-white">{s.nome}</p>
+                  <p className="text-sm text-zinc-400">{s.duracao_minutos} min</p>
                 </div>
                 <div className="text-right">
-                  <p className="text-lg font-bold text-green-600">R$ {s.valor.toFixed(2)}</p>
+                  <p className="text-lg font-bold text-green-400">R$ {s.valor.toFixed(2)}</p>
                 </div>
               </div>
             ))}

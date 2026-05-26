@@ -110,14 +110,7 @@ export default function MapaRastreamento({
   return (
     <div
       ref={mapContainer}
-      style={{
-        width: '100%',
-        height: '400px',
-        borderRadius: '8px',
-        border: '1px solid #ccc',
-        marginBottom: '20px',
-        backgroundColor: '#f5f5f5',
-      }}
+      className="w-full h-[400px] rounded-lg border border-zinc-800 mb-5 bg-zinc-900/40"
     />
   );
 }

@@ -1,6 +1,9 @@
 import React from 'react';
 import MapaRastreamento from './MapaRastreamento';
 
+const STATUS_PENDENTE = 'pendente';
+const STATUS_LIBERADO = new Set(['aceito', 'confirmado', 'em_atendimento']);
+
 /**
  * PainelClienteChamado: Visão do cliente
  * - Mostra "Aguardando aceite..." enquanto PENDENTE
@@ -12,64 +15,44 @@ export default function PainelClienteChamado({
   mostrarMapa, 
   coordenadas 
 }) {
-  if (!mostrarMapa) {
+  const statusNormalizado = String(status || '').toLowerCase();
+  const aguardandoAceite = statusNormalizado === STATUS_PENDENTE || !STATUS_LIBERADO.has(statusNormalizado);
+
+  if (aguardandoAceite || !mostrarMapa) {
     return (
-      <div style={{
-        padding: '30px 20px',
-        textAlign: 'center',
-        backgroundColor: '#f5f5f5',
-        borderRadius: '8px',
-        margin: '20px',
-      }}>
-        <div style={{ marginBottom: '20px' }}>
-          <h3>⏳ Aguardando aceite do barbeiro</h3>
-          <p style={{ color: '#666', fontSize: '14px' }}>
-            Seu pedido foi recebido. Um barbeiro aceitará em breve.
+      <div className="mx-auto w-full max-w-[430px] rounded-[1.5rem] border border-zinc-800/80 bg-zinc-950/90 p-5 text-center shadow-2xl shadow-black/30">
+        <div className="mb-4">
+          <span className="inline-flex items-center rounded-full border border-orange-500/20 bg-orange-500/10 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.2em] text-orange-300">
+            Rastreamento pendente
+          </span>
+          <h3 className="mt-3 text-lg font-black text-white">Aguardando o barbeiro</h3>
+          <p className="mt-2 text-sm leading-relaxed text-zinc-300">
+            Seu pedido foi enviado. O mapa aparecerá assim que ele aceitar o atendimento.
           </p>
         </div>
-        
-        <div style={{ marginTop: '20px' }}>
-          <div style={{
-            display: 'inline-block',
-            width: '40px',
-            height: '40px',
-            border: '3px solid #007bff',
-            borderRadius: '50%',
-            borderTop: '3px solid transparent',
-            animation: 'spin 1s linear infinite',
-          }} />
-        </div>
-        
-        <style>{`
-          @keyframes spin {
-            to { transform: rotate(360deg); }
-          }
-        `}</style>
+
+        <div className="mx-auto h-10 w-10 animate-spin rounded-full border-2 border-orange-500 border-t-transparent" />
       </div>
     );
   }
 
-  // Mapa habilitado: barbeiro aceita o chamado
+  // Mapa habilitado: barbeiro aceitou o chamado
   return (
-    <div style={{ padding: '20px' }}>
-      <div style={{
-        backgroundColor: '#d4edda',
-        color: '#155724',
-        padding: '12px',
-        borderRadius: '4px',
-        marginBottom: '20px',
-      }}>
+    <div className="mx-auto w-full max-w-[430px] space-y-4">
+      <div className="rounded-[1.5rem] border border-emerald-500/20 bg-emerald-500/10 px-4 py-3 text-sm leading-relaxed text-emerald-100 shadow-lg shadow-black/20">
         ✓ Barbeiro aceitou seu chamado! Veja a localização em tempo real:
       </div>
 
-      {mostrarMapa && coordenadas && (
-        <MapaRastreamento
-          clienteLat={coordenadas.cliente_lat}
-          clienteLon={coordenadas.cliente_lon}
-          barbeirLat={coordenadas.barbeiro_lat}
-          barbeirLon={coordenadas.barbeiro_lon}
-          chamadoId={chamadoId}
-        />
+      {coordenadas && (
+        <div className="overflow-hidden rounded-[1.5rem] border border-zinc-800/80 bg-zinc-950/90 shadow-2xl shadow-black/30">
+          <MapaRastreamento
+            clienteLat={coordenadas.cliente_lat}
+            clienteLon={coordenadas.cliente_lon}
+            barbeirLat={coordenadas.barbeiro_lat}
+            barbeirLon={coordenadas.barbeiro_lon}
+            chamadoId={chamadoId}
+          />
+        </div>
       )}
     </div>
   );

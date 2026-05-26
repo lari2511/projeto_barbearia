@@ -308,7 +308,7 @@ def obter_status_rastreamento(agendamento_id: int, db: Session = Depends(get_db)
 
 
 @router.patch('/agendamento/{agendamento_id}/aceitar', response_model=dict)
-def aceitar_agendamento(agendamento_id: int, db: Session = Depends(get_db), token: str = Depends(oauth2_scheme)):
+async def aceitar_agendamento(agendamento_id: int, db: Session = Depends(get_db), token: str = Depends(oauth2_scheme)):
     """Barbeiro aceita o agendamento: altera status e notifica via WebSocket.
 
     Observações:
@@ -327,21 +327,17 @@ def aceitar_agendamento(agendamento_id: int, db: Session = Depends(get_db), toke
     if chamado.barbeiro_id and chamado.barbeiro_id != usuario_id:
         raise HTTPException(status_code=403, detail='Apenas o barbeiro designado pode aceitar este chamado')
 
-    # Atualiza status para confirmado (aceite)
-    chamado.status = models.StatusAgendamento.CONFIRMADO.value
+    # Atualiza status para aceito (libera rastreamento)
+    chamado.status = 'aceito'
     chamado.horario_match = datetime.utcnow()
+    if hasattr(chamado, 'aceito_em'):
+        chamado.aceito_em = datetime.utcnow()
     db.add(chamado)
     db.commit()
     db.refresh(chamado)
 
     # Notificar front-ends conectados via WebSocket
-    # Mensagem simples com tipo 'chamado_aceito' e id do chamado
-    try:
-        # broadcast_event é uma coroutine
-        import asyncio
-        asyncio.create_task(broadcast_event('chamado_aceito', chamado_id=chamado.id, status=chamado.status))
-    except Exception:
-        pass
+    await broadcast_event('chamado_aceito', chamado_id=chamado.id, status=chamado.status)
 
     return {"status": "Serviço aceito com sucesso", "chamado_id": chamado.id, "novo_status": chamado.status}
 

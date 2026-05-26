@@ -42,7 +42,7 @@ export default function TrackingMapEmbed({
         scrolling="no"
         marginHeight="0"
         marginWidth="0"
-        style={{ border: 'none', display: 'block' }}
+        className="w-full h-full border-0 block"
       />
 
       {subtitulo && (

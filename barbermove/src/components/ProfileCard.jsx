@@ -2,10 +2,11 @@ import React, { useState, useEffect, useCallback, useContext } from 'react';
 import { Star, MapPin, Phone, Mail, Award, TrendingUp, MessageCircle } from 'lucide-react';
 import ChatRoom from './ChatRoom';
 import { AppContext } from '../contexts/AppContext';
+import { getApiBaseUrl } from '../utils/api';
 
 const DEFAULT_HOST = typeof window !== 'undefined' ? window.location.hostname : 'localhost';
 const DEFAULT_PROTOCOL = typeof window !== 'undefined' && window.location.protocol === 'https:' ? 'https' : 'http';
-const API_URL = import.meta.env.VITE_API_URL || `${DEFAULT_PROTOCOL}://${DEFAULT_HOST}:8000`;
+const API_URL = import.meta.env.VITE_API_URL?.trim() || getApiBaseUrl();
 
 /**
  * Componente de Perfil Aprimorado com Design Melhorado

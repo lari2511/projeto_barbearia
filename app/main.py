@@ -73,14 +73,24 @@ for origin in mobile_origins:
     if origin not in cors_origins:
         cors_origins.append(origin)
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=cors_origins,
-    allow_origin_regex=r"https?://(localhost|127\.0\.0\.1|192\.168\.\d+\.\d+|10\.\d+\.\d+\.\d+|172\.(1[6-9]|2\d|3[0-1])\.\d+\.\d+|[a-z0-9-]+\.loca\.lt)(:\d+)?$",
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# Permite modo de desenvolvimento com CORS aberto definindo DEBUG_ALLOW_ALL_CORS=1
+if os.getenv("DEBUG_ALLOW_ALL_CORS", "0") == "1":
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+else:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=cors_origins,
+        allow_origin_regex=r"https?://(localhost|127\.0\.0\.1|192\.168\.\d+\.\d+|10\.\d+\.\d+\.\d+|172\.(1[6-9]|2\d|3[0-1])\.\d+\.\d+|[a-z0-9-]+\.loca\.lt)(:\d+)?$",
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
 
 # Inclui todas as rotas definidas em routes.py
 app.include_router(router, prefix="/api/v1")
@@ -132,6 +142,8 @@ uploads_dir.mkdir(parents=True, exist_ok=True)
 app.mount("/uploads", StaticFiles(directory=str(uploads_dir)), name="uploads")
 
 # WebSocket simples para notificacoes (evita 403 quando o front conecta)
+# Aceita também o caminho proxied usado pelo Vite/ngrok (`/proxy/ws/notificacoes`).
+@app.websocket("/proxy/ws/notificacoes")
 @app.websocket("/ws/notificacoes")
 async def websocket_notificacoes(websocket: WebSocket):
     await realtime_manager.connect(websocket)
@@ -229,6 +241,18 @@ def download_apk(filename: str):
 
 @app.get("/")
 def read_root():
+    # Se a SPA foi construída e copiada para `app/static`, sirva o index.html
+    try:
+        index_path = spa_dir / "index.html"
+        if index_path.exists():
+            return FileResponse(str(index_path), media_type="text/html")
+        # Fallback: verifica caminho relativo ao cwd (caso uvicorn tenha mudado o cwd)
+        alt = pathlib.Path.cwd() / "app" / "static" / "index.html"
+        if alt.exists():
+            return FileResponse(str(alt), media_type="text/html")
+    except Exception:
+        pass
+
     return {"status": "BarberMove API Online", "docs": "/docs"}
 
 
@@ -261,4 +285,7 @@ if spa_dir.exists():
     # Monta o diretório estático na raiz. Como as rotas da API já foram registradas
     # acima, elas têm precedência; este mount atua como fallback para a SPA.
     app.mount("/", StaticFiles(directory=str(spa_dir), html=True), name="spa")
+    # Alias compatível: expõe também em /static para requests legadas que usem
+    # /static/index.html ou caminhos com /static/asset.js
+    app.mount("/static", StaticFiles(directory=str(spa_dir), html=True), name="spa_static")
 

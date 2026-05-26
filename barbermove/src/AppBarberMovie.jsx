@@ -20,10 +20,10 @@ function AppContent() {
 
   // TODO: Implementar dashboards de cliente e barbearia
   return (
-    <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+    <div className="min-h-screen bg-black text-white flex items-center justify-center p-4">
       <div className="text-center">
-        <h1 className="text-2xl font-bold mb-4">Dashboard {userType}</h1>
-        <p className="text-gray-600">Em desenvolvimento...</p>
+        <h1 className="text-2xl font-black mb-4">Dashboard {userType}</h1>
+        <p className="text-zinc-500">Em desenvolvimento...</p>
       </div>
     </div>
   );

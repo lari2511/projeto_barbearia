@@ -17,7 +17,7 @@ try:
     FIREBASE_DISPONIVEL = True
 except ImportError:
     FIREBASE_DISPONIVEL = False
-    print("⚠️ Aviso: firebase-admin não está instalado.")
+    print("Aviso: firebase-admin não está instalado.")
     print("   Execute: pip install firebase-admin")
     print("   Notificações push não funcionarão sem essa dependência.")
 
@@ -30,10 +30,10 @@ if FIREBASE_DISPONIVEL:
         if not firebase_admin._apps:
             cred = credentials.Certificate(FIREBASE_CREDENTIALS_PATH)
             firebase_admin.initialize_app(cred)
-        print("✅ Firebase inicializado com sucesso")
+        print("Firebase inicializado com sucesso")
     except Exception as e:
         FIREBASE_DISPONIVEL = False
-        print(f"⚠️ Aviso: Firebase não inicializado. {e}")
+        print(f"Aviso: Firebase não inicializado. {e}")
         print("   Notificações push não funcionarão sem configuração adequada do Firebase.")
 
 
@@ -62,11 +62,11 @@ def enviar_notificacao_pagamento(
     """
     
     if not FIREBASE_DISPONIVEL:
-        print(f"⚠️ Firebase não está disponível")
+        print(f"Firebase não está disponível")
         return False
     
     if not token_dispositivo:
-        print(f"⚠️ Nenhum device token para enviar notificação")
+        print(f"Nenhum device token para enviar notificação")
         return False
     
     valor_formatado = _formatar_moeda(valor)
@@ -88,10 +88,10 @@ def enviar_notificacao_pagamento(
         )
         
         resposta = messaging.send(mensagem)
-        print(f"✅ Notificação enviada: {resposta}")
+        print(f"Notificação enviada: {resposta}")
         return True
     except Exception as e:
-        print(f"❌ Falha ao enviar notificação: {e}")
+        print(f"Falha ao enviar notificação: {e}")
         return False
 
 
@@ -113,11 +113,11 @@ def enviar_notificacao_saque_processado(
     """
     
     if not FIREBASE_DISPONIVEL:
-        print(f"⚠️ Firebase não está disponível")
+        print(f"Firebase não está disponível")
         return False
     
     if not token_dispositivo:
-        print(f"⚠️ Nenhum device token para notificação de saque")
+        print(f"Nenhum device token para notificação de saque")
         return False
     
     valor_formatado = _formatar_moeda(valor)
@@ -137,10 +137,10 @@ def enviar_notificacao_saque_processado(
         )
         
         resposta = messaging.send(mensagem)
-        print(f"✅ Notificação de saque enviada: {resposta}")
+        print(f"Notificação de saque enviada: {resposta}")
         return True
     except Exception as e:
-        print(f"❌ Falha ao notificar saque: {e}")
+        print(f"Falha ao notificar saque: {e}")
         return False
 
 
@@ -164,7 +164,7 @@ def enviar_notificacao_novo_chamado(
     """
     
     if not FIREBASE_DISPONIVEL:
-        print(f"⚠️ Firebase não está disponível")
+        print(f"Firebase não está disponível")
         return False
     
     if not token_dispositivo:
@@ -186,10 +186,10 @@ def enviar_notificacao_novo_chamado(
         )
         
         resposta = messaging.send(mensagem)
-        print(f"✅ Notificação de chamado enviada: {resposta}")
+        print(f"Notificação de chamado enviada: {resposta}")
         return True
     except Exception as e:
-        print(f"❌ Falha ao notificar chamado: {e}")
+        print(f"Falha ao notificar chamado: {e}")
         return False
 
 
@@ -211,7 +211,7 @@ def enviar_notificacao_agendamento_aprovado(
     """
     
     if not FIREBASE_DISPONIVEL:
-        print(f"⚠️ Firebase não está disponível")
+        print(f"Firebase não está disponível")
         return False
     
     if not token_dispositivo:
@@ -232,8 +232,8 @@ def enviar_notificacao_agendamento_aprovado(
         )
         
         resposta = messaging.send(mensagem)
-        print(f"✅ Notificação de aprovação enviada: {resposta}")
+        print(f"Notificação de aprovação enviada: {resposta}")
         return True
     except Exception as e:
-        print(f"❌ Falha ao notificar aprovação: {e}")
+        print(f"Falha ao notificar aprovação: {e}")
         return False

@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { DollarSign, CreditCard, Wallet, Clock, Eye, EyeOff, RefreshCw } from 'lucide-react';
+import { getApiBaseUrl } from '../utils/api';
 
 const DEFAULT_HOST = typeof window !== 'undefined' ? window.location.hostname : 'localhost';
 const DEFAULT_PROTOCOL = typeof window !== 'undefined' && window.location.protocol === 'https:' ? 'https' : 'http';
-const API_URL = import.meta.env.VITE_API_URL || `${DEFAULT_PROTOCOL}://${DEFAULT_HOST}:8000`;
+const API_URL = import.meta.env.VITE_API_URL?.trim() || getApiBaseUrl();
 
 export default function PaymentSection({ userType, token, onNotify }) {
   const [loading, setLoading] = useState(true);
@@ -341,7 +342,7 @@ export default function PaymentSection({ userType, token, onNotify }) {
             placeholder="Titular da conta"
             value={contaPagamento.titular_nome}
             onChange={(e) => setContaPagamento({ ...contaPagamento, titular_nome: e.target.value })}
-            className="w-full bg-black border border-zinc-800 rounded-lg p-3 text-white"
+            className="bm-input w-full bg-black border border-zinc-800 rounded-lg p-3 text-white"
           />
 
           <input
@@ -349,7 +350,7 @@ export default function PaymentSection({ userType, token, onNotify }) {
             placeholder="Documento do titular"
             value={contaPagamento.titular_documento}
             onChange={(e) => setContaPagamento({ ...contaPagamento, titular_documento: e.target.value })}
-            className="w-full bg-black border border-zinc-800 rounded-lg p-3 text-white"
+            className="bm-input w-full bg-black border border-zinc-800 rounded-lg p-3 text-white"
           />
 
           <input
@@ -357,7 +358,7 @@ export default function PaymentSection({ userType, token, onNotify }) {
             placeholder="Chave PIX"
             value={contaPagamento.chave_pix}
             onChange={(e) => setContaPagamento({ ...contaPagamento, chave_pix: e.target.value })}
-            className="w-full bg-black border border-zinc-800 rounded-lg p-3 text-white"
+            className="bm-input w-full bg-black border border-zinc-800 rounded-lg p-3 text-white"
           />
 
           <div className="grid grid-cols-2 gap-2">
@@ -366,14 +367,14 @@ export default function PaymentSection({ userType, token, onNotify }) {
               placeholder="Banco"
               value={contaPagamento.banco}
               onChange={(e) => setContaPagamento({ ...contaPagamento, banco: e.target.value })}
-              className="w-full bg-black border border-zinc-800 rounded-lg p-3 text-white"
+              className="bm-input w-full bg-black border border-zinc-800 rounded-lg p-3 text-white"
             />
             <input
               type="text"
               placeholder="Agência"
               value={contaPagamento.agencia}
               onChange={(e) => setContaPagamento({ ...contaPagamento, agencia: e.target.value })}
-              className="w-full bg-black border border-zinc-800 rounded-lg p-3 text-white"
+              className="bm-input w-full bg-black border border-zinc-800 rounded-lg p-3 text-white"
             />
           </div>
 
@@ -383,12 +384,12 @@ export default function PaymentSection({ userType, token, onNotify }) {
               placeholder="Conta"
               value={contaPagamento.conta}
               onChange={(e) => setContaPagamento({ ...contaPagamento, conta: e.target.value })}
-              className="w-full bg-black border border-zinc-800 rounded-lg p-3 text-white"
+              className="bm-input w-full bg-black border border-zinc-800 rounded-lg p-3 text-white"
             />
             <select
               value={contaPagamento.tipo_conta}
               onChange={(e) => setContaPagamento({ ...contaPagamento, tipo_conta: e.target.value })}
-              className="w-full bg-black border border-zinc-800 rounded-lg p-3 text-white"
+              className="bm-input w-full bg-black border border-zinc-800 rounded-lg p-3 text-white"
             >
               <option value="corrente">Corrente</option>
               <option value="poupanca">Poupança</option>
@@ -398,7 +399,7 @@ export default function PaymentSection({ userType, token, onNotify }) {
           <button
             onClick={salvarContaPagamento}
             disabled={salvandoConta}
-            className="w-full bg-orange-600 hover:bg-orange-700 disabled:opacity-60 text-white px-4 py-3 rounded-lg font-bold"
+            className="bm-primary w-full px-4 py-3 rounded-lg font-bold disabled:opacity-60"
           >
             {salvandoConta ? 'Salvando...' : 'Salvar dados de pagamento'}
           </button>

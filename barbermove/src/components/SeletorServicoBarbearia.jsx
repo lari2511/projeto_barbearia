@@ -110,8 +110,8 @@ export const SeletorServicoBarbearia = ({
             onClick={() => handleSelecionarServico(servico)}
             className={`p-4 rounded-lg border-2 cursor-pointer transition ${
               servicoSelecionado?.id === servico.id
-                ? 'border-blue-600 bg-blue-50'
-                : 'border-gray-200 bg-white hover:border-blue-300 hover:bg-blue-50'
+                ? 'border-blue-600 bg-zinc-800 text-white'
+                : 'border-zinc-800 bg-zinc-900 hover:border-blue-300 hover:bg-zinc-800 text-zinc-300'
             }`}
           >
             <div className="flex justify-between items-start">
@@ -155,7 +155,7 @@ export const SeletorServicoBarbearia = ({
 
       {/* Info útil */}
       {servicoSelecionado && (
-        <div className="mt-4 p-3 bg-green-50 border border-green-200 rounded text-sm text-green-800">
+        <div className="mt-4 p-3 bg-green-900/20 border border-green-700 rounded text-sm text-green-300">
           <p className="font-bold">✅ Serviço selecionado!</p>
           <p className="mt-1">
             Duração: {servicoSelecionado.duracao_minutos} minutos

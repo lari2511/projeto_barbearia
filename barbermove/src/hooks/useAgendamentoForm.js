@@ -150,7 +150,7 @@ export const ExemploAgendamentoForm = ({ token, apiUrl }) => {
           <p className="mb-3">{erro.mensagem}</p>
           
           {erro.horarioIndisponivel && (
-            <div className="text-sm bg-white bg-opacity-50 p-2 rounded mt-2">
+            <div className="text-sm bg-zinc-800 bg-opacity-50 p-2 rounded mt-2">
               <p className="font-semibold mb-1">💡 Dica:</p>
               <ul className="list-disc list-inside">
                 <li>Experimente horários próximos (ex: 14:00, 15:30)</li>
@@ -183,7 +183,7 @@ export const ExemploAgendamentoForm = ({ token, apiUrl }) => {
             required
             value={formulario.barbearia_id}
             onChange={(e) => setFormulario({ ...formulario, barbearia_id: e.target.value })}
-            className="w-full border rounded px-3 py-2"
+            className="bm-input w-full border rounded px-3 py-2"
           >
             <option value="">Selecione uma barbearia</option>
             <option value="1">Barbearia A</option>
@@ -200,7 +200,7 @@ export const ExemploAgendamentoForm = ({ token, apiUrl }) => {
             required
             value={formulario.servico_id}
             onChange={(e) => setFormulario({ ...formulario, servico_id: e.target.value })}
-            className="w-full border rounded px-3 py-2"
+            className="bm-input w-full border rounded px-3 py-2"
           >
             <option value="">Selecione um serviço</option>
             <option value="1">Corte de Cabelo (R$ 50)</option>
@@ -219,7 +219,7 @@ export const ExemploAgendamentoForm = ({ token, apiUrl }) => {
             required
             value={formulario.data_hora_inicio}
             onChange={(e) => setFormulario({ ...formulario, data_hora_inicio: e.target.value })}
-            className="w-full border rounded px-3 py-2"
+            className="bm-input w-full border rounded px-3 py-2"
             min={new Date().toISOString().slice(0, 16)} // Não permitir datas passadas
           />
           <p className="text-xs text-gray-500 mt-1">
@@ -235,7 +235,7 @@ export const ExemploAgendamentoForm = ({ token, apiUrl }) => {
           <select
             value={formulario.barbeiro_id}
             onChange={(e) => setFormulario({ ...formulario, barbeiro_id: e.target.value })}
-            className="w-full border rounded px-3 py-2"
+            className="bm-input w-full border rounded px-3 py-2"
           >
             <option value="">Qualquer barbeiro disponível</option>
             <option value="1">João</option>
@@ -251,10 +251,10 @@ export const ExemploAgendamentoForm = ({ token, apiUrl }) => {
         <button
           type="submit"
           disabled={loading}
-          className={`w-full py-2 rounded font-medium transition ${
+          className={`bm-primary w-full py-2 rounded font-medium transition ${
             loading
-              ? 'bg-gray-400 text-gray-600 cursor-not-allowed'
-              : 'bg-blue-600 text-white hover:bg-blue-700'
+              ? 'opacity-60 cursor-not-allowed'
+              : ''
           }`}
         >
           {loading ? '⏳ Agendando...' : '📅 Agendar'}

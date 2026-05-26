@@ -5,18 +5,24 @@ import {
   History, Search, X, Star, Navigation, Bell, CreditCard, Lock, Calendar, Briefcase
 } from 'lucide-react';
 import './styles.css';
+import './theme/painel.css';
 import PoliticaPrivacidade from './components/PoliticaPrivacidade';
 import TermosDeUso from './components/TermosDeUso';
 import TelaPerfilUsuario from './components/TelaPerfilUsuario';
+// clean preview components removed per user request
 import RatingComponent from './components/RatingComponent';
 import AbaPadronizadaAvaliacoes from './components/AbaPadronizadaAvaliacoes';
 import PaymentSection from './components/PaymentSection';
 import ProfileCard from './components/ProfileCard';
 import AssinaturaPage from './components/AssinaturaPage';
 import ClientDashboardView from './components/ClientDashboard';
+import PainelChamadasCliente from './components/PainelChamadasCliente';
 import BarberDashboardView from './components/BarberDashboard';
 import ShopDashboardView from './components/ShopDashboard';
 import TelaDoChamado from './components/TelaDoChamado';
+import TelaLogin from './screens/TelaLogin';
+import PainelLayout from './components/PainelLayout';
+// LoginClean removed
 import { useLiveJobs } from './hooks/useRealTimeUpdates';
 import { obterLocalizacaoAtual } from './utils/location';
 import { getApiBaseUrl, getWsBaseUrl } from './utils/api';
@@ -29,11 +35,14 @@ const BRAND_LOGO = "/brand-logo.png"; // coloque a logo em public/brand-logo.png
 const getShopImage = (id) => `https://images.unsplash.com/photo-${id % 2 === 0 ? '1521590832874-552721032d00' : '1503951914290-d20607416905'}?auto=format&fit=crop&w=800&q=80`;
 
 export default function App() {
+  // Preview mode removed (clean components deleted)
   const [userType, setUserType] = useState(localStorage.getItem('userType'));
   const [token, setToken] = useState(localStorage.getItem('token'));
   const [view, setView] = useState(token ? 'dashboard' : 'login');
   const [chamadoId, setChamadoId] = useState(null); // Para rastreamento de chamado
   const [toast, setToast] = useState(null);
+  const [swWaiting, setSwWaiting] = useState(false);
+  const swRegRef = useRef(null);
   const [shopTab, setShopTab] = useState('gestao');
   const [showTerms, setShowTerms] = useState(false);
   const [showPrivacy, setShowPrivacy] = useState(false);
@@ -100,6 +109,63 @@ export default function App() {
       return () => ws.close();
     }
   }, [token, notify]);
+
+  // Service Worker: detectar updates e notificar usuário para atualizar
+  useEffect(() => {
+    if (!('serviceWorker' in navigator)) return undefined;
+
+    const onReady = async () => {
+      try {
+        const registration = await navigator.serviceWorker.getRegistration();
+        if (!registration) return;
+
+        // Se já existe um SW em waiting, sinaliza atualização disponível
+        if (registration.waiting) {
+          swRegRef.current = registration;
+          setSwWaiting(true);
+        }
+
+        registration.addEventListener('updatefound', () => {
+          const newWorker = registration.installing;
+          if (!newWorker) return;
+          newWorker.addEventListener('statechange', () => {
+            if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+              swRegRef.current = registration;
+              setSwWaiting(true);
+            }
+          });
+        });
+      } catch (_err) {
+        // ignore
+      }
+    };
+
+    onReady();
+
+    const onControllerChange = () => {
+      // Quando o novo SW assume, recarrega para aplicar novo bundle
+      window.location.reload();
+    };
+
+    navigator.serviceWorker.addEventListener('controllerchange', onControllerChange);
+
+    return () => {
+      try { navigator.serviceWorker.removeEventListener('controllerchange', onControllerChange); } catch (_e) {}
+    };
+  }, []);
+
+  const applyServiceWorkerUpdate = async () => {
+    try {
+      const reg = swRegRef.current;
+      const waiting = reg?.waiting || (reg?.installing && reg.installing.state === 'installed' ? reg.installing : null);
+      if (waiting) {
+        waiting.postMessage({ type: 'SKIP_WAITING' });
+      }
+    } catch (_err) {
+      // fallback: reload
+      window.location.reload();
+    }
+  };
 
   useEffect(() => {
     const gpsObrigatorioParaPerfil = view === 'dashboard' && (userType === 'cliente' || userType === 'barbearia');
@@ -278,12 +344,27 @@ export default function App() {
 
   const Toast = () => {
     if (!toast) return null;
-    const colors = { success: 'bg-green-600', error: 'bg-red-600', info: 'bg-blue-600' };
+    const bgClass = toast.type === 'error'
+      ? 'bg-red-600'
+      : toast.type === 'success'
+      ? 'bg-green-600'
+      : 'bg-blue-600';
+
     return (
-      <div className={`absolute top-6 left-1/2 transform -translate-x-1/2 z-[60] flex items-center gap-3 px-6 py-4 rounded-2xl shadow-2xl animate-in slide-in-from-top-5 border border-white/10 w-[90%] max-w-[350px] ${colors[toast.type] || 'bg-zinc-800'} text-white`}>
-        {toast.type === 'success' ? <CheckCircle size={24} /> : toast.type === 'error' ? <AlertCircle size={24} /> : <Bell size={24} />}
-        <div className="flex-1"><p className="text-xs opacity-90 font-bold">{toast.message}</p></div>
-        <button onClick={() => setToast(null)}><X size={18}/></button>
+      <div className={`bm-toast absolute top-6 left-1/2 transform -translate-x-1/2 z-[60] animate-slide-in-top w-[92%] max-w-[380px]` }>
+        {toast.type === 'success' ? <CheckCircle size={20} className="text-white" /> : toast.type === 'error' ? <AlertCircle size={20} className="text-white" /> : <Bell size={20} className="text-white" />}
+        <div className="flex-1"><p className="text-sm opacity-95">{toast.message}</p></div>
+        <button onClick={() => setToast(null)} className="bm-action bm-bottom-nav-btn" aria-label="Fechar aviso"><X size={16} className="text-white"/></button>
+      </div>
+    );
+  };
+
+  const UpdateBanner = () => {
+    if (!swWaiting) return null;
+    return (
+      <div className="bm-update-banner absolute top-20 left-1/2 transform -translate-x-1/2 z-[61] flex items-center gap-3 w-[92%] max-w-[420px]">
+        <div className="flex-1">Nova versão disponível</div>
+        <button data-active="true" onClick={applyServiceWorkerUpdate} className="bm-update-action bm-bottom-nav-btn" aria-label="Atualizar">Atualizar</button>
       </div>
     );
   };
@@ -458,12 +539,12 @@ export default function App() {
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-3">
                   <label className="text-xs text-zinc-300">
                     % Barbeiro
-                    <input
+                      <input
                       type="number"
                       step="0.01"
                       value={splitForm.percentual_barbeiro}
                       onChange={(e) => setSplitForm((prev) => ({ ...prev, percentual_barbeiro: e.target.value }))}
-                      className="mt-1 w-full bg-black border border-zinc-700 rounded-lg px-3 py-2 text-sm"
+                      className="bm-input mt-1 w-full bg-black border border-zinc-700 rounded-lg px-3 py-2 text-sm"
                     />
                   </label>
                   <label className="text-xs text-zinc-300">
@@ -473,7 +554,7 @@ export default function App() {
                       step="0.01"
                       value={splitForm.percentual_barbearia}
                       onChange={(e) => setSplitForm((prev) => ({ ...prev, percentual_barbearia: e.target.value }))}
-                      className="mt-1 w-full bg-black border border-zinc-700 rounded-lg px-3 py-2 text-sm"
+                      className="bm-input mt-1 w-full bg-black border border-zinc-700 rounded-lg px-3 py-2 text-sm"
                     />
                   </label>
                   <label className="text-xs text-zinc-300">
@@ -483,7 +564,7 @@ export default function App() {
                       step="0.01"
                       value={splitForm.percentual_barbermove}
                       onChange={(e) => setSplitForm((prev) => ({ ...prev, percentual_barbermove: e.target.value }))}
-                      className="mt-1 w-full bg-black border border-zinc-700 rounded-lg px-3 py-2 text-sm"
+                      className="bm-input mt-1 w-full bg-black border border-zinc-700 rounded-lg px-3 py-2 text-sm"
                     />
                   </label>
                 </div>
@@ -499,7 +580,7 @@ export default function App() {
                       type="text"
                       value={splitForm.deposito_nome}
                       onChange={(e) => setSplitForm((prev) => ({ ...prev, deposito_nome: e.target.value }))}
-                      className="mt-1 w-full bg-black border border-zinc-700 rounded-lg px-3 py-2 text-sm"
+                      className="bm-input mt-1 w-full bg-black border border-zinc-700 rounded-lg px-3 py-2 text-sm"
                       placeholder="Barber Move"
                     />
                   </label>
@@ -509,16 +590,16 @@ export default function App() {
                       type="text"
                       value={splitForm.deposito_chave_pix}
                       onChange={(e) => setSplitForm((prev) => ({ ...prev, deposito_chave_pix: e.target.value }))}
-                      className="mt-1 w-full bg-black border border-zinc-700 rounded-lg px-3 py-2 text-sm"
+                      className="bm-input mt-1 w-full bg-black border border-zinc-700 rounded-lg px-3 py-2 text-sm"
                     />
                   </label>
                   <label className="text-xs text-zinc-300">
                     Banco
-                    <input
+                      <input
                       type="text"
                       value={splitForm.deposito_banco}
                       onChange={(e) => setSplitForm((prev) => ({ ...prev, deposito_banco: e.target.value }))}
-                      className="mt-1 w-full bg-black border border-zinc-700 rounded-lg px-3 py-2 text-sm"
+                      className="bm-input mt-1 w-full bg-black border border-zinc-700 rounded-lg px-3 py-2 text-sm"
                     />
                   </label>
                   <label className="text-xs text-zinc-300">
@@ -527,7 +608,7 @@ export default function App() {
                       type="text"
                       value={splitForm.deposito_agencia}
                       onChange={(e) => setSplitForm((prev) => ({ ...prev, deposito_agencia: e.target.value }))}
-                      className="mt-1 w-full bg-black border border-zinc-700 rounded-lg px-3 py-2 text-sm"
+                      className="bm-input mt-1 w-full bg-black border border-zinc-700 rounded-lg px-3 py-2 text-sm"
                     />
                   </label>
                   <label className="text-xs text-zinc-300 md:col-span-2">
@@ -536,7 +617,7 @@ export default function App() {
                       type="text"
                       value={splitForm.deposito_conta}
                       onChange={(e) => setSplitForm((prev) => ({ ...prev, deposito_conta: e.target.value }))}
-                      className="mt-1 w-full bg-black border border-zinc-700 rounded-lg px-3 py-2 text-sm"
+                      className="bm-input mt-1 w-full bg-black border border-zinc-700 rounded-lg px-3 py-2 text-sm"
                     />
                   </label>
                 </div>
@@ -545,7 +626,7 @@ export default function App() {
                   type="button"
                   onClick={salvarSplit}
                   disabled={savingSplit}
-                  className="bg-orange-600 hover:bg-orange-700 disabled:opacity-60 text-white font-bold px-5 py-2 rounded-lg transition"
+                  className="bm-primary bg-orange-600 hover:bg-orange-700 disabled:opacity-60 text-white font-bold px-5 py-2 rounded-lg transition"
                 >
                   {savingSplit ? 'Salvando...' : 'Salvar Configuracao'}
                 </button>
@@ -729,362 +810,6 @@ export default function App() {
             </div>
           )}
         </div>
-      </div>
-    );
-  };
-
-  // ----------------------------------------------------------------------
-  // ARQUIVO: src/components/LoginScreen.jsx
-  // ----------------------------------------------------------------------
-  const LoginScreen = () => {
-    const [isLogin, setIsLogin] = useState(true);
-    const [activeTab, setActiveTab] = useState('cliente');
-    const [loading, setLoading] = useState(false);
-    const [formData, setFormData] = useState({ email: '', senha: '', nome: '', endereco: '', cep: '', telefone: '', cpf: '', cnpj: '', doc_frente: null, doc_verso: null, doc_selfie: null });
-    const [docFiles, setDocFiles] = useState({ frente: null, verso: null, selfie: null });
-    const [portfolioFiles, setPortfolioFiles] = useState([]);
-
-    const validateForm = () => {
-      if (!formData.email.includes('@')) throw new Error('Email inválido');
-      if ((formData.senha || '').length < 6) throw new Error('Senha precisa ter 6 caracteres ou mais');
-      if (!isLogin && (formData.nome || '').trim().length < 3) throw new Error('Informe o nome completo');
-      if (!isLogin && activeTab !== 'cliente' && (formData.endereco || '').trim().length < 5) throw new Error('Endereço obrigatório para barbearia');
-      if (!isLogin && activeTab !== 'cliente' && (formData.cep || '').trim().length < 5) throw new Error('CEP obrigatório para barbearia');
-      if (!isLogin && formData.telefone && formData.telefone.replace(/\D/g, '').length < 10) throw new Error('Telefone com DDD obrigatório');
-    };
-
-    const formatApiError = (data) => {
-      if (!data) return 'Erro na requisição';
-      const detail = data.detail ?? data.message ?? data.error;
-      if (typeof detail === 'string') return detail;
-      if (Array.isArray(detail)) return detail.map(d => d?.msg || d?.detail || d?.message || JSON.stringify(d)).join(' | ');
-      if (typeof detail === 'object') return detail.msg || detail.detail || detail.message || JSON.stringify(detail);
-      if (typeof data === 'string') return data;
-      return JSON.stringify(data);
-    };
-
-    const handleSubmit = async (e) => {
-      e.preventDefault();
-      setLoading(true);
-
-      try {
-        validateForm();
-        
-        // Validar documentos para barbeiro e barbearia
-        if (!isLogin && (activeTab === 'barbeiro' || activeTab === 'barbearia')) {
-          if (!docFiles.frente || !docFiles.verso || !docFiles.selfie) {
-            throw new Error('Envie os 3 documentos: frente, verso e selfie');
-          }
-        }
-        
-        // Validar portfólio para barbeiro
-        if (!isLogin && activeTab === 'barbeiro') {
-          if (portfolioFiles.length < 3) {
-            throw new Error('Envie no mínimo 3 fotos com você ao lado do corte para aprovação');
-          }
-        }
-        
-        const endpoint = isLogin ? `login/${activeTab}/` : `${activeTab === 'cliente' ? 'clientes' : activeTab === 'barbeiro' ? 'barbeiros' : 'barbearias'}/`;
-        const payload = isLogin ? 
-          { email: formData.email, senha: formData.senha } : 
-          { 
-            nome: formData.nome, 
-            email: formData.email, 
-            senha: formData.senha, 
-            endereco: formData.endereco,
-            cep: formData.cep || undefined,
-            telefone: formData.telefone,
-            cpf: formData.cpf || undefined,
-            cnpj: formData.cnpj || undefined
-          };
-
-        const isLoginRequest = isLogin;
-        const res = await fetch(`${API_URL}/api/v1/${endpoint}`, {
-          method: 'POST',
-          headers: isLoginRequest
-            ? { 'Content-Type': 'application/x-www-form-urlencoded' }
-            : { 'Content-Type': 'application/json' },
-          body: isLoginRequest
-            ? new URLSearchParams({ username: formData.email, password: formData.senha })
-            : JSON.stringify(payload)
-        });
-        
-        const data = await res.json();
-        
-        if (!res.ok) throw new Error(formatApiError(data));
-
-        if (isLogin) {
-          saveLogin(activeTab, data.access_token, data.user_id);
-          notify(`Bem-vindo!`, 'success');
-        } else {
-          // Se for barbeiro ou barbearia, upload de documentos
-          if ((activeTab === 'barbeiro' || activeTab === 'barbearia') && docFiles.frente && docFiles.verso && docFiles.selfie) {
-            try {
-              const formDataDocs = new FormData();
-              formDataDocs.append('documento_frente', docFiles.frente);
-              formDataDocs.append('documento_verso', docFiles.verso);
-              formDataDocs.append('selfie_documento', docFiles.selfie);
-              
-              const docRes = await fetch(`${API_URL}/api/v1/documentos/upload-files`, {
-                method: 'POST',
-                headers: { 'Authorization': `Bearer ${data.access_token}` },
-                body: formDataDocs
-              });
-
-              if (!docRes.ok) {
-                const errData = await docRes.json();
-                notify('Aviso: ' + (errData.detail || 'Documentos não foram salvos'), 'error');
-              } else {
-                await docRes.json();
-                notify('Documentos enviados para análise!', 'success');
-              }
-            } catch (_docErr) {
-              notify('Erro ao enviar documentos', 'error');
-            }
-          }
-          
-          // Se for barbeiro, upload de portfólio
-          if (activeTab === 'barbeiro' && portfolioFiles.length > 0) {
-            try {
-              for (let i = 0; i < portfolioFiles.length; i++) {
-                const file = portfolioFiles[i];
-                const formDataPortfolio = new FormData();
-                formDataPortfolio.append('file', file);
-                formDataPortfolio.append('pasta', 'portfolio');
-                
-                const portRes = await fetch(`${API_URL}/api/v1/upload/imagem`, {
-                  method: 'POST',
-                  headers: { 'Authorization': `Bearer ${data.access_token}` },
-                  body: formDataPortfolio
-                });
-                
-                if (portRes.ok) {
-                  const portData = await portRes.json();
-                  // Enviar para salvar no portfólio
-                  await fetch(`${API_URL}/api/v1/barbeiro/portfolio`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${data.access_token}` },
-                    body: JSON.stringify({
-                      url_imagem: portData.url,
-                      tipo_servico: 'corte',
-                      descricao: 'Portfólio de cadastro'
-                    })
-                  });
-                }
-              }
-            } catch (_portErr) {
-              // Erro ao fazer upload de portfólio
-            }
-          }
-          
-          notify("Conta criada! Faça login.", 'success');
-          setIsLogin(true);
-          setDocFiles({ frente: null, verso: null, selfie: null });
-          setPortfolioFiles([]);
-        }
-      } catch (err) {
-        const message = err.message === 'Failed to fetch' 
-          ? `Erro de conexão com API - Verifique se o celular está na mesma rede Wi-Fi (${API_URL})`
-          : (err.message || 'Erro inesperado');
-        notify(message, 'error');
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    return (
-      <div className="flex flex-col items-center justify-start min-h-screen p-3 sm:p-6 text-white bg-black animate-in fade-in overflow-y-auto">
-        <div className="text-center mb-6 sm:mb-8">
-            <div className="flex justify-center mb-3 sm:mb-4">
-              <img src={BRAND_LOGO} alt="BarberMove" className="h-12 w-12 sm:h-16 sm:w-16 object-contain" onError={(e) => e.currentTarget.style.display='none'} />
-            </div>
-            <h1 className="text-xl sm:text-3xl font-extrabold mb-1 sm:mb-2 tracking-tighter">Barber<span className="text-orange-500">Move</span></h1>
-            <p className="text-zinc-500 text-[10px] sm:text-xs uppercase tracking-widest font-bold">Agenda e gestão profissional</p>
-        </div>
-        
-        <div className="bg-zinc-900/50 p-1 rounded-xl mb-4 sm:mb-6 flex border border-zinc-800 w-full relative">
-            {['cliente', 'barbeiro', 'barbearia'].map(t => (
-                <button key={t} onClick={() => setActiveTab(t)} className={`flex-1 py-2 sm:py-2.5 capitalize text-[9px] sm:text-[11px] font-bold rounded-lg transition-all z-10 ${activeTab === t ? 'bg-zinc-800 text-white shadow-lg' : 'text-zinc-500 hover:text-zinc-300'}`}>{t}</button>
-            ))}
-        </div>
-
-        <form onSubmit={handleSubmit} className="space-y-2 sm:space-y-3 w-full">
-            {!isLogin && <input name="nome" placeholder="Nome Completo" className="input-modern" onChange={e => setFormData({...formData, nome: e.target.value})} required />}
-            {!isLogin && <input name="telefone" placeholder="Telefone com DDD" className="input-modern" onChange={e => setFormData({...formData, telefone: e.target.value})} />}
-            {!isLogin && (activeTab === 'cliente' || activeTab === 'barbeiro') && (
-              <input 
-                name="cpf" 
-                placeholder="CPF (opcional)" 
-                className="input-modern" 
-                maxLength="14"
-                onChange={e => {
-                  let value = e.target.value.replace(/\D/g, '');
-                  if (value.length <= 11) {
-                    value = value.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4');
-                  }
-                  setFormData({...formData, cpf: value});
-                  e.target.value = value;
-                }} 
-              />
-            )}
-            {!isLogin && activeTab === 'barbearia' && (
-              <>
-                <input 
-                  name="cpf" 
-                  placeholder="CPF do Dono (opcional)" 
-                  className="input-modern" 
-                  maxLength="14"
-                  onChange={e => {
-                    let value = e.target.value.replace(/\D/g, '');
-                    if (value.length <= 11) {
-                      value = value.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4');
-                    }
-                    setFormData({...formData, cpf: value});
-                    e.target.value = value;
-                  }} 
-                />
-                <input 
-                  name="cnpj" 
-                  placeholder="CNPJ da Empresa (opcional)" 
-                  className="input-modern" 
-                  maxLength="18"
-                  onChange={e => {
-                    let value = e.target.value.replace(/\D/g, '');
-                    if (value.length <= 14) {
-                      value = value.replace(/(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})/, '$1.$2.$3/$4-$5');
-                    }
-                    setFormData({...formData, cnpj: value});
-                    e.target.value = value;
-                  }} 
-                />
-              </>
-            )}
-            {!isLogin && activeTab !== 'cliente' && (
-              <>
-                <input 
-                  name="cep" 
-                  placeholder="CEP (ex: 12345-678)" 
-                  className="input-modern" 
-                  value={formData.cep}
-                  onChange={async (e) => {
-                    let value = e.target.value.replace(/\D/g, '');
-                    setFormData({...formData, cep: value});
-                    
-                    if (value.length === 8) {
-                      const cepFormatted = value.replace(/(\d{5})(\d{3})/, '$1-$2');
-                      try {
-                        const res = await fetch(`https://viacep.com.br/ws/${value}/json/`);
-                        const data = await res.json();
-                        if (!data.erro) {
-                          const endereco = `${data.logradouro}, ${data.bairro} - ${data.localidade}, ${data.uf}`;
-                          setFormData(prev => ({...prev, cep: cepFormatted, endereco: endereco}));
-                        }
-                      } catch (_err) {
-                        // Erro ao buscar CEP
-                      }
-                    }
-                  }} 
-                  required 
-                />
-                <input 
-                  name="endereco" 
-                  placeholder="Endereço da Loja/Base" 
-                  className="input-modern" 
-                  value={formData.endereco}
-                  onChange={e => setFormData({...formData, endereco: e.target.value})} 
-                  required 
-                />
-              </>
-            )}
-            <input name="email" type="email" placeholder="Email" className="input-modern" onChange={e => setFormData({...formData, email: e.target.value})} required />
-            <input name="senha" type="password" placeholder="Senha" className="input-modern" onChange={e => setFormData({...formData, senha: e.target.value})} required />
-            
-            {/* Documentos obrigatórios para barbeiro e barbearia */}
-            {!isLogin && (activeTab === 'barbeiro' || activeTab === 'barbearia') && (
-              <div className="bg-zinc-900/50 p-3 rounded-lg border border-zinc-800 mt-4">
-                <p className="text-yellow-400 text-xs font-bold mb-3">📄 Envie seus documentos (obrigatório)</p>
-                <div className="space-y-2">
-                  <label className="text-xs text-zinc-400 block">Frente do RG/CNH:</label>
-                  <input 
-                    type="file" 
-                    accept="image/*" 
-                    className="input-modern text-xs file:mr-3 file:bg-zinc-800 file:text-white file:border-0 file:rounded file:px-3 file:py-1" 
-                    onChange={e => setDocFiles({...docFiles, frente: e.target.files?.[0] || null})}
-                  />
-                  
-                  <label className="text-xs text-zinc-400 block mt-2">Verso do RG/CNH:</label>
-                  <input 
-                    type="file" 
-                    accept="image/*" 
-                    className="input-modern text-xs file:mr-3 file:bg-zinc-800 file:text-white file:border-0 file:rounded file:px-3 file:py-1"
-                    onChange={e => setDocFiles({...docFiles, verso: e.target.files?.[0] || null})}
-                  />
-                  
-                  <label className="text-xs text-zinc-400 block mt-2">Selfie com o documento:</label>
-                  <input 
-                    type="file" 
-                    accept="image/*" 
-                    className="input-modern text-xs file:mr-3 file:bg-zinc-800 file:text-white file:border-0 file:rounded file:px-3 file:py-1"
-                    onChange={e => setDocFiles({...docFiles, selfie: e.target.files?.[0] || null})}
-                  />
-                </div>
-              </div>
-            )}
-            
-            {/* Portfólio obrigatório para barbeiro */}
-            {!isLogin && activeTab === 'barbeiro' && (
-              <div className="bg-zinc-900/50 p-3 rounded-lg border border-zinc-800 mt-4">
-                <p className="text-orange-400 text-xs font-bold mb-3">⭐ Portfólio (obrigatório)</p>
-                <p className="text-zinc-400 text-xs mb-3">Envie no mínimo 3 fotos com você ao lado do corte para aprovação</p>
-                <div className="space-y-2">
-                  <label className="text-xs text-zinc-400 block">Fotos do corte/trabalho (mínimo 3, máximo 10):</label>
-                  <div className="flex gap-2 mb-2">
-                    {portfolioFiles.map((file, idx) => (
-                      <div key={idx} className="text-xs bg-zinc-800 px-2 py-1 rounded flex items-center gap-2">
-                        <span>{file.name}</span>
-                        <button
-                          type="button"
-                          onClick={() => setPortfolioFiles(portfolioFiles.filter((_, i) => i !== idx))}
-                          className="text-red-400 hover:text-red-500"
-                        >✕</button>
-                      </div>
-                    ))}
-                  </div>
-                  {portfolioFiles.length < 10 && (
-                    <input 
-                      type="file" 
-                      accept="image/*" 
-                      className="input-modern text-xs file:mr-3 file:bg-zinc-800 file:text-white file:border-0 file:rounded file:px-3 file:py-1"
-                      onChange={e => {
-                        const file = e.target.files?.[0];
-                        if (file && portfolioFiles.length < 10) {
-                          setPortfolioFiles([...portfolioFiles, file]);
-                        } else if (portfolioFiles.length >= 10) {
-                          notify('Máximo de 10 fotos no portfólio', 'error');
-                        }
-                      }}
-                    />
-                  )}
-                  <p className="text-zinc-500 text-[10px]">Você adicionou {portfolioFiles.length} foto(s)</p>
-                </div>
-              </div>
-            )}
-            
-            <button disabled={loading} className="w-full bg-white text-black py-4 rounded-xl font-bold mt-4 active:scale-95 transition-all hover:bg-zinc-200 disabled:opacity-50">
-                {loading ? 'Processando...' : (isLogin ? 'Entrar na Conta' : 'Criar Nova Conta')}
-            </button>
-        </form>
-        
-        <button onClick={() => setIsLogin(!isLogin)} className="mt-8 text-zinc-500 text-xs font-medium hover:text-white transition-colors">
-            {isLogin ? 'Não tem uma conta? Cadastre-se' : 'Já possui conta? Faça login'}
-        </button>
-        <p className="mt-4 text-[10px] text-zinc-700">Sua conta será validada com email e senha fortes.</p>
-        <div className="mt-4 flex flex-col items-center gap-1 text-[11px] text-zinc-500">
-          <button type="button" className="hover:text-white underline" onClick={() => setShowTerms(true)}>Termos de Uso</button>
-          <button type="button" className="hover:text-white underline" onClick={() => setShowPrivacy(true)}>Política de Privacidade</button>
-        </div>
-        
-        <style>{`.input-modern { width: 100%; padding: 1rem; border-radius: 0.75rem; background-color: #18181b; color: white; border: 1px solid #27272a; outline: none; transition: all 0.2s; font-size: 0.9rem; } .input-modern:focus { border-color: #f97316; background-color: #000; }`}</style>
       </div>
     );
   };
@@ -1440,11 +1165,11 @@ export default function App() {
                 <div className="absolute bottom-4 left-4">
                     <h1 className="text-2xl font-bold">{selectedShop.nome}</h1>
                     <p className="text-sm text-zinc-300">Barbeiro: {selectedBarbeiro.nome}</p>
-                    <div className="flex items-center gap-2 text-xs text-zinc-300 flex-wrap mt-1">
+                      <div className="flex items-center gap-2 text-xs text-zinc-300 flex-wrap mt-1">
                       <span className="flex items-center gap-1"><MapPin size={12}/> {selectedShop.endereco}</span>
                       <button
                         onClick={() => openMaps(selectedShop)}
-                        className="px-3 py-1 rounded-full bg-white/90 text-black font-bold text-[10px] active:scale-95"
+                        className="px-3 py-1 rounded-full bg-gradient-to-r from-orange-600 to-red-600 text-white font-extrabold text-[10px] active:scale-95"
                       >Abrir no Maps</button>
                     </div>
                     <div className="flex flex-wrap gap-2 mt-3">
@@ -1470,7 +1195,7 @@ export default function App() {
                     {services.map(s => (
                         <div key={s.id} className="flex justify-between items-center bg-zinc-900 p-4 rounded-xl border border-zinc-800">
                             <div><span className="block font-bold text-sm">{s.nome}</span><span className="text-green-400 text-xs font-bold">R$ {s.valor}</span></div>
-                            <button onClick={() => handleBooking(s)} className="bg-white text-black px-4 py-2 rounded-lg font-bold text-xs flex items-center gap-2 active:scale-95">Agendar</button>
+                            <button onClick={() => handleBooking(s)} className="bg-gradient-to-r from-orange-600 to-red-600 text-white px-4 py-2 rounded-2xl font-extrabold text-sm flex items-center gap-2 active:scale-95">Agendar</button>
                         </div>
                     ))}
                 </div>
@@ -1490,7 +1215,7 @@ export default function App() {
                             value={selectedDate}
                             onChange={(e) => setSelectedDate(e.target.value)}
                             min={new Date().toISOString().split('T')[0]}
-                            className="w-full bg-black border border-zinc-800 rounded-lg p-3 text-white outline-none focus:border-orange-500"
+                            className="bm-input w-full bg-black border border-zinc-800 rounded-lg p-3 text-white outline-none focus:border-orange-500"
                           />
                         </div>
                         
@@ -1500,7 +1225,7 @@ export default function App() {
                             type="time"
                             value={selectedTime}
                             onChange={(e) => setSelectedTime(e.target.value)}
-                            className="w-full bg-black border border-zinc-800 rounded-lg p-3 text-white outline-none focus:border-orange-500"
+                            className="bm-input w-full bg-black border border-zinc-800 rounded-lg p-3 text-white outline-none focus:border-orange-500"
                           />
                         </div>
                       </div>
@@ -1572,7 +1297,7 @@ export default function App() {
                       <div className="space-y-3">
                           <div className="relative">
                               <Search className="absolute left-3 top-3 text-zinc-500" size={18} />
-                              <input placeholder="Buscar barbeiro..." className="w-full bg-zinc-900 pl-10 pr-4 py-3 rounded-xl border border-zinc-800 outline-none focus:border-orange-500 text-sm" />
+                              <input placeholder="Buscar barbeiro..." className="bm-input w-full bg-zinc-900 pl-10 pr-4 py-3 rounded-xl border border-zinc-800 outline-none focus:border-orange-500 text-sm" />
                           </div>
                           <button 
                             onClick={() => setShowAvailableOnly(!showAvailableOnly)}
@@ -1688,7 +1413,7 @@ export default function App() {
                             <div className="mt-3">
                               <button
                                 onClick={(e) => { e.stopPropagation(); abrirPagamento(p); }}
-                                className="w-full bg-white text-black py-2 rounded-lg font-bold text-xs active:scale-95"
+                                className="w-full bg-gradient-to-r from-orange-600 to-red-600 text-white py-2 rounded-2xl font-extrabold text-sm active:scale-95"
                               >Pagar</button>
                             </div>
                             
@@ -1706,7 +1431,7 @@ export default function App() {
                                       <button key={n} onClick={() => setAvaliarPedido({ ...avaliarPedido, id: p.id, alvo: 'freelancer', nota: n })} className={`text-2xl transition-all ${avaliarPedido.id===p.id && avaliarPedido.alvo==='freelancer' && avaliarPedido.nota>=n ? 'text-yellow-400 scale-125' : 'text-zinc-700 hover:text-yellow-400'}`}>★</button>
                                     ))}
                                   </div>
-                                  <input className="bg-black/40 rounded-lg p-3 border border-zinc-700 text-xs w-full placeholder-zinc-600 focus:border-yellow-400 outline-none" placeholder="Deixe um comentário... (opcional)" value={avaliarPedido.id===p.id && avaliarPedido?.alvo==='freelancer' ? avaliarPedido?.comentario || '' : ''} onChange={e=> setAvaliarPedido({ ...avaliarPedido, id: p.id, alvo: 'freelancer', comentario: e.target.value }) } />
+                                  <input className="bm-input bg-black/40 rounded-lg p-3 border border-zinc-700 text-xs w-full placeholder-zinc-600 focus:border-yellow-400 outline-none" placeholder="Deixe um comentário... (opcional)" value={avaliarPedido.id===p.id && avaliarPedido?.alvo==='freelancer' ? avaliarPedido?.comentario || '' : ''} onChange={e=> setAvaliarPedido({ ...avaliarPedido, id: p.id, alvo: 'freelancer', comentario: e.target.value }) } />
                                   <button
                                     onClick={() => enviarAvaliacao(p, 'freelancer')}
                                     disabled={p.avaliacao_freelancer_enviada || p.avaliado_freelancer}
@@ -1726,7 +1451,7 @@ export default function App() {
                                       <button key={n} onClick={() => setAvaliarPedido({ ...avaliarPedido, id: p.id, alvo: 'barbearia', nota: n })} className={`text-2xl transition-all ${avaliarPedido.id===p.id && avaliarPedido.alvo==='barbearia' && avaliarPedido.nota>=n ? 'text-blue-400 scale-125' : 'text-zinc-700 hover:text-blue-400'}`}>★</button>
                                     ))}
                                   </div>
-                                  <input className="bg-black/40 rounded-lg p-3 border border-zinc-700 text-xs w-full placeholder-zinc-600 focus:border-blue-400 outline-none" placeholder="Deixe um comentário... (opcional)" value={avaliarPedido.id===p.id && avaliarPedido?.alvo==='barbearia' ? avaliarPedido?.comentario || '' : ''} onChange={e=> setAvaliarPedido({ ...avaliarPedido, id: p.id, alvo: 'barbearia', comentario: e.target.value }) } />
+                                  <input className="bm-input bg-black/40 rounded-lg p-3 border border-zinc-700 text-xs w-full placeholder-zinc-600 focus:border-blue-400 outline-none" placeholder="Deixe um comentário... (opcional)" value={avaliarPedido.id===p.id && avaliarPedido?.alvo==='barbearia' ? avaliarPedido?.comentario || '' : ''} onChange={e=> setAvaliarPedido({ ...avaliarPedido, id: p.id, alvo: 'barbearia', comentario: e.target.value }) } />
                                   <button
                                     onClick={() => enviarAvaliacao(p, 'barbearia')}
                                     disabled={p.avaliacao_barbearia_enviada || p.avaliado_barbearia}
@@ -1786,11 +1511,11 @@ export default function App() {
                 </div>
               )}
 
-            <div className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-[400px] h-16 bg-zinc-950/95 backdrop-blur-lg border-t border-zinc-800 flex justify-around items-center z-30 px-2">
-              <button onClick={() => setTab('barbeiros')} className={`flex flex-col items-center gap-0 p-1 w-12 ${tab === 'barbeiros' ? 'text-red-500' : 'text-zinc-600'}`}><Search size={16} /><span className="text-[8px] font-bold">Buscar</span></button>
-              <button onClick={() => setTab('barbearias')} className={`flex flex-col items-center gap-0 p-1 w-12 ${tab === 'barbearias' ? 'text-red-500' : 'text-zinc-600'}`}><Store size={16} /><span className="text-[8px] font-bold">Lojas</span></button>
-              <button onClick={() => setTab('pedidos')} className={`flex flex-col items-center gap-0 p-1 w-12 ${tab === 'pedidos' ? 'text-red-500' : 'text-zinc-600'}`}><History size={16} /><span className="text-[8px] font-bold">Agenda</span></button>
-              <button onClick={() => setTab('perfil')} className={`flex flex-col items-center gap-0 p-1 w-12 ${tab === 'perfil' ? 'text-red-500' : 'text-zinc-600'}`}><User size={16} /><span className="text-[8px] font-bold">Perfil</span></button>
+            <div className="bm-bottom-nav fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-[400px] h-[calc(4.4rem+env(safe-area-inset-bottom))] pb-[env(safe-area-inset-bottom)] flex justify-around items-center z-30 px-2">
+              <button data-active={tab === 'barbeiros'} onClick={() => setTab('barbeiros')} className={`bm-bottom-nav-btn flex flex-col items-center gap-1 p-1 w-12 ${tab === 'barbeiros' ? 'text-orange-500 bg-orange-500/5' : 'text-zinc-600'}`}><Search size={16} /><span>Buscar</span></button>
+              <button data-active={tab === 'barbearias'} onClick={() => setTab('barbearias')} className={`bm-bottom-nav-btn flex flex-col items-center gap-1 p-1 w-12 ${tab === 'barbearias' ? 'text-orange-500 bg-orange-500/5' : 'text-zinc-600'}`}><Store size={16} /><span>Lojas</span></button>
+              <button data-active={tab === 'pedidos'} onClick={() => setTab('pedidos')} className={`bm-bottom-nav-btn flex flex-col items-center gap-1 p-1 w-12 ${tab === 'pedidos' ? 'text-orange-500 bg-orange-500/5' : 'text-zinc-600'}`}><History size={16} /><span>Agenda</span></button>
+              <button data-active={tab === 'perfil'} onClick={() => setTab('perfil')} className={`bm-bottom-nav-btn flex flex-col items-center gap-1 p-1 w-12 ${tab === 'perfil' ? 'text-orange-500 bg-orange-500/5' : 'text-zinc-600'}`}><User size={16} /><span>Perfil</span></button>
             </div>
           </div>
         )}
@@ -2276,7 +2001,7 @@ export default function App() {
                           <span className="text-green-400 font-bold">R$ {job.valor || 0}</span>
                         </div>
                         <div className="grid grid-cols-2 gap-2">
-                          <button onClick={() => acceptJob(job.id)} className="bg-white text-black py-3 rounded-xl font-bold text-sm hover:bg-zinc-200">ACEITAR</button>
+                          <button onClick={() => acceptJob(job.id)} className="bg-gradient-to-r from-orange-600 to-red-600 text-white py-3 rounded-2xl font-extrabold text-sm hover:from-orange-700 hover:to-red-700">ACEITAR</button>
                           <button onClick={() => rejectJob(job.id)} className="bg-red-600 text-white py-3 rounded-xl font-bold text-sm hover:bg-red-700">RECUSAR</button>
                         </div>
                         <button
@@ -2441,26 +2166,26 @@ export default function App() {
               </div>
             )}
 
-            <div className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-[400px] h-16 bg-zinc-950/95 backdrop-blur-lg border-t border-zinc-800 flex justify-around items-center z-50 px-2">
-              <button onClick={() => setTabBarbeiro('inicio')} className={`flex flex-col items-center gap-0 p-1 flex-1 ${tabBarbeiro === 'inicio' ? 'text-red-500' : 'text-zinc-600'}`}>
+            <div className="bm-bottom-nav fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-[400px] h-[calc(4.4rem+env(safe-area-inset-bottom))] pb-[env(safe-area-inset-bottom)] flex justify-around items-center z-50 px-2">
+              <button data-active={tabBarbeiro === 'inicio'} onClick={() => setTabBarbeiro('inicio')} className={`bm-bottom-nav-btn flex flex-col items-center gap-1 p-1 flex-1 ${tabBarbeiro === 'inicio' ? 'text-orange-500 bg-orange-500/5' : 'text-zinc-600'}`}>
                 <Calendar size={16} />
-                <span className="hidden sm:block text-[8px] font-bold leading-none">Inicio</span>
+                <span className="hidden sm:block">Início</span>
               </button>
-              <button onClick={() => setTabBarbeiro('agenda')} className={`flex flex-col items-center gap-0 p-1 flex-1 ${tabBarbeiro === 'agenda' ? 'text-red-500' : 'text-zinc-600'}`}>
+              <button data-active={tabBarbeiro === 'agenda'} onClick={() => setTabBarbeiro('agenda')} className={`bm-bottom-nav-btn flex flex-col items-center gap-1 p-1 flex-1 ${tabBarbeiro === 'agenda' ? 'text-orange-500 bg-orange-500/5' : 'text-zinc-600'}`}>
                 <History size={16} />
-                <span className="hidden sm:block text-[8px] font-bold leading-none">Agenda</span>
+                <span className="hidden sm:block">Agenda</span>
               </button>
-              <button onClick={() => setTabBarbeiro('ganhos')} className={`flex flex-col items-center gap-0 p-1 flex-1 ${tabBarbeiro === 'ganhos' ? 'text-red-500' : 'text-zinc-600'}`}>
+              <button data-active={tabBarbeiro === 'ganhos'} onClick={() => setTabBarbeiro('ganhos')} className={`bm-bottom-nav-btn flex flex-col items-center gap-1 p-1 flex-1 ${tabBarbeiro === 'ganhos' ? 'text-orange-500 bg-orange-500/5' : 'text-zinc-600'}`}>
                 <CreditCard size={16} />
-                <span className="hidden sm:block text-[8px] font-bold leading-none">Ganhos</span>
+                <span className="hidden sm:block">Ganhos</span>
               </button>
-              <button onClick={() => setTabBarbeiro('avaliar')} className={`flex flex-col items-center gap-0 p-1 flex-1 ${tabBarbeiro === 'avaliar' ? 'text-red-500' : 'text-zinc-600'}`}>
+              <button data-active={tabBarbeiro === 'avaliar'} onClick={() => setTabBarbeiro('avaliar')} className={`bm-bottom-nav-btn flex flex-col items-center gap-1 p-1 flex-1 ${tabBarbeiro === 'avaliar' ? 'text-orange-500 bg-orange-500/5' : 'text-zinc-600'}`}>
                 <Star size={16} />
-                <span className="hidden sm:block text-[8px] font-bold leading-none">Avaliar</span>
+                <span className="hidden sm:block">Avaliar</span>
               </button>
-              <button onClick={() => setTabBarbeiro('perfil')} className={`flex flex-col items-center gap-0 p-1 flex-1 ${tabBarbeiro === 'perfil' ? 'text-red-500' : 'text-zinc-600'}`}>
+              <button data-active={tabBarbeiro === 'perfil'} onClick={() => setTabBarbeiro('perfil')} className={`bm-bottom-nav-btn flex flex-col items-center gap-1 p-1 flex-1 ${tabBarbeiro === 'perfil' ? 'text-orange-500 bg-orange-500/5' : 'text-zinc-600'}`}>
                 <User size={16} />
-                <span className="hidden sm:block text-[8px] font-bold leading-none">Perfil</span>
+                <span className="hidden sm:block">Perfil</span>
               </button>
             </div>
         </div>
@@ -3051,7 +2776,7 @@ export default function App() {
                 <h3 className="font-bold mb-4 text-sm flex items-center gap-2 text-purple-400">⚙️ Cadastrar Serviço</h3>
                 <form onSubmit={addService} className="space-y-3 mb-4">
                   <input 
-                    className="w-full bg-black rounded-lg p-3 border border-zinc-800 text-sm outline-none focus:border-purple-500" 
+                    className="bm-input w-full bg-black rounded-lg p-3 border border-zinc-800 text-sm outline-none focus:border-purple-500" 
                     placeholder="Nome do serviço (ex: Corte Degradê)" 
                     value={newService.nome} 
                     onChange={e => setNewService({...newService, nome: e.target.value})} 
@@ -3059,7 +2784,7 @@ export default function App() {
                   />
                   <div className="grid grid-cols-2 gap-3">
                     <input 
-                      className="bg-black rounded-lg p-3 border border-zinc-800 text-sm outline-none focus:border-purple-500" 
+                      className="bm-input bg-black rounded-lg p-3 border border-zinc-800 text-sm outline-none focus:border-purple-500" 
                       type="number" 
                       placeholder="Valor R$" 
                       value={newService.valor} 
@@ -3067,7 +2792,7 @@ export default function App() {
                       required
                     />
                     <input 
-                      className="bg-black rounded-lg p-3 border border-zinc-800 text-sm outline-none focus:border-purple-500" 
+                      className="bm-input bg-black rounded-lg p-3 border border-zinc-800 text-sm outline-none focus:border-purple-500" 
                       type="number" 
                       placeholder="Duração (min)" 
                       value={newService.duracao_minutos} 
@@ -3394,7 +3119,7 @@ export default function App() {
                             ))}
                           </div>
                           <input
-                            className="bg-black/40 rounded-lg p-3 border border-orange-500/30 text-xs w-full placeholder-zinc-600 focus:border-orange-400 outline-none mb-3"
+                            className="bm-input bg-black/40 rounded-lg p-3 border border-orange-500/30 text-xs w-full placeholder-zinc-600 focus:border-orange-400 outline-none mb-3"
                             placeholder="Comentário (opcional)"
                             value={avaliarComoBarbearia.chamadoId===selectedAgendamentoShop.id && avaliarComoBarbearia.alvo==='cliente' ? (avaliarComoBarbearia.comentario || '') : ''}
                             onChange={e => setAvaliarComoBarbearia({ ...avaliarComoBarbearia, chamadoId: selectedAgendamentoShop.id, alvo: 'cliente', comentario: e.target.value })}
@@ -3423,7 +3148,7 @@ export default function App() {
                               ))}
                             </div>
                             <input
-                              className="bg-black/40 rounded-lg p-3 border border-orange-500/30 text-xs w-full placeholder-zinc-600 focus:border-orange-400 outline-none mb-3"
+                              className="bm-input bg-black/40 rounded-lg p-3 border border-orange-500/30 text-xs w-full placeholder-zinc-600 focus:border-orange-400 outline-none mb-3"
                               placeholder="Comentário (opcional)"
                               value={avaliarComoBarbearia.chamadoId===selectedAgendamentoShop.id && avaliarComoBarbearia.alvo==='barbeiro' ? (avaliarComoBarbearia.comentario || '') : ''}
                               onChange={e => setAvaliarComoBarbearia({ ...avaliarComoBarbearia, chamadoId: selectedAgendamentoShop.id, alvo: 'barbeiro', comentario: e.target.value })}
@@ -3493,26 +3218,26 @@ export default function App() {
               </div>
             )}
 
-            <div className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-[400px] h-16 bg-zinc-950/95 backdrop-blur-lg border-t border-zinc-800 flex justify-around items-center z-[999] px-2 pointer-events-auto pb-[env(safe-area-inset-bottom)]">
-              <button onClick={() => setTabShopSafe('gestao')} className={`flex flex-col items-center gap-0 p-1 flex-1 ${tabShopSafe === 'gestao' ? 'text-red-500' : 'text-zinc-600'}`}>
+            <div className="bm-bottom-nav fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-[400px] h-[calc(4.4rem+env(safe-area-inset-bottom))] pb-[env(safe-area-inset-bottom)] flex justify-around items-center z-[999] px-2 pointer-events-auto">
+              <button data-active={tabShopSafe === 'gestao'} onClick={() => setTabShopSafe('gestao')} className={`bm-bottom-nav-btn flex flex-col items-center gap-1 p-1 flex-1 ${tabShopSafe === 'gestao' ? 'text-orange-500 bg-orange-500/5' : 'text-zinc-600'}`}>
                 <Store size={16} />
-                <span className="hidden sm:block text-[8px] font-bold leading-none">Gestão</span>
+                <span className="hidden sm:block">Gestão</span>
               </button>
-              <button onClick={() => setTabShopSafe('agendamentos')} className={`flex flex-col items-center gap-0 p-1 flex-1 ${tabShopSafe === 'agendamentos' ? 'text-red-500' : 'text-zinc-600'}`}>
+              <button data-active={tabShopSafe === 'agendamentos'} onClick={() => setTabShopSafe('agendamentos')} className={`bm-bottom-nav-btn flex flex-col items-center gap-1 p-1 flex-1 ${tabShopSafe === 'agendamentos' ? 'text-orange-500 bg-orange-500/5' : 'text-zinc-600'}`}>
                 <Calendar size={16} />
-                <span className="hidden sm:block text-[8px] font-bold leading-none">Agend.</span>
+                <span className="hidden sm:block">Agend.</span>
               </button>
-              <button onClick={() => setTabShopSafe('assinatura')} className={`flex flex-col items-center gap-0 p-1 flex-1 ${tabShopSafe === 'assinatura' ? 'text-red-500' : 'text-zinc-600'}`}>
+              <button data-active={tabShopSafe === 'assinatura'} onClick={() => setTabShopSafe('assinatura')} className={`bm-bottom-nav-btn flex flex-col items-center gap-1 p-1 flex-1 ${tabShopSafe === 'assinatura' ? 'text-orange-500 bg-orange-500/5' : 'text-zinc-600'}`}>
                 <CreditCard size={16} />
-                <span className="hidden sm:block text-[8px] font-bold leading-none">Assinar</span>
+                <span className="hidden sm:block">Assinar</span>
               </button>
-              <button onClick={() => setTabShopSafe('avaliar')} className={`flex flex-col items-center gap-0 p-1 flex-1 ${tabShopSafe === 'avaliar' ? 'text-red-500' : 'text-zinc-600'}`}>
+              <button data-active={tabShopSafe === 'avaliar'} onClick={() => setTabShopSafe('avaliar')} className={`bm-bottom-nav-btn flex flex-col items-center gap-1 p-1 flex-1 ${tabShopSafe === 'avaliar' ? 'text-orange-500 bg-orange-500/5' : 'text-zinc-600'}`}>
                 <Star size={16} />
-                <span className="hidden sm:block text-[8px] font-bold leading-none">Avaliar</span>
+                <span className="hidden sm:block">Avaliar</span>
               </button>
-              <button onClick={() => setTabShopSafe('perfil')} className={`flex flex-col items-center gap-0 p-1 flex-1 ${tabShopSafe === 'perfil' ? 'text-red-500' : 'text-zinc-600'}`}>
+              <button data-active={tabShopSafe === 'perfil'} onClick={() => setTabShopSafe('perfil')} className={`bm-bottom-nav-btn flex flex-col items-center gap-1 p-1 flex-1 ${tabShopSafe === 'perfil' ? 'text-orange-500 bg-orange-500/5' : 'text-zinc-600'}`}>
                 <User size={16} />
-                <span className="hidden sm:block text-[8px] font-bold leading-none">Perfil</span>
+                <span className="hidden sm:block">Perfil</span>
               </button>
             </div>
         </div>
@@ -3522,23 +3247,57 @@ export default function App() {
   // --- RENDERIZADOR PRINCIPAL ---
   return (
     <div className="min-h-screen bg-zinc-950 flex justify-center sm:items-center sm:py-8 font-sans">
-      <div className="w-full sm:max-w-[400px] bg-black min-h-screen sm:min-h-screen sm:h-auto sm:max-h-none sm:rounded-[2.5rem] sm:border-[8px] sm:border-zinc-800 sm:shadow-2xl relative overflow-y-visible overflow-x-hidden sm:overflow-y-auto sm:overflow-x-hidden flex flex-col pt-12 pb-[max(env(safe-area-inset-bottom),1rem)]">
+      <div className="app-container w-full sm:max-w-[400px] bg-black min-h-screen sm:min-h-screen sm:h-auto sm:max-h-none sm:rounded-[2.5rem] sm:border-[8px] sm:border-zinc-800 sm:shadow-2xl relative overflow-y-visible overflow-x-hidden sm:overflow-y-auto sm:overflow-x-hidden flex flex-col pt-12 pb-[max(env(safe-area-inset-bottom),1rem)]">
         {/* Dynamic Notch */}
         <div className="hidden sm:block absolute top-0 left-1/2 -translate-x-1/2 w-1/3 h-7 bg-zinc-800 rounded-b-xl z-50 pointer-events-none"></div>
         
         <Toast />
+        <UpdateBanner />
         
         {/* ⏳ MOSTRAR TELA DE APROVAÇÃO PENDENTE SE NÃO APROVADO */}
         {!userApproved && <PendingApprovalScreen />}
         {gpsBloqueado && <GpsObrigatorioOverlay />}
         
-        {view === 'login' && <LoginScreen />}
-        {view === 'dashboard' && userType === 'cliente' && userApproved && <ClientDashboardView token={token} logout={logout} API_URL={API_URL} notify={notify} onChamadoAceito={abrirTelaRastreamento} />}
-        {view === 'dashboard' && userType === 'barbeiro' && userApproved && <BarberDashboardView token={token} logout={logout} API_URL={API_URL} notify={notify} onChamadoAceito={abrirTelaRastreamento} />}
-        {view === 'dashboard' && userType === 'barbearia' && userApproved && <ShopDashboardView token={token} logout={logout} API_URL={API_URL} notify={notify} tabShop={shopTab} setTabShop={setShopTab} />}
-        {view === 'dashboard' && userType === 'admin' && userApproved && <AdminDashboard token={token} logout={logout} API_URL={API_URL} notify={notify} />}
-        {view === 'admin' && userType === 'admin' && userApproved && <AdminValidationScreen token={token} logout={logout} API_URL={API_URL} notify={notify} />}
-        {view === 'rastreamento' && chamadoId && <TelaDoChamado chamadoId={chamadoId} userType={userType} />}
+        {view === 'login' && (
+          <TelaLogin
+            API_URL={API_URL}
+            BRAND_LOGO={BRAND_LOGO}
+            notify={notify}
+            saveLogin={saveLogin}
+            setShowTerms={setShowTerms}
+            setShowPrivacy={setShowPrivacy}
+          />
+        )}
+        {view === 'dashboard' && userType === 'cliente' && userApproved && (
+          <PainelLayout activeTab={undefined} setActiveTab={undefined}>
+            <ClientDashboardView token={token} logout={logout} API_URL={API_URL} notify={notify} onChamadoAceito={abrirTelaRastreamento} />
+          </PainelLayout>
+        )}
+        {view === 'dashboard' && userType === 'barbeiro' && userApproved && (
+          <PainelLayout activeTab={undefined} setActiveTab={undefined}>
+            <BarberDashboardView token={token} logout={logout} API_URL={API_URL} notify={notify} onChamadoAceito={abrirTelaRastreamento} />
+          </PainelLayout>
+        )}
+        {view === 'dashboard' && userType === 'barbearia' && userApproved && (
+          <PainelLayout activeTab={undefined} setActiveTab={undefined}>
+            <ShopDashboardView token={token} logout={logout} API_URL={API_URL} notify={notify} tabShop={shopTab} setTabShop={setShopTab} />
+          </PainelLayout>
+        )}
+        {view === 'dashboard' && userType === 'admin' && userApproved && (
+          <PainelLayout activeTab={undefined} setActiveTab={undefined}>
+            <AdminDashboard token={token} logout={logout} API_URL={API_URL} notify={notify} />
+          </PainelLayout>
+        )}
+        {view === 'admin' && userType === 'admin' && userApproved && (
+          <PainelLayout activeTab={undefined} setActiveTab={undefined}>
+            <AdminValidationScreen token={token} logout={logout} API_URL={API_URL} notify={notify} />
+          </PainelLayout>
+        )}
+        {view === 'rastreamento' && chamadoId && (
+          <PainelLayout activeTab={undefined} setActiveTab={undefined}>
+            <TelaDoChamado chamadoId={chamadoId} userType={userType} />
+          </PainelLayout>
+        )}
 
         {showTerms && (
           <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-[80] flex items-center justify-center p-4">

@@ -5,11 +5,12 @@
 import React, { useState, useEffect } from 'react';
 import { Plus, Minus, TrendingUp, AlertCircle, Check, Loader } from 'lucide-react';
 import { gerarQrDataUrl, validarCartaoBasico, salvarMetodoPreferidoCliente } from './checkout/core';
+import { getApiBaseUrl } from '../utils/api';
 
 export default function TelaMensalidadeAssinatura({ token, barbeariaId, API_URL, onNotify }) {
   const defaultHost = typeof window !== 'undefined' ? window.location.hostname : 'localhost';
   const defaultProtocol = typeof window !== 'undefined' && window.location.protocol === 'https:' ? 'https' : 'http';
-  const apiBase = API_URL || import.meta.env.VITE_API_URL || `${defaultProtocol}://${defaultHost}:8000`;
+  const apiBase = API_URL || import.meta.env.VITE_API_URL?.trim() || getApiBaseUrl();
   const chaveQtdLocal = `assinatura_qtd_cadeiras_${barbeariaId || 'default'}`;
   const mixedContentRisk =
     typeof window !== 'undefined' &&
@@ -728,23 +729,27 @@ export default function TelaMensalidadeAssinatura({ token, barbeariaId, API_URL,
         <div className="bg-zinc-800 border border-zinc-700 rounded p-2 sm:p-3 space-y-2 sm:space-y-3 ring-1 ring-orange-500/60 mb-2 sm:mb-3">
           <p className="text-xs sm:text-sm font-bold text-white">PIX Gerado</p>
           
-          {pixQrSrc && !pixQrImagemInvalida && (
+            {pixQrSrc && !pixQrImagemInvalida && (
             <div className="flex justify-center">
-              <img
-                src={pixQrSrc}
-                alt="QR Code PIX"
-                className="w-32 sm:w-44 h-32 sm:h-44 bg-white p-1 sm:p-2 rounded"
-                onError={() => setPixQrImagemInvalida(true)}
-              />
+              <div className="bg-zinc-800 p-1 sm:p-2 rounded">
+                <img
+                  src={pixQrSrc}
+                  alt="QR Code PIX"
+                  className="w-32 sm:w-40 h-32 sm:h-40 object-contain"
+                  onError={() => setPixQrImagemInvalida(true)}
+                />
+              </div>
             </div>
           )}
-          {(pixQrImagemInvalida || !pixQrSrc) && pixQrFallbackSrc && (
+            {(pixQrImagemInvalida || !pixQrSrc) && pixQrFallbackSrc && (
             <div className="flex justify-center">
-              <img
-                src={pixQrFallbackSrc}
-                alt="QR Code PIX"
-                className="w-32 sm:w-44 h-32 sm:h-44 bg-white p-1 sm:p-2 rounded"
-              />
+              <div className="bg-zinc-800 p-1 sm:p-2 rounded">
+                <img
+                  src={pixQrFallbackSrc}
+                  alt="QR Code PIX"
+                  className="w-32 sm:w-40 h-32 sm:h-40 object-contain"
+                />
+              </div>
             </div>
           )}
           {(pixQrImagemInvalida || !pixQrSrc) && !pixQrFallbackSrc && (

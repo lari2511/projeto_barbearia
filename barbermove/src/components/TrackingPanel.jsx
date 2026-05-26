@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { getWsBaseUrl } from '../utils/api';
 import MapEmbed from './MapEmbed';
 import TrackingMapEmbed from './TrackingMapEmbed';
 
@@ -110,9 +111,7 @@ export default function TrackingPanel({ chamado, token, API_URL, notify, modo = 
         const chamadoIdAtual = chamado?.id || resumo?.id;
         if (!chamadoIdAtual) return;
 
-        const wsUrl = API_URL
-            ? `${API_URL.replace(/^http/, 'ws')}/ws/notificacoes`
-            : null;
+        const wsUrl = import.meta.env.VITE_WS_URL?.trim() || getWsBaseUrl();
         if (!wsUrl) return;
 
         try {
@@ -272,32 +271,32 @@ export default function TrackingPanel({ chamado, token, API_URL, notify, modo = 
         : 'Rastreamento automático obrigatório';
 
     return (
-        <div className="rounded-2xl border border-orange-500/20 bg-gradient-to-br from-zinc-950 via-zinc-900 to-zinc-950 p-4 sm:p-5 shadow-lg shadow-black/40 space-y-4">
-            <div className="flex items-center justify-between gap-4">
-                <div>
-                    <p className="text-[10px] sm:text-[11px] uppercase tracking-[0.15em] text-orange-400/70 font-semibold">Rastreamento ao vivo</p>
-                    <h3 className="text-base sm:text-lg font-bold text-white mt-1">{tituloPrincipal}</h3>
+        <div className="w-full max-w-[430px] mx-auto space-y-4 text-white selection:bg-orange-500/30">
+            <div className="flex items-center justify-between gap-4 px-1">
+                <div className="min-w-0">
+                    <p className="text-[10px] sm:text-[11px] uppercase tracking-[0.2em] text-zinc-500 font-semibold">Rastreamento ao vivo</p>
+                    <h3 className="text-base sm:text-lg font-black text-white mt-1 truncate">{tituloPrincipal}</h3>
                 </div>
-                <div className="rounded-full border border-orange-500/30 bg-orange-500/15 px-3 py-1.5 text-[10px] sm:text-[11px] font-bold text-orange-300">
+                <div className="rounded-full border border-orange-500/30 bg-orange-500/15 px-3 py-1.5 text-[10px] sm:text-[11px] font-bold text-orange-300 shrink-0">
                     Barber Move
                 </div>
             </div>
 
-            <div className="rounded-xl border border-orange-500/20 bg-orange-500/5 px-3 sm:px-4 py-2.5 text-xs sm:text-sm text-zinc-300">
+            <div className="rounded-2xl border border-zinc-800/60 bg-[#1e1e24] px-4 py-3 text-xs sm:text-sm text-zinc-300 shadow-lg shadow-black/20">
                 <span className="text-zinc-400">{resumoLabel}</span>
             </div>
 
             {destinoInfo?.endereco && (
-                <div className="overflow-hidden rounded-2xl border border-orange-500/20 bg-zinc-950/50">
+                <div className="overflow-hidden rounded-2xl border border-zinc-800/50 bg-[#1e1e24] shadow-xl shadow-black/25">
                     <MapEmbed endereco={destinoInfo.endereco} nome={destinoInfo.nome || 'Barbearia'} height="240px" />
-                    <div className="border-t border-orange-500/20 bg-zinc-900/40 p-3 sm:p-4 text-xs sm:text-sm text-zinc-300 space-y-2">
+                    <div className="border-t border-zinc-800/60 bg-zinc-900/40 p-3 sm:p-4 text-xs sm:text-sm text-zinc-300 space-y-2">
                         <div className="flex items-start justify-between gap-3 flex-col sm:flex-row">
                             <div className="min-w-0">
                                 <p className="font-bold text-white text-sm truncate">{destinoInfo.nome || 'Barbearia'}</p>
                                 <p className="text-zinc-400 text-xs truncate mt-1">{destinoInfo.endereco}</p>
                             </div>
                             {distanciaBackend != null && (
-                                <div className="rounded-lg border border-orange-500/30 bg-orange-500/10 px-3 py-2 text-center shrink-0 w-full sm:w-auto">
+                                <div className="rounded-xl border border-orange-500/30 bg-orange-500/10 px-3 py-2 text-center shrink-0 w-full sm:w-auto">
                                     <p className="text-[10px] text-orange-300/80">Distância</p>
                                     <p className="font-bold text-orange-300 text-base mt-0.5">{Number(distanciaBackend).toFixed(2)} km</p>
                                 </div>
@@ -313,7 +312,7 @@ export default function TrackingPanel({ chamado, token, API_URL, notify, modo = 
                 </div>
             )}
 
-            <div className="grid gap-2">
+            <div className="grid gap-3">
                 {isClienteMode && coordsBarbeiro && coordsBarbearia && (
                     <TrackingMapEmbed
                         origem={coordsBarbeiro}
@@ -358,7 +357,7 @@ export default function TrackingPanel({ chamado, token, API_URL, notify, modo = 
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs sm:text-sm">
-                <div className="rounded-lg border border-orange-500/20 bg-orange-500/5 p-3 sm:p-4">
+                <div className="rounded-2xl border border-zinc-800/60 bg-[#1e1e24] p-3.5 sm:p-4 shadow-lg shadow-black/20">
                     <p className="text-zinc-400 text-xs uppercase tracking-wide font-semibold">{isBarbeariaMode ? 'Barbearia' : 'Sua localização'}</p>
                     <p className="mt-2 text-base sm:text-lg font-bold text-white">
                         {posicaoAtual?.latitude != null ? `${posicaoAtual.latitude.toFixed(5)}, ${posicaoAtual.longitude.toFixed(5)}` : 'GPS parado'}
@@ -367,7 +366,7 @@ export default function TrackingPanel({ chamado, token, API_URL, notify, modo = 
                         {posicaoAtual ? '✓ Localizacao obrigatoria ativa' : 'Aguardando permissao de localizacao'}
                     </p>
                 </div>
-                <div className="rounded-lg border border-blue-500/20 bg-blue-500/5 p-3 sm:p-4">
+                <div className="rounded-2xl border border-zinc-800/60 bg-[#1e1e24] p-3.5 sm:p-4 shadow-lg shadow-black/20">
                     <p className="text-zinc-400 text-xs uppercase tracking-wide font-semibold">Destino</p>
                     <p className="mt-2 text-base sm:text-lg font-bold text-white">
                         {distanciaBackend != null ? `${Number(distanciaBackend).toFixed(2)} km` : '—'}
@@ -381,7 +380,7 @@ export default function TrackingPanel({ chamado, token, API_URL, notify, modo = 
             {isBarbeariaMode && agendamentos.length > 0 && (
                 <div className="space-y-2">
                     {agendamentos.slice(0, 3).map((agendamento) => (
-                        <div key={agendamento.id} className="rounded-xl border border-zinc-800 bg-zinc-900/70 p-3 text-xs text-zinc-300 space-y-1">
+                        <div key={agendamento.id} className="rounded-2xl border border-zinc-800/60 bg-[#1e1e24] p-3.5 text-xs text-zinc-300 space-y-2 shadow-lg shadow-black/20">
                             <div className="flex items-center justify-between gap-2">
                                 <div className="min-w-0">
                                     <p className="font-bold text-white truncate">{agendamento.nome_cliente || agendamento.cliente_nome || 'Cliente'}</p>
@@ -417,13 +416,13 @@ export default function TrackingPanel({ chamado, token, API_URL, notify, modo = 
             )}
 
             {resumo?.cliente_nome && !isBarbeariaMode && (
-                <div className="rounded-xl border border-zinc-800 bg-zinc-900/60 px-3 py-2 text-xs text-zinc-300">
+                <div className="rounded-2xl border border-zinc-800/60 bg-[#1e1e24] px-3.5 py-2.5 text-xs text-zinc-300 shadow-lg shadow-black/20">
                     <span className="text-zinc-500">Atendimento atual: </span>
                     <span className="font-semibold text-white">{resumo.cliente_nome}</span>
                 </div>
             )}
 
-            <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/10 px-3 py-2 text-[11px] font-semibold text-emerald-200">
+            <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/10 px-3 py-2.5 text-[11px] font-semibold text-emerald-200 shadow-lg shadow-black/20">
                 {isClienteMode
                     ? 'Localizacao obrigatoria ativa para o cliente.'
                     : isBarbeiroMode

@@ -1,6 +1,7 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import './index.css'
+import './theme/painel.css'
 import App from './App.jsx'
 import ErrorBoundary from './components/ErrorBoundary.jsx'
 
@@ -14,29 +15,36 @@ const isNativeApp = typeof window !== 'undefined' && (
 )
 
 if ('serviceWorker' in navigator) {
+  // Para evitar servir bundles antigos durante desenvolvimento e testes via ngrok,
+  // sempre removemos quaisquer service workers e caches existentes ao carregar.
   window.addEventListener('load', async () => {
-    if (isDev || isNativeApp) {
+    try {
       const regs = await navigator.serviceWorker.getRegistrations()
       await Promise.all(regs.map((reg) => reg.unregister()))
+    } catch (_err) {
+      // ignore
+    }
 
+    try {
       if ('caches' in window) {
         const cacheKeys = await caches.keys()
         await Promise.all(cacheKeys.map((key) => caches.delete(key)))
       }
-
-      return
+    } catch (_err) {
+      // ignore
     }
-
-    navigator.serviceWorker.register('/sw.js').catch(() => {
-      // Falha no registro nao deve quebrar a inicializacao do app.
-    })
+    // Não registrar service worker automaticamente para testes locais.
   })
 }
 
 createRoot(document.getElementById('root')).render(
   <StrictMode>
     <ErrorBoundary>
-      <App />
+      <div className="min-h-screen bg-black text-white flex justify-center bm-app-frame">
+        <div className="w-full max-w-[430px] min-h-screen p-4 bm-shell-content">
+          <App />
+        </div>
+      </div>
     </ErrorBoundary>
   </StrictMode>,
 )

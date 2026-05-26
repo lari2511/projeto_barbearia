@@ -1,4 +1,5 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
+import { getWsBaseUrl } from '../utils/api';
 
 /**
  * Hook customizado para sincronização em tempo real via WebSocket
@@ -14,8 +15,7 @@ export function useRealTimeUpdates(token, onUpdate) {
 
     const connectWebSocket = () => {
       try {
-        const defaultHost = typeof window !== "undefined" ? window.location.hostname : "localhost";
-        const WS_URL = import.meta.env.VITE_WS_URL || `ws://${defaultHost}:8000/ws/notificacoes`;
+        const WS_URL = import.meta.env.VITE_WS_URL?.trim() || getWsBaseUrl();
         const ws = new WebSocket(WS_URL);
 
         ws.onopen = () => {

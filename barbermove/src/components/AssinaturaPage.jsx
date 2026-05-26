@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { CreditCard, Check, AlertCircle, TrendingDown, QrCode, Copy } from 'lucide-react';
+import { getApiBaseUrl } from '../utils/api';
 
 const DEFAULT_HOST = typeof window !== 'undefined' ? window.location.hostname : 'localhost';
-const API_URL = import.meta.env.VITE_API_URL || `http://${DEFAULT_HOST}:8000`;
+const API_URL = import.meta.env.VITE_API_URL?.trim() || getApiBaseUrl();
 const MIXED_CONTENT_RISK =
     typeof window !== 'undefined' &&
     window.location.protocol === 'https:' &&
@@ -582,29 +583,29 @@ export default function AssinaturaPage({ token, notify }) {
                                     placeholder="Numero do cartao"
                                     value={cartao.numero_cartao}
                                     onChange={(e) => setCartao({ ...cartao, numero_cartao: e.target.value.replace(/\D/g, '').slice(0, 19) })}
-                                    className="w-full bg-zinc-900 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-orange-500"
+                                    className="bm-input w-full bg-zinc-900 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-orange-500"
                                 />
                                 <input
                                     type="text"
                                     placeholder="Nome no cartao"
                                     value={cartao.titular}
                                     onChange={(e) => setCartao({ ...cartao, titular: e.target.value.toUpperCase() })}
-                                    className="w-full bg-zinc-900 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-orange-500"
+                                    className="bm-input w-full bg-zinc-900 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-orange-500"
                                 />
                                 <div className="grid grid-cols-2 gap-2">
-                                    <input
+                                        <input
                                         type="text"
                                         placeholder="MM/AA"
                                         value={cartao.validade}
                                         onChange={(e) => setCartao({ ...cartao, validade: e.target.value })}
-                                        className="w-full bg-zinc-900 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-orange-500"
+                                        className="bm-input w-full bg-zinc-900 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-orange-500"
                                     />
                                     <input
                                         type="text"
                                         placeholder="CVV"
                                         value={cartao.cvv}
                                         onChange={(e) => setCartao({ ...cartao, cvv: e.target.value.replace(/\D/g, '').slice(0, 4) })}
-                                        className="w-full bg-zinc-900 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-orange-500"
+                                        className="bm-input w-full bg-zinc-900 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-orange-500"
                                     />
                                 </div>
                             </div>
@@ -620,20 +621,28 @@ export default function AssinaturaPage({ token, notify }) {
                             <p className="text-xs text-zinc-400">Valor: R$ {Number(pixMensalidade.valor || 0).toFixed(2)}</p>
 
                             {getPixQrSrc(pixMensalidade.qrcode_base64) && !pixQrImagemInvalida && (
-                                <img
-                                    src={getPixQrSrc(pixMensalidade.qrcode_base64)}
-                                    alt="QR Code PIX"
-                                    className="w-44 h-44 bg-white rounded p-2 mx-auto"
-                                    onError={() => setPixQrImagemInvalida(true)}
-                                />
+                                                                <div className="flex justify-center">
+                                                                    <div className="bg-zinc-800 p-2 rounded">
+                                                                        <img
+                                                                            src={getPixQrSrc(pixMensalidade.qrcode_base64)}
+                                                                            alt="QR Code PIX"
+                                                                            className="w-40 h-40 object-contain"
+                                                                            onError={() => setPixQrImagemInvalida(true)}
+                                                                        />
+                                                                    </div>
+                                                                </div>
                             )}
 
                             {(pixQrImagemInvalida || !getPixQrSrc(pixMensalidade.qrcode_base64)) && pixQrFallbackSrc && (
-                                <img
-                                    src={pixQrFallbackSrc}
-                                    alt="QR Code PIX"
-                                    className="w-44 h-44 bg-white rounded p-2 mx-auto"
-                                />
+                                                                <div className="flex justify-center">
+                                                                    <div className="bg-zinc-800 p-2 rounded">
+                                                                        <img
+                                                                            src={pixQrFallbackSrc}
+                                                                            alt="QR Code PIX"
+                                                                            className="w-40 h-40 object-contain"
+                                                                        />
+                                                                    </div>
+                                                                </div>
                             )}
 
                             {(pixQrImagemInvalida || !getPixQrSrc(pixMensalidade.qrcode_base64)) && !pixQrFallbackSrc && (

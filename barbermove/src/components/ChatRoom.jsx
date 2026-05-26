@@ -52,7 +52,7 @@ export default function ChatRoom({ chamadoId, token, API_URL, compact = true }) 
     }, [messages]);
 
     return (
-        <div className={`${compact ? 'bg-zinc-900/60 border border-zinc-800 rounded-lg p-2 space-y-2' : 'bg-zinc-950 border border-zinc-800 rounded-2xl p-4 space-y-4 text-sm'}`}>
+        <div className={`${compact ? 'bm-card p-2 space-y-2' : 'bm-card rounded-2xl p-4 space-y-4 text-sm'}`}>
             <div ref={listRef} className={`${compact ? 'max-h-40' : 'max-h-[65vh]'} overflow-auto space-y-3`}>
                 {messages.map((m, i) => (
                     <div key={i} className={`${compact ? 'text-xs p-1 rounded bg-black/30' : 'p-3 rounded-lg bg-black/30'} `}>
@@ -63,8 +63,8 @@ export default function ChatRoom({ chamadoId, token, API_URL, compact = true }) 
                 ))}
             </div>
             <div className="flex gap-2 items-center">
-                <input value={text} onChange={e => setText(e.target.value)} placeholder="Mensagem..." className={`${compact ? 'flex-1 bg-black/40 rounded p-2 text-xs outline-none' : 'flex-1 bg-black/30 rounded-lg p-3 text-sm outline-none'}`} />
-                <button onClick={send} className={`${compact ? 'bg-orange-600 px-3 py-2 rounded text-xs' : 'bg-orange-600 px-4 py-3 rounded-lg text-sm font-bold'}`}>Enviar</button>
+                <input value={text} onChange={e => setText(e.target.value)} placeholder="Mensagem..." className={`${compact ? 'flex-1 bm-input text-xs' : 'flex-1 bm-input text-sm'}`} />
+                <button onClick={send} className={`bm-primary ${compact ? 'px-3 py-2 text-xs' : 'px-4 py-3 text-sm'}`}>Enviar</button>
             </div>
         </div>
     );

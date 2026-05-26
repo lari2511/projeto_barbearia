@@ -601,7 +601,7 @@ def dispatch_verification_email(user: models.Usuario) -> None:
     )
 
 def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
-    print(f"🔐 get_current_user - Token recebido: {token[:50]}...")
+    print(f"get_current_user - Token recebido: {token[:50]}...")
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Credenciais inválidas",
@@ -610,18 +610,18 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         user_id: int = int(payload.get("sub"))
-        print(f"📋 Token decodificado - User ID: {user_id}")
+        print(f"Token decodificado - User ID: {user_id}")
         if user_id is None:
             raise credentials_exception
     except (JWTError, ValueError) as e:
-        print(f"❌ Erro ao decodificar token: {e}")
+        print(f"Erro ao decodificar token: {e}")
         raise credentials_exception
     
     user = db.query(models.Usuario).filter(models.Usuario.id == user_id).first()
     if user is None:
-        print(f"❌ Usuário não encontrado: ID {user_id}")
+        print(f"Usuário não encontrado: ID {user_id}")
         raise credentials_exception
-    print(f"✅ Usuário autenticado: {user.email} (tipo: {user.tipo})")
+    print(f"Usuário autenticado: {user.email} (tipo: {user.tipo})")
     return user
 
 # --- ENDPOINTS DE CADASTRO ---

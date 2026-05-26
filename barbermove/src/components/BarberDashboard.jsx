@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import ScreenWrapper from './ScreenWrapper';
 import { Scissors, LogOut, CheckCircle, AlertCircle, Briefcase, User, Calendar, Star, MapPin, ArrowRight } from 'lucide-react';
 import AbaPadronizadaAvaliacoes from './AbaPadronizadaAvaliacoes';
 import ChatRoom from './ChatRoom';
@@ -6,7 +7,7 @@ import TrackingPanel from './TrackingPanel';
 import TelaPerfilUsuario from './TelaPerfilUsuario';
 import TelaRotasAtivos from './TelaRotasAtivos';
 
-export default function BarberDashboard({ token, logout, notify, API_URL }) {
+export default function BarberDashboard({ token, logout, notify, API_URL, onChamadoAceito }) {
     const TABS_VALIDAS = ['trabalhos', 'agenda', 'avaliar', 'perfil'];
     const [jobs, setJobs] = useState([]); // Novos chamados - vazio até carregar
     const [ongoingJobs, setOngoingJobs] = useState([]); // Atendimentos em andamento
@@ -561,26 +562,30 @@ export default function BarberDashboard({ token, logout, notify, API_URL }) {
     };
 
     return (
-        <div className="bg-black min-h-[100dvh] w-full max-w-full overflow-x-hidden flex flex-col text-white font-sans">
+        <ScreenWrapper>
+        <div className="min-h-[100dvh] w-full bg-[#050505] text-white font-sans flex justify-center overflow-x-hidden">
+            <div className="app-container w-full min-h-[100dvh] flex flex-col overflow-x-hidden bg-[#050505] shadow-[0_0_0_1px_rgba(255,255,255,0.04)]">
             {/* HEADER FIXO */}
-            <div className="p-2 sm:p-4 flex justify-between items-center border-b border-zinc-800 bg-black/80 backdrop-blur-md z-20 flex-shrink-0">
-                <div className="flex items-center gap-2">
-                    <h1 className="text-base sm:text-xl font-bold tracking-tight flex items-center gap-2">
-                        <Scissors size={18} className="text-orange-500"/> Barbeiro
-                    </h1>
-                    {user?.documento_verificado && (
-                        <CheckCircle size={14} className="text-blue-500 fill-blue-500" />
-                    )}
-                </div>
-                <div className="flex items-center gap-2">
-                    <button
-                        onClick={logout}
-                        className="flex items-center gap-1 rounded-full border border-zinc-700 bg-zinc-900 px-3 py-1 text-[10px] font-bold text-zinc-300 hover:border-orange-500 hover:text-white"
-                    >
-                        <ArrowRight size={12} className="rotate-180" />
-                        Início
-                    </button>
-                    <button onClick={logout} className="text-zinc-500 hover:text-white"><LogOut size={18}/></button>
+            <div className="sticky top-0 z-20 px-3 pt-3 pb-2 bg-[#050505]/95 backdrop-blur-xl flex-shrink-0">
+                <div className="flex justify-between items-center rounded-[1.5rem] border border-zinc-800/80 bg-zinc-950/90 px-4 py-3 shadow-xl shadow-black/25">
+                    <div className="flex items-center gap-2 min-w-0">
+                        <h1 className="text-lg font-black tracking-tight flex items-center gap-2 truncate">
+                            <Scissors size={18} className="text-orange-500"/> Barbeiro
+                        </h1>
+                        {user?.documento_verificado && (
+                            <CheckCircle size={14} className="text-blue-500 fill-blue-500" />
+                        )}
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                        <button
+                            onClick={logout}
+                            className="flex items-center gap-1 rounded-full border border-zinc-700 bg-zinc-900 px-3 py-1 text-[10px] font-bold text-zinc-300 hover:border-orange-500 hover:text-white"
+                        >
+                            <ArrowRight size={12} className="rotate-180" />
+                            Início
+                        </button>
+                        <button onClick={logout} className="h-10 w-10 rounded-full bg-zinc-900 border border-zinc-800 flex items-center justify-center text-zinc-400 hover:text-white hover:bg-zinc-800 transition-colors"><LogOut size={18}/></button>
+                    </div>
                 </div>
             </div>
 
@@ -591,7 +596,7 @@ export default function BarberDashboard({ token, logout, notify, API_URL }) {
                 {tab === 'trabalhos' && (
                     <div className="p-2 sm:p-4 space-y-3 max-w-3xl mx-auto w-full">
                         {/* 🔘 3 BOTÕES DE STATUS */}
-                        <div className="bg-zinc-900/60 border border-zinc-800/80 p-3 rounded-xl space-y-2">
+                        <div className="bm-card p-3 space-y-2">
                             <h3 className="text-xs font-bold text-zinc-400 uppercase tracking-wide mb-2">Status Operacional</h3>
                             
                             <div className="grid grid-cols-3 gap-2">
@@ -605,7 +610,7 @@ export default function BarberDashboard({ token, logout, notify, API_URL }) {
                                             : 'bg-zinc-800 text-zinc-400 border border-zinc-700 hover:bg-zinc-700'
                                     } ${toggleandoPresenca ? 'opacity-50 cursor-not-allowed' : ''}`}
                                 >
-                                    <div className={`h-2 w-2 rounded-full ${statusFreelancer === 'offline' ? 'bg-white' : 'bg-zinc-600'}`}></div>
+                                        <div className={`h-2 w-2 rounded-full ${statusFreelancer === 'offline' ? 'bg-zinc-100' : 'bg-zinc-600'}`}></div>
                                     OFFLINE
                                 </button>
 
@@ -619,7 +624,7 @@ export default function BarberDashboard({ token, logout, notify, API_URL }) {
                                             : 'bg-zinc-800 text-zinc-400 border border-zinc-700 hover:bg-zinc-700'
                                     } ${toggleandoPresenca ? 'opacity-50 cursor-not-allowed' : ''}`}
                                 >
-                                    <div className={`h-2 w-2 rounded-full ${statusFreelancer === 'online' || statusFreelancer === 'presente' ? 'bg-white animate-pulse' : 'bg-zinc-600'}`}></div>
+                                    <div className={`h-2 w-2 rounded-full ${statusFreelancer === 'online' || statusFreelancer === 'presente' ? 'bg-zinc-100 animate-pulse' : 'bg-zinc-600'}`}></div>
                                     {statusFreelancer === 'presente' ? 'DISPONÍVEL AQUI' : 'DISPONÍVEL'}
                                 </button>
 
@@ -630,7 +635,7 @@ export default function BarberDashboard({ token, logout, notify, API_URL }) {
                                         disabled={toggleandoPresenca}
                                         className={`py-2 px-3 rounded-lg font-bold text-xs transition flex flex-col items-center justify-center gap-1 bg-yellow-600 hover:bg-yellow-700 text-white border-2 border-yellow-400 ${toggleandoPresenca ? 'opacity-50 cursor-not-allowed' : ''}`}
                                     >
-                                        <div className="h-2 w-2 rounded-full bg-white"></div>
+                                        <div className="h-2 w-2 rounded-full bg-zinc-100"></div>
                                         SAIR
                                     </button>
                                 ) : (
@@ -643,7 +648,7 @@ export default function BarberDashboard({ token, logout, notify, API_URL }) {
                                                 : 'bg-zinc-800 text-zinc-400 border border-zinc-700 hover:bg-zinc-700'
                                         } ${toggleandoPresenca ? 'opacity-50 cursor-not-allowed' : ''}`}
                                     >
-                                        <div className={`h-2 w-2 rounded-full ${statusFreelancer === 'presente' ? 'bg-white animate-pulse' : 'bg-zinc-600'}`}></div>
+                                        <div className={`h-2 w-2 rounded-full ${statusFreelancer === 'presente' ? 'bg-zinc-100 animate-pulse' : 'bg-zinc-600'}`}></div>
                                         NO LOCAL
                                     </button>
                                 )}
@@ -675,7 +680,7 @@ export default function BarberDashboard({ token, logout, notify, API_URL }) {
                         />
 
                         {/* 📍 CADEIRAS ACIONADAS PRÓXIMAS */}
-                        <div className="bg-zinc-900/60 border border-zinc-800/80 p-3 rounded-xl">
+                        <div className="bm-card p-3">
                             <h3 className="text-xs font-bold text-zinc-400 uppercase mb-2 flex items-center gap-2">
                                 <MapPin size={14} className="text-green-500" />
                                 Cadeiras Disponíveis Próximas
@@ -841,7 +846,7 @@ export default function BarberDashboard({ token, logout, notify, API_URL }) {
                                         </div>
                                     </div>
                                     <div className="flex gap-2">
-                                        {String(job.status || '').toLowerCase() === 'confirmado' && (
+                                        {['aceito', 'confirmado'].includes(String(job.status || '').toLowerCase()) && (
                                             <button onClick={() => iniciarCorte(job.id)} className="flex-1 bg-blue-600 hover:bg-blue-700 text-white text-xs px-2 py-2 rounded font-bold transition">
                                                 Iniciar Corte
                                             </button>
@@ -854,7 +859,7 @@ export default function BarberDashboard({ token, logout, notify, API_URL }) {
                                         <button onClick={() => setChatTarget(job.id)} className="flex-1 bg-zinc-800 hover:bg-zinc-700 text-white text-xs px-2 py-2 rounded font-bold transition">
                                             Chat
                                         </button>
-                                        {onChamadoAceito && (
+                                        {typeof onChamadoAceito === 'function' && (
                                             <button onClick={() => onChamadoAceito(job.id)} className="flex-1 bg-blue-600 hover:bg-blue-700 text-white text-xs px-2 py-2 rounded font-bold transition">
                                                 📍 Rastreamento
                                             </button>
@@ -1005,52 +1010,56 @@ export default function BarberDashboard({ token, logout, notify, API_URL }) {
             </div>
 
             {/* NAVBAR FIXA INFERIOR - 5 BOTÕES */}
-            <div className="sticky bottom-0 left-0 w-full h-[calc(4rem+env(safe-area-inset-bottom))] pb-[env(safe-area-inset-bottom)] bg-zinc-950/98 backdrop-blur-lg border-t border-zinc-800 flex justify-around items-center z-40">
+            <div className="bm-bottom-nav sticky bottom-0 left-0 w-full h-[calc(4rem+env(safe-area-inset-bottom))] pb-[env(safe-area-inset-bottom)] flex justify-around items-center z-40">
                 <button
                     onClick={() => setTab('trabalhos')}
-                    className={`flex flex-col items-center justify-center gap-0.5 h-full flex-1 text-center transition-colors ${
+                    data-active={tab === 'trabalhos'}
+                    className={`bm-bottom-nav-btn flex flex-col items-center justify-center gap-0.5 h-full flex-1 text-center ${
                         tab === 'trabalhos' ? 'text-orange-500 bg-orange-500/5' : 'text-zinc-400 hover:text-zinc-200'
                     }`}
                 >
                     <Briefcase size={14} />
-                    <span className="text-[7px] font-bold">Trabalhos</span>
+                    <span>Trabalhos</span>
                 </button>
                 
                 <button
                     onClick={() => setTab('agenda')}
-                    className={`flex flex-col items-center justify-center gap-0.5 h-full flex-1 text-center transition-colors ${
+                    data-active={tab === 'agenda'}
+                    className={`bm-bottom-nav-btn flex flex-col items-center justify-center gap-0.5 h-full flex-1 text-center ${
                         tab === 'agenda' ? 'text-orange-500 bg-orange-500/5' : 'text-zinc-400 hover:text-zinc-200'
                     }`}
                 >
                     <Calendar size={14} />
-                    <span className="text-[7px] font-bold">Agenda</span>
+                    <span>Agenda</span>
                 </button>
                 
                 <button
                     onClick={() => setTab('avaliar')}
-                    className={`flex flex-col items-center justify-center gap-0.5 h-full flex-1 text-center transition-colors ${
+                    data-active={tab === 'avaliar'}
+                    className={`bm-bottom-nav-btn flex flex-col items-center justify-center gap-0.5 h-full flex-1 text-center ${
                         tab === 'avaliar' ? 'text-orange-500 bg-orange-500/5' : 'text-zinc-400 hover:text-zinc-200'
                     }`}
                 >
                     <Star size={14} />
-                    <span className="text-[7px] font-bold">Avaliar</span>
+                    <span>Avaliar</span>
                 </button>
                 
                 <button
                     onClick={() => setTab('perfil')}
-                    className={`flex flex-col items-center justify-center gap-0.5 h-full flex-1 text-center transition-colors ${
+                    data-active={tab === 'perfil'}
+                    className={`bm-bottom-nav-btn flex flex-col items-center justify-center gap-0.5 h-full flex-1 text-center ${
                         tab === 'perfil' ? 'text-orange-500 bg-orange-500/5' : 'text-zinc-400 hover:text-zinc-200'
                     }`}
                 >
                     <User size={14} />
-                    <span className="text-[7px] font-bold">Perfil</span>
+                    <span>Perfil</span>
                 </button>
 
             </div>
 
 
             {/* Mostrar rotas quando há atendimento em andamento */}
-            {ongoingJobs && ongoingJobs.length > 0 && ['confirmado', 'em_atendimento'].includes((ongoingJobs[0].status || '').toLowerCase()) && (
+                        {ongoingJobs && ongoingJobs.length > 0 && ['aceito', 'confirmado', 'em_atendimento'].includes((ongoingJobs[0].status || '').toLowerCase()) && (
               <TelaRotasAtivos
                 chamado={ongoingJobs[0]}
                 userType="barbeiro"
@@ -1071,6 +1080,8 @@ export default function BarberDashboard({ token, logout, notify, API_URL }) {
                 onNotify={notify}
               />
             )}
+                </div>
         </div>
+        </ScreenWrapper>
     );
 }

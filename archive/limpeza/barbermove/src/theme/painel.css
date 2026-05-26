@@ -1,0 +1,191 @@
+/* Painel layout styles - cleaned and tokenized */
+
+.app-shell {
+  background-color: #000000;
+  color: var(--panel-ink, #ffffff);
+  font-family: 'Poppins', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  min-height: 100vh;
+  width: 100%;
+  max-width: 420px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  padding-bottom: 96px;
+  box-sizing: border-box;
+}
+
+.app-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 16px;
+  border-radius: 12px;
+  background: linear-gradient(180deg, rgba(255,255,255,0.02), transparent);
+  border: 1px solid var(--panel-border, rgba(30,30,35,0.55));
+}
+
+.app-card {
+  background-color: var(--panel-bg, #0f1720);
+  border: 1px solid var(--panel-border, rgba(30,30,35,0.55));
+  border-radius: 1rem;
+  padding: 1rem;
+  margin: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.6);
+  overflow: hidden;
+}
+
+.app-card.alert-danger { background-color: #1a1012; border: 1px solid #3a1a1e; }
+.app-card.alert-warning { background-color: #1a1410; border: 1px solid #3a251a; }
+.app-card.status-success { background-color: #0c1a12; border: 1px solid #123a1f; }
+
+.card-title { font-size: 18px; font-weight: 800; color: var(--panel-ink, #ffffff); }
+.card-subtitle { font-size: 12px; color: #9ca3af; }
+
+.text-orange { color: var(--brand-orange); }
+.text-red { color: #ff3b30; }
+.text-green { color: #34c759; }
+
+.btn-base { width: 100%; padding: 0.5rem 0.75rem; border-radius: 0.75rem; font-size: 14px; font-weight: 800; border: none; cursor: pointer; display: inline-flex; justify-content: center; align-items: center; gap: 8px; transition: all 160ms ease; }
+.btn-base:active { opacity: 0.8; }
+.btn-danger { background-color: rgba(66,8,8,0.6); color: #ff6b6b; border: 1px solid rgba(80,10,10,0.45); }
+.btn-danger:hover { background-color: rgba(90,12,12,0.7); }
+.btn-success { background-color: #10b981; color: #ffffff; }
+
+.btn-primary { background: var(--brand-orange); color: #ffffff; border-radius: 0.75rem; padding: 0.6rem 0.9rem; box-shadow: 0 10px 28px rgba(249,115,22,0.16); }
+.btn-primary:hover { background: var(--brand-orange-500); }
+
+.bm-input { display: block; width: 100%; padding: 0.6rem 0.75rem; border-radius: 0.75rem; background: #0b0f13; border: 1px solid rgba(30,30,35,0.6); color: #e6e6e6; font-size: 14px; }
+.bm-input:focus { outline: none; border-color: rgba(249,115,22,0.9); box-shadow: 0 8px 24px rgba(249,115,22,0.06); }
+
+.profile-avatar { width: 72px; height: 72px; border-radius: 1rem; overflow: hidden; box-shadow: 0 12px 34px rgba(0,0,0,0.6); }
+.profile-avatar-inner { width:100%; height:100%; display:flex; align-items:center; justify-content:center; font-weight:900; font-size:28px; background: linear-gradient(135deg,#ff8a00,#f97316); color:#000; }
+
+.app-card.large { padding: 20px; border-radius: 20px; }
+.profile-card { display:flex; flex-direction:column; gap:14px; padding:1rem; }
+.profile-header { display:flex; gap:14px; align-items:center; }
+.profile-info { display:flex; flex-direction:column; gap:8px; }
+.profile-badge { font-size:11px; font-weight:800; color:#ffd7b0; background: rgba(245,124,0,0.06); padding:6px 10px; border-radius:999px; }
+.profile-actions { display:flex; gap:10px; }
+.profile-actions .btn-base { padding:14px; border-radius:14px; font-size:15px; }
+.profile-label { font-size:11px; color:#9ca3af; font-weight:800; text-transform:uppercase; letter-spacing:0.12em; }
+
+.btn-secondary-outline { background: transparent; color: #f57c00; border: 1px solid rgba(245,124,0,0.14); }
+
+.bottom-nav { position: fixed; bottom: 14px; left: 50%; transform: translateX(-50%); width: calc(100% - 32px); max-width: 420px; height: 86px; background-color: rgba(11,11,13,0.95); border-top: none; border-radius: 22px; display: flex; justify-content: space-around; align-items: center; z-index: 1000; padding: 8px 12px; }
+
+.nav-item { background: none; border: none; color: #8e8e93; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; font-size: 10px; cursor: pointer; flex: 1; }
+.nav-item.active { color: #ff8a00; }
+.nav-icon { font-size: 18px; }
+
+.bm-bottom-nav { position: fixed; bottom: 14px; left: 50%; transform: translateX(-50%); width: calc(100% - 32px); max-width: 420px; height: 86px; background-color: rgba(11,11,13,0.95); border-radius: 22px; display:flex; align-items:center; justify-content:space-around; padding:8px 12px; z-index:1100; }
+.bm-bottom-nav-btn { background: transparent; border: none; color: #8e8e93; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:6px; font-size:12px; padding:8px 8px; border-radius:12px; cursor:pointer; transition: all 180ms ease; }
+.bm-bottom-nav-btn span{ font-size:12px; }
+.bm-bottom-nav-btn svg{ color:inherit; }
+
+.bm-bottom-nav-btn[data-active="true"], .bm-bottom-nav-btn.active { background: linear-gradient(180deg,var(--brand-orange) 0%, var(--brand-orange-500) 100%); color: #fff !important; padding: 12px 20px; border-radius: 22px; transform: translateY(-10px); min-width: 72px; box-shadow: 0 20px 48px rgba(249,115,22,0.28), 0 8px 18px rgba(0,0,0,0.6); }
+.bm-bottom-nav-btn[data-active="true"] svg { color: #fff !important; }
+.bm-bottom-nav-btn[data-active="true"] span { color: #fff !important; font-weight:800; }
+
+.bm-bottom-nav-btn[data-active="true"].w-12 { padding: 10px 22px; min-width:64px; }
+
+.map-wrapper { width:100%; height:16rem; border-radius:1rem; overflow:hidden; border:1px solid rgba(30,30,35,0.55); box-shadow: inset 0 2px 10px rgba(0,0,0,0.35); }
+.location-card { background:#0f1720; border-radius:1rem; padding:1rem; border:1px solid rgba(30,30,35,0.55); color:#fff; }
+.location-card .title { color:#9ca3af; font-size:11px; text-transform:uppercase; font-weight:800; letter-spacing:0.08em; }
+.location-card .value { color:#fff; font-size:14px; font-weight:600; }
+
+.alert-banner { background: #dc2626; color:#fff; padding:0.75rem 1rem; border-radius:1rem; display:flex; justify-content:space-between; align-items:center; font-weight:700; margin:0.5rem 0.5rem; }
+
+/* Shared phone-frame and brand styles (used by login and applied to app shell) */
+.phone-frame {
+  width: min(420px, calc(100vw - 24px));
+  margin: 0 auto;
+  /* Mais próximo do print: fundo mais escuro com borda quente e vignette sutil */
+  background: linear-gradient(180deg, #080607 0%, #0b0708 45%, #070506 100%);
+  border-radius: 28px;
+  padding: 18px;
+  position: relative;
+  box-shadow: 0 28px 88px rgba(0,0,0,0.75), inset 0 1px 0 rgba(255,255,255,0.02);
+}
+/* borda com glow externo suave */
+.phone-frame::after{
+  content: '';
+  position: absolute; inset: 0; pointer-events: none; border-radius: 28px;
+  box-shadow: 0 0 48px rgba(0,0,0,0.6), 0 0 40px rgba(124,58,237,0.06), 0 0 28px rgba(249,115,22,0.06);
+}
+
+.bm-brand {
+  text-align: center;
+  margin-bottom: 18px;
+}
+.bm-brand .brand-icon {
+  width: 64px;
+  height: 64px;
+  border-radius: 16px;
+  margin: 0 auto 12px auto;
+  display:flex; align-items:center; justify-content:center;
+  background: linear-gradient(135deg, rgba(249,115,22,0.14), rgba(124,58,237,0.12));
+  border: 1px solid rgba(249,115,22,0.28);
+  overflow:hidden;
+}
+.bm-brand .brand-name { font-size: 28px; font-weight: 900; color: #fff; letter-spacing: 0.2px; }
+.bm-brand .brand-name { font-size: 34px; font-weight: 900; color: #fff; letter-spacing: -0.02em; }
+.bm-brand .brand-name .text-brand-orange { color: #ff7a18; text-shadow: 0 6px 20px rgba(249,115,22,0.2); }
+.bm-brand .brand-subtitle { color: #a78bfa; font-size: 11px; letter-spacing: 1.2px; margin-top: 4px; text-transform: uppercase; }
+
+/* Tabs used under brand */
+.bm-tabs { display:flex; gap:8px; width:100%; background: rgba(10,10,12,0.6); border-radius: 14px; padding:6px; border:1px solid rgba(255,255,255,0.02); box-shadow: inset 0 0 0 1px rgba(124,58,237,0.03); }
+.bm-tab { flex:1; text-align:center; padding:10px 6px; font-weight:800; color: #bfc8d1; background: transparent; border-radius: 10px; cursor:pointer; }
+.bm-tab-active { background: linear-gradient(180deg, rgba(250,140,30,0.22), rgba(124,58,237,0.06)); color:#fff; box-shadow: inset 0 0 0 1px rgba(249,115,22,0.22), 0 6px 18px rgba(0,0,0,0.5); border: 1px solid rgba(249,115,22,0.28); }
+
+/* Stronger pill visuals to match mock */
+.bm-tab { background: rgba(15,15,18,0.6); border: 1px solid rgba(255,255,255,0.02); padding: 10px 12px; border-radius: 12px; }
+.bm-tab-active { background: linear-gradient(180deg, rgba(20,20,22,0.6), rgba(10,10,12,0.6)); color:#fff; box-shadow: inset 0 0 0 2px rgba(249,115,22,0.22), 0 8px 22px rgba(0,0,0,0.6); border: 1px solid rgba(249,115,22,0.36); }
+
+/* White logo tile for login specifically */
+.phone-frame .bm-brand .brand-icon { background: #fff !important; border: 1px solid rgba(255,255,255,0.06) !important; box-shadow: 0 12px 34px rgba(0,0,0,0.6); }
+
+/* Input visuals closer to mock: deep inset, subtle highlight */
+.login-input { background: linear-gradient(180deg, rgba(6,6,8,0.95), rgba(8,8,10,0.96)) !important; border: 1px solid rgba(255,255,255,0.03) !important; color: #cfe8f6 !important; box-shadow: inset 0 10px 24px rgba(0,0,0,0.75), inset 0 1px 0 rgba(255,255,255,0.02) !important; }
+.login-input::placeholder { color: rgba(190,200,210,0.6); }
+
+/* CTA stronger gradient, larger radius and shadow */
+.login-submit { background: linear-gradient(90deg,#ff8a00 0%, #f97316 30%, #d64bd6 100%) !important; color: #fff !important; border-radius: 22px !important; padding: 16px 20px !important; font-size: 16px !important; box-shadow: 0 28px 64px rgba(249,115,22,0.34), inset 0 -6px 18px rgba(255,255,255,0.03) !important; }
+
+/* Outer warm orange ring on frame */
+.phone-frame { box-shadow: 0 28px 88px rgba(0,0,0,0.75), 0 0 40px rgba(249,115,22,0.06), inset 0 1px 0 rgba(255,255,255,0.02); }
+
+/* Inputs and buttons consistent with login - inherit global dark theme */
+.login-input, .bm-input { width:100%; height:54px; background: rgba(5,7,8,0.94) !important; border: 1px solid rgba(255,255,255,0.04) !important; border-radius: 14px; padding: 0 18px; color: #e6e6e6 !important; box-sizing:border-box; box-shadow: inset 0 6px 18px rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,255,255,0.02) !important; }
+.login-input::placeholder { color:#7e90a0; }
+.login-submit, .btn-primary { height:54px; border-radius:14px; font-weight:800; background: linear-gradient(90deg,var(--brand-orange) 0%, var(--brand-orange-500) 45%, #7c3aed 120%); color:#fff; box-shadow: 0 18px 42px rgba(249,115,22,0.28), inset 0 -2px 8px rgba(255,255,255,0.03); border: none; }
+.login-submit:hover, .btn-primary:hover { transform: translateY(-1px); }
+
+/* small utility */
+.centered-body { max-width: 420px; margin: 0 auto; }
+
+/* Preview convenience overrides: force dark/premium look for components still using white backgrounds
+  These are intentionally broad to help the visual pass during preview. We can remove or narrow
+  them after the full refactor is applied component-by-component. */
+.bg-white { background-color: var(--panel-bg, #0f1720) !important; color: var(--panel-ink, #ffffff) !important; }
+.card-white, .white-bg, .panel-white { background-color: var(--panel-bg, #0f1720) !important; color: var(--panel-ink, #ffffff) !important; border: 1px solid var(--panel-border, rgba(30,30,35,0.55)) !important; box-shadow: 0 10px 30px rgba(0,0,0,0.6) !important; }
+
+/* Inputs */
+input, textarea, select, .input, .form-control, .bm-input { background: #0b0f13 !important; color: #e6e6e6 !important; border: 1px solid rgba(255,255,255,0.04) !important; box-shadow: none !important; }
+
+/* Modals, overlays and dialogs */
+.modal, .modal-content, .dialog, .popup { background: linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01)) !important; border: 1px solid rgba(255,255,255,0.03) !important; color: var(--panel-ink, #fff) !important; }
+
+/* Ensure common white text links become subtle on dark background */
+a, a:link, a:visited { color: inherit; }
+
+/* Force images/icons that used dark-on-white to invert subtly when needed (non-destructive) */
+.invert-preview { filter: none; }
+
+/* Hide bottom navigation when pages explicitly disable it (e.g. login) */
+.no-bottom-nav .bm-bottom-nav,
+.no-bottom-nav .bottom-nav { display: none !important; }
+

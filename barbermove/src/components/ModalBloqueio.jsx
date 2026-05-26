@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { AlertTriangle, CreditCard, X, Loader } from 'lucide-react';
+import { getApiBaseUrl } from '../utils/api';
 
 /**
  * Modal que aparece quando a barbearia tenta realizar uma ação
@@ -14,7 +15,7 @@ export default function ModalBloqueio({
 }) {
   const defaultHost = typeof window !== 'undefined' ? window.location.hostname : 'localhost';
   const defaultProtocol = typeof window !== 'undefined' && window.location.protocol === 'https:' ? 'https' : 'http';
-  const API_URL = import.meta.env.VITE_API_URL || `${defaultProtocol}://${defaultHost}:8000`;
+  const API_URL = import.meta.env.VITE_API_URL?.trim() || getApiBaseUrl();
   const mixedContentRisk =
     typeof window !== 'undefined' &&
     window.location.protocol === 'https:' &&
@@ -329,7 +330,7 @@ export default function ModalBloqueio({
             </div>
             <button
               onClick={onClose}
-              className="p-2 hover:bg-white/10 rounded transition"
+              className="p-2 hover:bg-zinc-800/20 rounded transition"
             >
               <X size={24} />
             </button>
@@ -414,12 +415,16 @@ export default function ModalBloqueio({
                 <div className="bg-zinc-800 rounded p-3">
                   {pixQrSrc && !pixQrImagemInvalida && (
                     <div className="flex justify-center mb-2">
-                      <img src={pixQrSrc} alt="PIX" className="w-40 h-40 bg-white p-1 rounded" onError={() => setPixQrImagemInvalida(true)} />
+                      <div className="bg-zinc-800 p-1 rounded">
+                        <img src={pixQrSrc} alt="PIX" className="w-36 h-36 object-contain" onError={() => setPixQrImagemInvalida(true)} />
+                      </div>
                     </div>
                   )}
                   {(pixQrImagemInvalida || !pixQrSrc) && pixQrFallbackSrc && (
                     <div className="flex justify-center mb-2">
-                      <img src={pixQrFallbackSrc} alt="PIX" className="w-40 h-40 bg-white p-1 rounded" />
+                      <div className="bg-zinc-800 p-1 rounded">
+                        <img src={pixQrFallbackSrc} alt="PIX" className="w-36 h-36 object-contain" />
+                      </div>
                     </div>
                   )}
                   {(pixQrImagemInvalida || !pixQrSrc) && !pixQrFallbackSrc && (
@@ -428,18 +433,18 @@ export default function ModalBloqueio({
                   <input
                     readOnly
                     value={pixData.pix_copia_cola || ''}
-                    className="w-full bg-zinc-900 border border-zinc-700 rounded p-2 text-xs text-white"
+                    className="bm-input w-full bg-zinc-900 border border-zinc-700 rounded p-2 text-xs text-white"
                   />
                   <button
                     onClick={copiarPix}
-                    className="w-full mt-2 bg-zinc-200 hover:bg-zinc-100 text-zinc-900 font-bold py-2 rounded"
+                    className="bm-primary-inverse w-full mt-2 font-bold py-2 rounded"
                   >
                     {copiado ? 'Copiado!' : 'Copiar codigo PIX'}
                   </button>
                   <button
                     onClick={() => pagarMensalidade({ confirmar_pix: true })}
                     disabled={processando}
-                    className="w-full mt-2 bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white font-bold py-2 rounded"
+                    className="bm-primary w-full mt-2 disabled:opacity-50 font-bold py-2 rounded"
                   >
                     Confirmar PIX
                   </button>
@@ -453,14 +458,14 @@ export default function ModalBloqueio({
                     placeholder="Numero do cartao"
                     value={cartao.numero_cartao}
                     onChange={(e) => setCartao({ ...cartao, numero_cartao: e.target.value })}
-                    className="w-full bg-zinc-900 border border-zinc-700 rounded p-2 text-white"
+                    className="bm-input w-full bg-zinc-900 border border-zinc-700 rounded p-2 text-white"
                   />
                   <input
                     type="text"
                     placeholder="Nome do titular"
                     value={cartao.titular}
                     onChange={(e) => setCartao({ ...cartao, titular: e.target.value.toUpperCase() })}
-                    className="w-full bg-zinc-900 border border-zinc-700 rounded p-2 text-white"
+                    className="bm-input w-full bg-zinc-900 border border-zinc-700 rounded p-2 text-white"
                   />
                   <div className="grid grid-cols-2 gap-2">
                     <input
@@ -468,14 +473,14 @@ export default function ModalBloqueio({
                       placeholder="MM/AA"
                       value={cartao.validade}
                       onChange={(e) => setCartao({ ...cartao, validade: e.target.value })}
-                      className="bg-zinc-900 border border-zinc-700 rounded p-2 text-white"
+                      className="bm-input bg-zinc-900 border border-zinc-700 rounded p-2 text-white"
                     />
                     <input
                       type="text"
                       placeholder="CVV"
                       value={cartao.cvv}
                       onChange={(e) => setCartao({ ...cartao, cvv: e.target.value })}
-                      className="bg-zinc-900 border border-zinc-700 rounded p-2 text-white"
+                      className="bm-input bg-zinc-900 border border-zinc-700 rounded p-2 text-white"
                     />
                   </div>
                 </div>

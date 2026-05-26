@@ -4,10 +4,12 @@ import { useState, useEffect, useCallback } from 'react';
  * Hook customizado para verificar status de bloqueio da barbearia
  * e interceptar erros 402/403 da API
  */
+import { getApiBaseUrl } from '../utils/api';
+
 export function useVerificarBloqueio(token) {
   const defaultHost = typeof window !== 'undefined' ? window.location.hostname : 'localhost';
   const defaultProtocol = typeof window !== 'undefined' && window.location.protocol === 'https:' ? 'https' : 'http';
-  const API_URL = import.meta.env.VITE_API_URL || `${defaultProtocol}://${defaultHost}:8000`;
+  const API_URL = import.meta.env.VITE_API_URL?.trim() || getApiBaseUrl();
   
   const [statusBloqueio, setStatusBloqueio] = useState(null);
   const [estaCarregando, setEstaCarregando] = useState(true);

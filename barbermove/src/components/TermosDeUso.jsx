@@ -3,25 +3,25 @@ import { ArrowLeft } from 'lucide-react';
 
 export default function TermosDeUso({ onVoltar }) {
   return (
-    <div className="h-full overflow-y-auto bg-gray-50 py-8 px-4">
-      <div className="max-w-4xl mx-auto bg-white rounded-lg shadow-lg p-8">
+    <div className="h-full overflow-y-auto bg-black py-8 px-4">
+      <div className="max-w-4xl mx-auto bg-zinc-900 rounded-lg shadow-lg p-8 border border-zinc-800">
         {onVoltar && (
           <button
             onClick={onVoltar}
-            className="flex items-center text-blue-600 hover:text-blue-700 mb-6"
+            className="flex items-center text-orange-500 hover:text-orange-400 mb-6"
           >
             <ArrowLeft className="w-5 h-5 mr-2" />
             Voltar
           </button>
         )}
 
-        <h1 className="text-3xl font-bold text-gray-900 mb-6">
+        <h1 className="text-3xl font-bold text-white mb-6">
           Termos de Uso, Políticas de Funcionamento e Condições Gerais
         </h1>
         
-        <div className="prose max-w-none space-y-6 text-gray-700">
+        <div className="prose max-w-none space-y-6 text-zinc-300">
           <section>
-            <h2 className="text-2xl font-semibold text-gray-900 mb-4">1. Sobre o BarberMove</h2>
+            <h2 className="text-2xl font-semibold text-white mb-4">1. Sobre o BarberMove</h2>
             <p>
               O <strong>BarberMove</strong> é uma plataforma tecnológica de intermediação que conecta 
               Donos de Barbearias, Barbeiros Freelancers e Clientes Finais.

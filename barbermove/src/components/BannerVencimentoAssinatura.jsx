@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { AlertTriangle, X, CreditCard } from 'lucide-react';
+import { getApiBaseUrl } from '../utils/api';
 
 /**
  * Banner de alerta que aparece no topo do dashboard da barbearia
@@ -8,7 +9,7 @@ import { AlertTriangle, X, CreditCard } from 'lucide-react';
 export default function BannerVencimentoAssinatura({ token, onNavigateToPagamento }) {
   const defaultHost = typeof window !== 'undefined' ? window.location.hostname : 'localhost';
   const defaultProtocol = typeof window !== 'undefined' && window.location.protocol === 'https:' ? 'https' : 'http';
-  const API_URL = import.meta.env.VITE_API_URL || `${defaultProtocol}://${defaultHost}:8000`;
+  const API_URL = import.meta.env.VITE_API_URL?.trim() || getApiBaseUrl();
   
   const [status, setStatus] = useState(null);
   const [dismissed, setDismissed] = useState(false);
@@ -94,7 +95,7 @@ export default function BannerVencimentoAssinatura({ token, onNavigateToPagament
           <div className="flex items-center gap-2">
             <button
               onClick={onNavigateToPagamento}
-              className="bg-white text-gray-900 font-bold px-4 py-2 rounded-lg hover:bg-gray-100 transition flex items-center gap-2 text-sm"
+              className="bg-gradient-to-r from-orange-600 to-red-600 text-white font-extrabold px-4 py-2 rounded-2xl hover:from-orange-700 hover:to-red-700 transition flex items-center gap-2 text-sm"
             >
               <CreditCard size={16} />
               Pagar agora
@@ -103,7 +104,7 @@ export default function BannerVencimentoAssinatura({ token, onNavigateToPagament
             {!status.bloqueada && !status.vencida && (
               <button
                 onClick={() => setDismissed(true)}
-                className="p-2 hover:bg-white/10 rounded transition"
+                className="p-2 hover:bg-zinc-800/20 rounded transition text-zinc-200"
                 title="Dispensar"
               >
                 <X size={20} />

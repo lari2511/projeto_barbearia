@@ -523,8 +523,10 @@ export default function TelaPagamento({ chamadoId, valor, onPago }) {
 
           <div className="relative">
             {qrcode ? (
-              <div className="bg-white rounded-2xl p-6 inline-block shadow-2xl border-4 border-purple-500">
-                <img src={qrcode} alt="QR Code PIX MercadoPago" className="w-64 h-64" />
+              <div className="bg-zinc-900 rounded-2xl p-6 inline-block shadow-2xl border-4 border-purple-500">
+                <div className="bg-zinc-800 inline-block p-2 rounded">
+                  <img src={qrcode} alt="QR Code PIX MercadoPago" className="w-64 h-64" />
+                </div>
               </div>
             ) : (
               <div className="bg-zinc-900 border border-zinc-700 rounded-xl p-6 inline-block">

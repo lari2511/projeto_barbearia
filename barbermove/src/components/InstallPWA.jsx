@@ -25,7 +25,7 @@ export default function InstallPWA() {
           <div className="flex gap-2">
             <button
               onClick={() => setShowInstructions(true)}
-              className="bg-white text-blue-600 px-3 py-1.5 rounded text-sm font-semibold hover:bg-blue-50"
+              className="bg-gradient-to-r from-orange-600 to-red-600 text-white px-3 py-1.5 rounded-2xl text-sm font-extrabold hover:from-orange-700 hover:to-red-700"
             >
               Como?
             </button>
@@ -58,9 +58,9 @@ export default function InstallPWA() {
                 <div className="bg-blue-600 p-4 rounded-lg">
                   <p className="font-semibold mb-3 text-lg">📱 iPhone/iPad (Safari)</p>
                   <ol className="text-sm space-y-3 list-decimal list-inside">
-                    <li><strong>Passo 1:</strong> Toque no botão <span className="bg-white text-blue-600 px-2 py-1 rounded text-xs">📤 Compartilhar</span> na parte inferior da tela</li>
-                    <li><strong>Passo 2:</strong> Role a lista e encontre <span className="bg-white text-blue-600 px-2 py-1 rounded text-xs">➕ Adicionar à Tela de Início</span></li>
-                    <li><strong>Passo 3:</strong> Toque em <span className="bg-white text-blue-600 px-2 py-1 rounded text-xs">Adicionar</span> no canto superior</li>
+                    <li><strong>Passo 1:</strong> Toque no botão <span className="bg-zinc-800 text-blue-400 px-2 py-1 rounded text-xs">📤 Compartilhar</span> na parte inferior da tela</li>
+                    <li><strong>Passo 2:</strong> Role a lista e encontre <span className="bg-zinc-800 text-blue-400 px-2 py-1 rounded text-xs">➕ Adicionar à Tela de Início</span></li>
+                    <li><strong>Passo 3:</strong> Toque em <span className="bg-zinc-800 text-blue-400 px-2 py-1 rounded text-xs">Adicionar</span> no canto superior</li>
                   </ol>
                   <div className="mt-3 pt-3 border-t border-blue-400">
                     <p className="text-xs">✅ O ícone do BarberMove aparecerá na sua tela inicial como um app normal!</p>
@@ -74,9 +74,9 @@ export default function InstallPWA() {
                 <div className="bg-green-600 p-4 rounded-lg">
                   <p className="font-semibold mb-3 text-lg">🤖 Android (Chrome)</p>
                   <ol className="text-sm space-y-3 list-decimal list-inside">
-                    <li><strong>Passo 1:</strong> Toque no menu <span className="bg-white text-green-600 px-2 py-1 rounded text-xs">⋮</span> (3 pontos verticais) no canto superior direito</li>
-                    <li><strong>Passo 2:</strong> Toque em <span className="bg-white text-green-600 px-2 py-1 rounded text-xs">Adicionar à tela inicial</span></li>
-                    <li><strong>Passo 3:</strong> Confirme tocando em <span className="bg-white text-green-600 px-2 py-1 rounded text-xs">Adicionar</span></li>
+                    <li><strong>Passo 1:</strong> Toque no menu <span className="bg-zinc-800 text-green-400 px-2 py-1 rounded text-xs">⋮</span> (3 pontos verticais) no canto superior direito</li>
+                    <li><strong>Passo 2:</strong> Toque em <span className="bg-zinc-800 text-green-400 px-2 py-1 rounded text-xs">Adicionar à tela inicial</span></li>
+                    <li><strong>Passo 3:</strong> Confirme tocando em <span className="bg-zinc-800 text-green-400 px-2 py-1 rounded text-xs">Adicionar</span></li>
                   </ol>
                   <div className="mt-3 pt-3 border-t border-green-400">
                     <p className="text-xs">✅ O app ficará disponível na sua gaveta de apps!</p>
@@ -87,7 +87,7 @@ export default function InstallPWA() {
 
             {!isIOS && !isAndroid && (
               <div className="space-y-4">
-                <div className="bg-purple-600 p-4 rounded-lg">
+                <div className="bg-purple-900/20 p-4 rounded-lg">
                   <p className="font-semibold mb-2">💻 Para Desktop:</p>
                   <ol className="text-sm space-y-2 list-decimal list-inside">
                     <li>Clique no ícone <strong>➕</strong> na barra de endereço</li>

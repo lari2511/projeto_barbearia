@@ -1,10 +1,11 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { CreditCard, Calendar, AlertTriangle, CheckCircle, Loader, TrendingUp } from 'lucide-react';
+import { getApiBaseUrl } from '../utils/api';
 
 export default function TelaAssinaturaBarbearia({ token, onNotify }) {
   const defaultHost = typeof window !== 'undefined' ? window.location.hostname : 'localhost';
   const defaultProtocol = typeof window !== 'undefined' && window.location.protocol === 'https:' ? 'https' : 'http';
-  const API_URL = import.meta.env.VITE_API_URL || `${defaultProtocol}://${defaultHost}:8000`;
+  const API_URL = import.meta.env.VITE_API_URL?.trim() || getApiBaseUrl();
   const mixedContentRisk =
     typeof window !== 'undefined' &&
     window.location.protocol === 'https:' &&
@@ -546,13 +547,13 @@ export default function TelaAssinaturaBarbearia({ token, onNotify }) {
             <button
               onClick={gerarPixMensalidade}
               disabled={processandoPagamento}
-              className="w-full bg-white text-orange-600 font-bold py-3 rounded-lg hover:bg-gray-100 transition disabled:opacity-50"
+              className="bm-primary w-full py-3 rounded-lg font-bold disabled:opacity-50"
             >
               {processandoPagamento ? 'Processando...' : 'Gerar PIX da mensalidade'}
             </button>
 
             {pixData && (
-              <div ref={pixSectionRef} className="bg-white text-zinc-900 rounded-lg p-4 space-y-3 ring-2 ring-orange-300/70">
+              <div ref={pixSectionRef} className="bg-zinc-900 text-zinc-200 rounded-lg p-4 space-y-3 ring-2 ring-orange-300/40 border border-zinc-800">
                 {pixQrSrc && !pixQrImagemInvalida && (
                   <div className="flex justify-center">
                     <img
@@ -579,36 +580,36 @@ export default function TelaAssinaturaBarbearia({ token, onNotify }) {
                   type="text"
                   readOnly
                   value={pixData.pix_copia_cola || ''}
-                  className="w-full border border-zinc-300 rounded p-2 text-xs"
+                  className="bm-input w-full border border-zinc-700 rounded p-2 text-xs bg-zinc-800 text-white"
                 />
                 <button
                   onClick={copiarPix}
-                  className="w-full bg-zinc-900 text-white py-2 rounded font-bold"
+                  className="w-full bg-zinc-800 text-zinc-200 py-2 rounded-lg font-bold border border-zinc-700"
                 >
                   {copiado ? 'Copiado!' : 'Copiar codigo PIX'}
                 </button>
                 <button
                   onClick={() => pagarMensalidade({ confirmar_pix: true })}
                   disabled={processandoPagamento}
-                  className="w-full bg-green-600 text-white py-2 rounded font-bold disabled:opacity-60"
+                  className="w-full bg-gradient-to-r from-orange-600 to-red-600 text-white py-2 rounded-2xl font-extrabold disabled:opacity-60"
                 >
                   Confirmar pagamento PIX
                 </button>
               </div>
             )}
 
-            <div className="bg-white/10 rounded-lg p-4 space-y-3">
+            <div className="bg-zinc-900/10 rounded-lg p-4 space-y-3 border border-zinc-800">
               <p className="font-bold">Pagamento com cartao</p>
               <div className="grid grid-cols-2 gap-2">
                 <button
                   onClick={() => setMetodoPagamento('cartao_credito')}
-                  className={`py-2 rounded font-bold ${metodoPagamento === 'cartao_credito' ? 'bg-blue-600 text-white' : 'bg-white text-zinc-900'}`}
+                  className={`py-2 rounded font-bold ${metodoPagamento === 'cartao_credito' ? 'bg-blue-600 text-white' : 'bg-zinc-800 text-zinc-300'}`}
                 >
                   Credito
                 </button>
                 <button
                   onClick={() => setMetodoPagamento('cartao_debito')}
-                  className={`py-2 rounded font-bold ${metodoPagamento === 'cartao_debito' ? 'bg-indigo-600 text-white' : 'bg-white text-zinc-900'}`}
+                  className={`py-2 rounded font-bold ${metodoPagamento === 'cartao_debito' ? 'bg-indigo-600 text-white' : 'bg-zinc-800 text-zinc-300'}`}
                 >
                   Debito
                 </button>
@@ -619,14 +620,14 @@ export default function TelaAssinaturaBarbearia({ token, onNotify }) {
                 placeholder="Numero do cartao"
                 value={cartao.numero_cartao}
                 onChange={(e) => setCartao({ ...cartao, numero_cartao: e.target.value })}
-                className="w-full rounded p-2 text-zinc-900"
+                className="bm-input w-full rounded p-2 text-zinc-900"
               />
               <input
                 type="text"
                 placeholder="Nome do titular"
                 value={cartao.titular}
                 onChange={(e) => setCartao({ ...cartao, titular: e.target.value.toUpperCase() })}
-                className="w-full rounded p-2 text-zinc-900"
+                className="bm-input w-full rounded p-2 text-zinc-900"
               />
               <div className="grid grid-cols-2 gap-2">
                 <input
@@ -634,21 +635,21 @@ export default function TelaAssinaturaBarbearia({ token, onNotify }) {
                   placeholder="MM/AA"
                   value={cartao.validade}
                   onChange={(e) => setCartao({ ...cartao, validade: e.target.value })}
-                  className="rounded p-2 text-zinc-900"
+                  className="bm-input rounded p-2 text-zinc-900"
                 />
                 <input
                   type="text"
                   placeholder="CVV"
                   value={cartao.cvv}
                   onChange={(e) => setCartao({ ...cartao, cvv: e.target.value })}
-                  className="rounded p-2 text-zinc-900"
+                  className="bm-input rounded p-2 text-zinc-900"
                 />
               </div>
 
               <button
                 onClick={() => pagarMensalidade(cartao)}
                 disabled={processandoPagamento || !cartao.numero_cartao || !cartao.titular || !cartao.validade || !cartao.cvv || (metodoPagamento !== 'cartao_credito' && metodoPagamento !== 'cartao_debito')}
-                className="w-full bg-white text-orange-600 font-bold py-3 rounded-lg hover:bg-gray-100 transition disabled:opacity-50"
+                className="w-full bg-gradient-to-r from-orange-600 to-red-600 text-white font-extrabold py-3 rounded-2xl hover:from-orange-700 hover:to-red-700 transition disabled:opacity-50"
               >
                 {processandoPagamento ? 'Processando...' : 'Pagar com cartao'}
               </button>
@@ -683,7 +684,7 @@ export default function TelaAssinaturaBarbearia({ token, onNotify }) {
                 max="20"
                 value={cadeirasDesejadas}
                 onChange={(e) => setCadeirasDesejadas(parseInt(e.target.value))}
-                className="w-20 bg-zinc-800 border border-zinc-700 rounded p-2 text-white text-center"
+                className="bm-input w-20 bg-zinc-800 border border-zinc-700 rounded p-2 text-white text-center"
               />
             </div>
           </div>
@@ -781,21 +782,25 @@ export default function TelaAssinaturaBarbearia({ token, onNotify }) {
               <p className="text-sm font-bold text-white">PIX gerado</p>
               {pixQrSrc && !pixQrImagemInvalida && (
                 <div className="flex justify-center">
-                  <img
-                    src={pixQrSrc}
-                    alt="QR Code PIX assinatura"
-                    className="w-44 h-44 bg-white p-2 rounded"
-                    onError={() => setPixQrImagemInvalida(true)}
-                  />
+                  <div className="bg-zinc-800 p-2 rounded">
+                    <img
+                      src={pixQrSrc}
+                      alt="QR Code PIX assinatura"
+                      className="w-40 h-40 object-contain"
+                      onError={() => setPixQrImagemInvalida(true)}
+                    />
+                  </div>
                 </div>
               )}
               {(pixQrImagemInvalida || !pixQrSrc) && pixQrFallbackSrc && (
                 <div className="flex justify-center">
-                  <img
-                    src={pixQrFallbackSrc}
-                    alt="QR Code PIX assinatura"
-                    className="w-44 h-44 bg-white p-2 rounded"
-                  />
+                  <div className="bg-zinc-800 p-2 rounded">
+                    <img
+                      src={pixQrFallbackSrc}
+                      alt="QR Code PIX assinatura"
+                      className="w-40 h-40 object-contain"
+                    />
+                  </div>
                 </div>
               )}
               {(pixQrImagemInvalida || !pixQrSrc) && !pixQrFallbackSrc && (
@@ -809,7 +814,7 @@ export default function TelaAssinaturaBarbearia({ token, onNotify }) {
               />
               <button
                 onClick={copiarPix}
-                className="w-full bg-zinc-100 text-zinc-900 py-2 rounded font-bold"
+                className="w-full bg-zinc-800 text-zinc-200 py-2 rounded font-bold"
               >
                 {copiado ? 'Copiado!' : 'Copiar codigo PIX'}
               </button>

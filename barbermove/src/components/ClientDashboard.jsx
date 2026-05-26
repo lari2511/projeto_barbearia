@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import '../theme/client.css';
 import { LogOut, Search, MapPin, Star, Calendar, ArrowRight, CheckCircle, User, CreditCard, MessageSquare, DollarSign, QrCode, X } from 'lucide-react';
 import TelaPagamento from './TelaPagamento';
 import TelaPerfilUsuario from './TelaPerfilUsuario';
@@ -164,7 +165,7 @@ export default function ClientDashboard({ token, logout, API_URL, notify, onCham
         if (status === 'pendente') {
             return {
                 taxa: 0,
-                motivo: 'Cancelamento antes da confirmação do barbeiro',
+                motivo: '',
                 minutos: 0,
                 segundos: 0,
                 tempoRestante: '∞',
@@ -1020,56 +1021,69 @@ export default function ClientDashboard({ token, logout, API_URL, notify, onCham
         }
     };
 
-    return (
-    <div className="bg-black min-h-[100dvh] w-full max-w-full overflow-x-hidden flex flex-col text-white font-sans">
+        return (
+        <div className="client-dashboard-shell min-h-[100dvh] w-full bg-[#050505] text-white font-sans flex justify-center overflow-x-hidden">
+                <button type="button" onClick={logout} className="logout-fab" aria-label="Sair da conta">
+                    <LogOut size={14} />
+                    Sair
+                </button>
+                <div className="w-full min-h-[100dvh] max-w-[430px] flex flex-col overflow-x-hidden bg-[#050505] shadow-[0_0_0_1px_rgba(255,255,255,0.04)] dashboard-surface">
         {/* HEADER */}
-        <div className="p-2 sm:p-4 flex justify-between items-center border-b border-zinc-800 bg-black/80 backdrop-blur-md z-20 flex-shrink-0">
-            <h1 className="text-base sm:text-xl font-bold tracking-tight">Buscar Barbeiros</h1>
-            <button onClick={logout} className="text-zinc-500 hover:text-white"><LogOut size={18}/></button>
+        <div className="sticky top-0 z-20 px-3 pt-3 pb-2 bg-[#050505]/95 backdrop-blur-xl flex-shrink-0">
+            <div className="dashboard-card bg-zinc-900 rounded-2xl p-4 border border-zinc-800/60 flex justify-between items-center">
+                <div>
+                    <p className="text-[10px] uppercase tracking-[0.2em] text-zinc-500 font-semibold">BarberMove</p>
+                    <h1 className="text-lg font-black tracking-tight">Buscar Barbeiros</h1>
+                </div>
+                <button onClick={logout} className="h-10 w-10 rounded-full bg-zinc-900 border border-zinc-800 flex items-center justify-center text-zinc-400 hover:text-white hover:bg-zinc-800 transition-colors" aria-label="Sair da conta">
+                    <LogOut size={18}/>
+                </button>
+            </div>
         </div>
 
         {/* Painel de rastreamento/chat ativo (quando há um chamado imediato) */}
         {isChamadoVisivel(activeChamado) && (
-            <div className="p-2 sm:p-4 max-w-3xl mx-auto w-full">
-                <div className="bg-zinc-900/80 backdrop-blur rounded-lg p-3 space-y-3 border border-zinc-800">
-                    <div className="flex items-center justify-between">
-                        <div>
-                            <p className="font-bold">Chamado ativo</p>
-                            <p className="text-xs text-zinc-400">ID: {activeChamado.id} — {activeChamado.servico_nome || activeChamado.descricao || ''}</p>
+            <div className="px-3 pt-2">
+                <div className="dashboard-card space-y-4 p-4">
+                    <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                            <span className="inline-flex items-center rounded-full border border-amber-500/20 bg-amber-500/10 px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.2em] text-amber-300">
+                                Chamado ativo
+                            </span>
+                            <p className="mt-2 text-sm font-semibold text-zinc-100 truncate">ID: {activeChamado.id} — {activeChamado.servico_nome || activeChamado.descricao || ''}</p>
                         </div>
-                        <div className="text-right space-y-1">
-                            <div className="text-xs text-zinc-400">Status: {activeChamado.status || 'ativo'}</div>
-                            <div className="text-xs font-bold text-orange-400">
+                        <div className="text-right space-y-2 shrink-0">
+                            <div className="text-[10px] uppercase tracking-[0.15em] text-zinc-500 font-semibold">Status</div>
+                            <div className="text-sm font-bold text-white">{activeChamado.status || 'ativo'}</div>
+                            <div className="text-xs font-bold text-orange-300">
                                 ⏱️ {getCancelamentoInfo(activeChamado).tempoRestante}
-                            </div>
-                            <div className="space-y-1">
-                                {onChamadoAceito && (
-                                    <button
-                                        onClick={() => onChamadoAceito(activeChamado.id)}
-                                        className="text-[11px] font-bold px-3 py-1 rounded-full text-white bg-blue-600 hover:bg-blue-500 transition-all w-full"
-                                    >
-                                        📍 Ver Rastreamento
-                                    </button>
-                                )}
-                                <button
-                                    onClick={abrirConfirmacaoCancelamento}
-                                    className={`text-[11px] font-bold px-3 py-1 rounded-full text-white transition-all w-full ${
-                                        getCancelamentoInfo(activeChamado).taxa > 0
-                                            ? 'bg-red-600 hover:bg-red-500'
-                                            : 'bg-green-600 hover:bg-green-500'
-                                    }`}
-                                >
-                                    {getCancelamentoBotaoTexto(activeChamado)}
-                                </button>
                             </div>
                         </div>
                     </div>
-                    <div className={`rounded-lg border p-3 text-xs ${
+                    <div className="grid grid-cols-1 gap-2">
+                        {typeof onChamadoAceito === 'function' && (
+                            <button
+                                onClick={() => onChamadoAceito(activeChamado.id)}
+                                className="bm-primary w-full text-center"
+                            >
+                                📍 Ver Rastreamento
+                            </button>
+                        )}
+                        <button
+                            onClick={abrirConfirmacaoCancelamento}
+                            className={`w-full text-center font-bold bm-secondary ${
+                                getCancelamentoInfo(activeChamado).taxa > 0 ? 'bm-card-danger' : ''
+                            }`}
+                        >
+                            {getCancelamentoBotaoTexto(activeChamado)}
+                        </button>
+                    </div>
+                    <div className={`bm-card p-3.5 text-sm leading-relaxed ${
                         getCancelamentoInfo(activeChamado).taxa > 0
-                            ? 'border-red-500/50 bg-red-500/10 text-red-100'
+                            ? 'bm-card-danger'
                             : getCancelamentoInfo(activeChamado).tempoRestante === '0:00'
-                                ? 'border-yellow-500/50 bg-yellow-500/10 text-yellow-100'
-                                : 'border-green-500/50 bg-green-500/10 text-green-100'
+                                ? 'bg-yellow-500/10 text-yellow-100 border-yellow-500/50'
+                                : 'bm-card-success'
                     }`}>
                         {getCancelamentoInfo(activeChamado).taxa === 0 ? (
                             <>
@@ -1093,7 +1107,7 @@ export default function ClientDashboard({ token, logout, API_URL, notify, onCham
                     </div>
 
                     {/* Painel de rastreamento e informações adicionais */}
-                    <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-100">
+                    <div className="rounded-2xl border border-amber-500/30 bg-amber-500/10 p-3.5 text-xs text-amber-100 leading-relaxed">
                         {getCancelamentoInfo(activeChamado).texto}
                         {getCancelamentoInfo(activeChamado).taxa > 0 && (
                             <div className="mt-1 font-bold">
@@ -1101,10 +1115,10 @@ export default function ClientDashboard({ token, logout, API_URL, notify, onCham
                             </div>
                         )}
                     </div>
-                    <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)] gap-3 items-start">
+                    <div className="grid grid-cols-1 gap-3 items-start">
                         <TrackingPanel chamado={activeChamado} token={token} API_URL={API_URL} notify={notify} />
-                        <div className="min-h-[70vh]">
-                            <ChatRoom chamadoId={activeChamado.id} token={token} API_URL={API_URL} compact={false} />
+                        <div className="min-h-0">
+                            <ChatRoom chamadoId={activeChamado.id} token={token} API_URL={API_URL} compact={true} />
                         </div>
                     </div>
                 </div>
@@ -1141,29 +1155,41 @@ export default function ClientDashboard({ token, logout, API_URL, notify, onCham
         )}
 
             {/* CONTEÚDO - SÓ UMA ABA (inicial focada na barbearia) */}
-        <div className="flex-1 overflow-visible pb-[calc(6rem+env(safe-area-inset-bottom))]">
+        <div className="flex-1 overflow-visible pb-[calc(7.2rem+env(safe-area-inset-bottom))]">
             {/* ABA: BUSCAR */}
             {tab === 'buscar' && (
                 <div className="p-2 sm:p-4 space-y-3 max-w-3xl mx-auto w-full">
-                    {/* Tela inicial: itens da barbearia e lembretes */}
+                    {/* Tela inicial do cliente */}
                     {step === 'inicio' && (
                         <div className="space-y-3">
-                            <h2 className="text-sm font-bold text-zinc-300">Sua Barbearia</h2>
-                            <div className="bg-zinc-900/60 border border-zinc-800 rounded-xl p-3 text-xs text-zinc-400">
-                                O controle de cadeiras e o início do atendimento são feitos pela barbearia.
+                            <div className="dashboard-card bg-zinc-900 rounded-2xl p-4 border border-zinc-800/60 space-y-3">
+                                <div className="flex items-center gap-2">
+                                    <span className="rounded-full border border-orange-500/20 bg-orange-500/10 px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.2em] text-orange-300">Cliente</span>
+                                    <span className="rounded-full border border-emerald-500/20 bg-emerald-500/10 px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.2em] text-emerald-300">Busca ativa</span>
+                                </div>
+                                <h2 className="text-lg font-black tracking-tight text-white">Buscar barbeiros</h2>
+                                <p className="text-sm leading-relaxed text-zinc-300">
+                                    Aqui você encontra profissionais próximos, acompanha chamados e acessa pagamentos e avaliações sem tela de barbearia.
+                                </p>
                             </div>
 
-                            <div>
-                                <button onClick={() => setStep('barbearias')} className="w-full py-2 bg-orange-600 hover:bg-orange-700 rounded text-xs font-bold">Selecionar Barbearia</button>
+                            <div className="dashboard-card bg-zinc-900 rounded-2xl p-4 border border-zinc-800/60 space-y-3">
+                                <div className="text-[10px] font-bold uppercase tracking-[0.2em] text-zinc-500">Próximo passo</div>
+                                <p className="text-sm text-zinc-300">
+                                    Toque no botão abaixo para ver barbeiros disponíveis e continuar no fluxo de cliente.
+                                </p>
+                                <button onClick={() => setStep('barbearias')} className="w-full bg-orange-600 text-white font-bold rounded-xl py-3 text-sm hover:bg-orange-500 transition-all">
+                                    Começar agora
+                                </button>
                             </div>
                         </div>
                     )}
                     {step === 'barbeiros' && (
                         <>
-                            <div className="sticky top-0 bg-black/90 z-10 pb-3">
+                            <div className="bg-black/90 z-10 pb-3">
                                 <div className="relative mb-3">
                                     <Search className="absolute left-3 top-3 text-zinc-500" size={16} />
-                                    <input placeholder="Buscar barbeiro..." className="w-full bg-zinc-900 pl-10 pr-4 py-2 rounded-lg border border-zinc-800 outline-none focus:border-orange-500 text-xs" />
+                                    <input placeholder="Buscar barbeiro..." className="bm-input w-full pl-10 pr-4 py-2 rounded-xl border border-zinc-800 outline-none focus:border-orange-500 text-xs text-white" />
                                 </div>
                                 <button 
                                     onClick={solicitarPermissaoGps}
@@ -1202,17 +1228,15 @@ export default function ClientDashboard({ token, logout, API_URL, notify, onCham
                                     };
 
                                     return (
-                                    <div key={barber.id} className="bg-zinc-900 rounded-xl overflow-hidden border border-zinc-800 hover:border-orange-500 transition-colors">
-                                        <div className="h-24 w-full relative bg-gradient-to-r from-zinc-800 to-zinc-900">
-                                            <img src={getShopImage(barber.id)} className="w-full h-full object-cover opacity-50" alt={barber.nome} />
+                                    <div key={barber.id} className="barber-card bm-card bg-zinc-900 rounded-2xl overflow-hidden border border-zinc-800/60 hover:border-orange-500 transition-colors">
+                                        <div className="barber-image bg-gradient-to-r from-zinc-800 to-zinc-900">
+                                            <img src={getShopImage(barber.id)} alt={barber.nome} />
                                             <div className="absolute inset-0 flex items-end p-2">
                                                 <div>
                                                     <p className="font-bold text-sm">{barber.nome}</p>
-
                                                     <p className="text-xs text-zinc-400">{barber.endereco}</p>
                                                 </div>
                                             </div>
-                                            {/* Indicador de Status */}
                                             <div className={`absolute top-2 left-2 ${statusInfo.cor} px-2 py-1 rounded text-xs font-bold flex items-center gap-1`}>
                                                 <span>{statusInfo.icone}</span>
                                                 <span>{statusInfo.texto}</span>
@@ -1221,35 +1245,41 @@ export default function ClientDashboard({ token, logout, API_URL, notify, onCham
                                                 <Star size={10} className="fill-white"/> {barber.avaliacao || 5.0}
                                             </div>
                                         </div>
-                                        <div className="p-2 flex gap-2">
-                                            <button
-                                                onClick={() => handleSelectShop(barber)}
-                                                disabled={!barbeiroDeTeste && (statusInfo.texto === 'INDISPONÍVEL' || statusInfo.texto === 'OFFLINE')}
-                                                className={`flex-1 ${(!barbeiroDeTeste && (statusInfo.texto === 'INDISPONÍVEL' || statusInfo.texto === 'OFFLINE')) ? 'bg-zinc-700 cursor-not-allowed' : 'bg-orange-600 hover:bg-orange-700'} text-white py-2 rounded-lg text-xs font-bold`}
-                                            >
-                                                {(!barbeiroDeTeste && (statusInfo.texto === 'INDISPONÍVEL' || statusInfo.texto === 'OFFLINE')) ? 'Indisponível' : 'Escolher'}
-                                            </button>
-                                            <button
-                                                onClick={() => setPerfilModal({ id: barber.id, tipo: 'barbeiro' })}
-                                                className="flex-1 bg-zinc-800 hover:bg-zinc-700 text-white py-2 rounded-lg text-xs font-bold"
-                                            >
-                                                Ver perfil
-                                            </button>
-                                        </div>
-                                        {/* 📍 DISTÂNCIA E TEMPO like Uber */}
-                                        {barber.distancia_km !== undefined && (
-                                            <div className="px-2 pb-2 flex items-center justify-between text-xs text-zinc-400 border-t border-zinc-800 pt-2">
-                                                <div className="flex items-center gap-1">
-                                                    <MapPin size={12} />
-                                                    <span>{barber.distancia_km} km</span>
+                                        <div className="barber-body">
+                                            <div>
+                                                <div className="text-xs text-zinc-400 truncate">{barber.servico_principal || ''}</div>
+                                            </div>
+                                            <div>
+                                                <div className="actions">
+                                                    <button
+                                                        onClick={() => handleSelectShop(barber)}
+                                                        disabled={!barbeiroDeTeste && (statusInfo.texto === 'INDISPONÍVEL' || statusInfo.texto === 'OFFLINE')}
+                                                        className={` ${(!barbeiroDeTeste && (statusInfo.texto === 'INDISPONÍVEL' || statusInfo.texto === 'OFFLINE')) ? 'bg-zinc-700 cursor-not-allowed' : 'bg-orange-600 hover:bg-orange-700'} text-white rounded-lg text-xs font-bold`}
+                                                    >
+                                                        {(!barbeiroDeTeste && (statusInfo.texto === 'INDISPONÍVEL' || statusInfo.texto === 'OFFLINE')) ? 'Indisponível' : 'Escolher'}
+                                                    </button>
+                                                    <button
+                                                        onClick={() => setPerfilModal({ id: barber.id, tipo: 'barbeiro' })}
+                                                        className="bg-zinc-800 hover:bg-zinc-700 text-white rounded-lg text-xs font-bold"
+                                                    >
+                                                        Ver perfil
+                                                    </button>
                                                 </div>
-                                                {barber.tempo_estimado_minutos !== undefined && (
-                                                    <div className="text-orange-400 font-bold">
-                                                        ⏱ {barber.tempo_estimado_minutos} min
+                                                {barber.distancia_km !== undefined && (
+                                                    <div className="meta text-xs text-zinc-400">
+                                                        <div className="flex items-center gap-1">
+                                                            <MapPin size={12} />
+                                                            <span>{barber.distancia_km} km</span>
+                                                        </div>
+                                                        {barber.tempo_estimado_minutos !== undefined && (
+                                                            <div className="text-orange-400 font-bold">
+                                                                ⏱ {barber.tempo_estimado_minutos} min
+                                                            </div>
+                                                        )}
                                                     </div>
                                                 )}
                                             </div>
-                                        )}
+                                        </div>
                                     </div>
                                 );
                                 }) : (
@@ -1277,7 +1307,7 @@ export default function ClientDashboard({ token, logout, API_URL, notify, onCham
                                     </div>
                                 )}
                                 {barbearias && barbearias.length > 0 ? barbearias.map(barbearia => (
-                                    <div key={barbearia.id} className="bg-zinc-900 rounded-xl p-3 border border-zinc-800 hover:border-orange-500 transition-colors">
+                                    <div key={barbearia.id} className="bm-card bg-zinc-900 rounded-2xl p-4 border border-zinc-800/60 hover:border-orange-500 transition-colors">
                                         <p className="font-bold text-sm">{barbearia.nome}</p>
                                         <p className="text-xs text-zinc-400">{barbearia.endereco || 'Endereco nao informado'}</p>
                                         {/* 📍 DISTÂNCIA E TEMPO like Uber */}
@@ -1337,13 +1367,13 @@ export default function ClientDashboard({ token, logout, API_URL, notify, onCham
                                         <p className={`text-[11px] font-semibold ${gpsStatusClasse}`}>{gpsStatusTexto}</p>
                                     </div>
                                 </div>
-                                <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-3">
+                                <div className="bm-card p-3 rounded-lg">
                                     <p className="text-[10px] uppercase tracking-wide text-zinc-500 mb-1">Barbearia selecionada</p>
                                     <p className="text-sm font-bold text-white">{selectedBarbearia?.nome || 'Barbearia'}</p>
                                     <p className="text-[11px] text-zinc-400 truncate">{selectedBarbearia?.endereco || 'Endereço não informado'}</p>
                                 </div>
                             </div>
-                            <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-3 flex items-center justify-between">
+                            <div className="bm-card p-3 flex items-center justify-between rounded-lg">
                                 <div>
                                     <p className="text-xs text-zinc-400">Barbeiro</p>
                                     <p className="text-sm font-bold text-white">{selectedBarber?.nome || 'Barbeiro'}</p>
@@ -1386,7 +1416,7 @@ export default function ClientDashboard({ token, logout, API_URL, notify, onCham
                             
                             <div className="space-y-2">
                                 {services && services.length > 0 ? services.map(service => (
-                                    <div key={service.id} className={`bg-zinc-900 rounded-xl p-3 border ${selectedServices.find(s => s.id === service.id) ? 'border-orange-500' : 'border-zinc-800'}`}>
+                                    <div key={service.id} className={`bm-card bg-zinc-900 rounded-2xl p-4 border ${selectedServices.find(s => s.id === service.id) ? 'border-orange-500' : 'border-zinc-800/60'}`}>
                                         <div className="flex justify-between items-start">
                                             <div>
                                                 <p className="font-bold text-sm">{service.nome}</p>
@@ -1397,14 +1427,14 @@ export default function ClientDashboard({ token, logout, API_URL, notify, onCham
                                         <div className="flex gap-2 mt-3">
                                             <button
                                                 onClick={() => toggleServiceSelection(service)}
-                                                className={`flex-1 ${selectedServices.find(s => s.id === service.id) ? 'bg-zinc-700' : 'bg-orange-600 hover:bg-orange-700'} text-white py-2 rounded-lg font-bold text-xs`}
+                                                className={`flex-1 ${selectedServices.find(s => s.id === service.id) ? 'bg-zinc-700' : 'bg-orange-600 hover:bg-orange-700'} text-white font-bold rounded-xl py-3 text-sm`}
                                             >
                                                 {selectedServices.find(s => s.id === service.id) ? 'Selecionado' : 'Selecionar'}
                                             </button>
                                             <button
                                                 onClick={() => handleBooking(service)}
                                                     disabled={!podeChamarAgora}
-                                                    className={`flex-1 ${podeChamarAgora ? 'bg-green-600 hover:bg-green-700' : 'bg-zinc-700 cursor-not-allowed'} text-white py-2 rounded-lg font-bold text-xs`}
+                                                    className={`flex-1 ${podeChamarAgora ? 'bg-emerald-500 hover:bg-emerald-400' : 'bg-zinc-700 cursor-not-allowed'} text-white font-bold rounded-xl py-3 text-sm`}
                                             >
                                                 Chamar AGORA
                                             </button>
@@ -1415,7 +1445,7 @@ export default function ClientDashboard({ token, logout, API_URL, notify, onCham
                                 )}
                             </div>
                             {selectedServices.length > 0 && (
-                                <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-3 mt-2">
+                                <div className="bm-card bg-zinc-900 rounded-2xl p-4 mt-2 border border-zinc-800/60">
                                     <div className="flex justify-between text-xs text-zinc-400">
                                         <span>{selectedServices.length} servico(s)</span>
                                         <span>{duracaoSelecionada || 0} min</span>
@@ -1427,7 +1457,7 @@ export default function ClientDashboard({ token, logout, API_URL, notify, onCham
                                     <button
                                         onClick={handleBookingMultiple}
                                         disabled={!podeChamarAgora}
-                                        className={`mt-3 w-full ${podeChamarAgora ? 'bg-green-600 hover:bg-green-700' : 'bg-zinc-700 cursor-not-allowed'} text-white py-2 rounded-lg font-bold text-xs`}
+                                        className={`mt-3 w-full ${podeChamarAgora ? 'bg-emerald-500 hover:bg-emerald-400' : 'bg-zinc-700 cursor-not-allowed'} text-white font-bold rounded-xl py-3 text-sm`}
                                     >
                                         Chamar AGORA
                                     </button>
@@ -1441,13 +1471,17 @@ export default function ClientDashboard({ token, logout, API_URL, notify, onCham
             {/* ABA: AGENDA */}
             {tab === 'agenda' && (
                 <div className="p-2 sm:p-4 max-w-3xl mx-auto w-full">
-                    <h2 className="text-sm font-bold text-zinc-300 uppercase tracking-wide mb-4">Minhas Chamadas</h2>
+                    <h2 className="text-[11px] font-black text-zinc-500 uppercase tracking-[0.18em] mb-4">Minhas Chamadas</h2>
                     {!Array.isArray(myOrders) || myOrders.length === 0 ? (
-                        <p className="text-zinc-600 text-center py-12 text-xs">Nenhuma chamada</p>
+                        <div className="dashboard-card-soft my-6 p-8 text-center flex flex-col items-center justify-center">
+                            <span className="text-3xl mb-2 opacity-50">📭</span>
+                            <p className="text-sm font-bold text-zinc-200">Nenhuma chamada ativa</p>
+                            <p className="text-xs text-zinc-500 mt-1 max-w-[220px] leading-relaxed">Seus pedidos e solicitações em andamento vão aparecer aqui.</p>
+                        </div>
                     ) : (
                         <div className="space-y-2 max-w-2xl mx-auto w-full">
                             {myOrders.map(order => (
-                                <div key={order.id} className="bg-zinc-900/60 p-3.5 rounded-xl border border-zinc-800/80 text-xs overflow-hidden space-y-1">
+                                <div key={order.id} className="bm-card p-3.5 rounded-xl border border-zinc-800/80 text-xs overflow-hidden space-y-1">
                                     <p className="font-bold truncate">{order.barbeiro_nome || 'Barbeiro'}</p>
                                     <p className="text-zinc-400 truncate">{order.servico_nome || order.descricao || 'Servico'}</p>
                                     <p className="text-zinc-500 truncate">{order.nome_barbearia || 'Barbearia'}</p>
@@ -1530,7 +1564,19 @@ export default function ClientDashboard({ token, logout, API_URL, notify, onCham
 
             {/* ABA: PERFIL */}
             {tab === 'perfil' && (
-                <TelaPerfilUsuario userType="cliente" token={token} onLogout={logout} onNotify={notify} />
+                <div className="p-2 sm:p-4 pb-20 max-w-3xl mx-auto w-full">
+                    <div className="mb-3 flex justify-end">
+                        <button
+                            type="button"
+                            onClick={logout}
+                            className="inline-flex items-center gap-2 rounded-full border border-red-500/20 bg-red-500/10 px-4 py-2 text-xs font-black uppercase tracking-[0.16em] text-red-300 hover:bg-red-500/20 hover:text-white transition-colors"
+                        >
+                            <LogOut size={14} />
+                            Sair da conta
+                        </button>
+                    </div>
+                    <TelaPerfilUsuario userType="cliente" token={token} onLogout={logout} onNotify={notify} />
+                </div>
             )}
 
             {/* ABA: PAGAMENTO */}
@@ -1554,7 +1600,7 @@ export default function ClientDashboard({ token, logout, API_URL, notify, onCham
                         return (
                             <div className="space-y-3 max-w-2xl mx-auto w-full">
                                 {pendentes.map(order => (
-                                    <div key={order.id} className="bg-zinc-900/60 rounded-xl border border-zinc-800/80 p-3.5 space-y-2.5 overflow-hidden">
+                                    <div key={order.id} className="bm-card p-3.5 rounded-xl border border-zinc-800/80 space-y-2.5 overflow-hidden">
                                         <div className="flex justify-between items-start">
                                             <div className="min-w-0 pr-2">
                                                 <p className="font-bold text-white text-sm truncate">{order.servico_nome || order.descricao || 'Serviço'}</p>
@@ -1601,12 +1647,12 @@ export default function ClientDashboard({ token, logout, API_URL, notify, onCham
         </div>
 
         {/* NAVBAR */}
-        <div className="sticky bottom-0 left-0 w-full h-[calc(4rem+env(safe-area-inset-bottom))] pb-[env(safe-area-inset-bottom)] bg-zinc-950/98 backdrop-blur-lg border-t border-zinc-800 flex justify-around items-center z-40">
-            <button onClick={() => setTab('buscar')} className={`flex flex-col items-center justify-center gap-0.5 h-full flex-1 text-center transition-colors ${tab === 'buscar' ? 'text-orange-500 bg-orange-500/5' : 'text-zinc-400 hover:text-zinc-200'}`}><Search size={14} /><span className="text-[7px] font-bold">Buscar</span></button>
-            <button onClick={() => setTab('agenda')} className={`flex flex-col items-center justify-center gap-0.5 h-full flex-1 text-center transition-colors ${tab === 'agenda' ? 'text-orange-500 bg-orange-500/5' : 'text-zinc-400 hover:text-zinc-200'}`}><Calendar size={14} /><span className="text-[7px] font-bold">Chamadas</span></button>
-            <button onClick={() => setTab('avaliar')} className={`flex flex-col items-center justify-center gap-0.5 h-full flex-1 text-center transition-colors ${tab === 'avaliar' ? 'text-orange-500 bg-orange-500/5' : 'text-zinc-400 hover:text-zinc-200'}`}><Star size={14} /><span className="text-[7px] font-bold">Avaliar</span></button>
-            <button onClick={() => setTab('perfil')} className={`flex flex-col items-center justify-center gap-0.5 h-full flex-1 text-center transition-colors ${tab === 'perfil' ? 'text-orange-500 bg-orange-500/5' : 'text-zinc-400 hover:text-zinc-200'}`}><User size={14} /><span className="text-[7px] font-bold">Perfil</span></button>
-            <button onClick={() => setTab('pagamento')} className={`flex flex-col items-center justify-center gap-0.5 h-full flex-1 text-center transition-colors ${tab === 'pagamento' ? 'text-orange-500 bg-orange-500/5' : 'text-zinc-400 hover:text-zinc-200'}`}><CreditCard size={14} /><span className="text-[7px] font-bold">Pagamentos</span></button>
+        <div className="bm-bottom-nav dashboard-nav fixed bottom-0 left-0 right-0 mx-auto w-full max-w-[430px] h-[calc(4.4rem+env(safe-area-inset-bottom))] pb-[env(safe-area-inset-bottom)] flex justify-around items-center z-40 px-2.5 sm:px-4">
+            <button data-active={tab === 'buscar'} onClick={() => setTab('buscar')} className={`bm-bottom-nav-btn dashboard-nav-btn flex flex-col items-center justify-center gap-1 h-[3.35rem] flex-1 text-center ${tab === 'buscar' ? 'text-orange-500 bg-orange-500/5' : 'text-zinc-400 hover:text-zinc-200'}`}><Search size={14} /><span>Buscar</span></button>
+            <button data-active={tab === 'agenda'} onClick={() => setTab('agenda')} className={`bm-bottom-nav-btn dashboard-nav-btn flex flex-col items-center justify-center gap-1 h-[3.35rem] flex-1 text-center ${tab === 'agenda' ? 'text-orange-500 bg-orange-500/5' : 'text-zinc-400 hover:text-zinc-200'}`}><Calendar size={14} /><span>Chamadas</span></button>
+            <button data-active={tab === 'avaliar'} onClick={() => setTab('avaliar')} className={`bm-bottom-nav-btn dashboard-nav-btn flex flex-col items-center justify-center gap-1 h-[3.35rem] flex-1 text-center ${tab === 'avaliar' ? 'text-orange-500 bg-orange-500/5' : 'text-zinc-400 hover:text-zinc-200'}`}><Star size={14} /><span>Avaliar</span></button>
+            <button data-active={tab === 'perfil'} onClick={() => setTab('perfil')} className={`bm-bottom-nav-btn dashboard-nav-btn flex flex-col items-center justify-center gap-1 h-[3.35rem] flex-1 text-center ${tab === 'perfil' ? 'text-orange-500 bg-orange-500/5' : 'text-zinc-400 hover:text-zinc-200'}`}><User size={14} /><span>Perfil</span></button>
+            <button data-active={tab === 'pagamento'} onClick={() => setTab('pagamento')} className={`bm-bottom-nav-btn dashboard-nav-btn flex flex-col items-center justify-center gap-1 h-[3.35rem] flex-1 text-center ${tab === 'pagamento' ? 'text-orange-500 bg-orange-500/5' : 'text-zinc-400 hover:text-zinc-200'}`}><CreditCard size={14} /><span>Carteira</span></button>
         </div>
 
         {perfilModal && (
@@ -1627,7 +1673,7 @@ export default function ClientDashboard({ token, logout, API_URL, notify, onCham
         )}
 
         {/* Mostrar rotas quando chamado está confirmado */}
-        {activeChamado && ['confirmado', 'em_atendimento'].includes((activeChamado.status || '').toLowerCase()) && (
+                {activeChamado && ['aceito', 'confirmado', 'em_atendimento'].includes((activeChamado.status || '').toLowerCase()) && (
           <TelaRotasAtivos
             chamado={activeChamado}
             userType="cliente"
@@ -1638,6 +1684,7 @@ export default function ClientDashboard({ token, logout, API_URL, notify, onCham
             onNotify={notify}
           />
         )}
+                </div>
         </div>
     );
 }

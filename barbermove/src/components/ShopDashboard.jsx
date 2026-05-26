@@ -1,4 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import ScreenWrapper from './ScreenWrapper';
+import { getWsBaseUrl } from '../utils/api';
 import { Store, LogOut, CheckCircle, AlertCircle, User, CreditCard, Calendar, Search, Star, TrendingUp, Users, Bell } from 'lucide-react';
 import PaymentSection from './PaymentSection';
 import AbaPadronizadaAvaliacoes from './AbaPadronizadaAvaliacoes';
@@ -367,8 +369,8 @@ export default function ShopDashboard({ token, logout, notify, API_URL }) {
     useEffect(() => {
         if (!barbeariaId || tab !== 'barbeiros') return;
 
-        const wsBase = API_URL.replace(/^http/, 'ws');
-        const ws = new WebSocket(`${wsBase}/ws/notificacoes`);
+        const WS_URL = import.meta.env.VITE_WS_URL?.trim() || getWsBaseUrl();
+        const ws = new WebSocket(WS_URL);
 
         ws.onopen = () => {
             setWsConectado(true);
@@ -418,18 +420,22 @@ export default function ShopDashboard({ token, logout, notify, API_URL }) {
     };
 
     return (
-        <div className="bg-black min-h-[100dvh] w-full max-w-full overflow-x-hidden flex flex-col text-white font-sans">
-            <div className="p-2 sm:p-4 flex justify-between items-center border-b border-zinc-800 bg-black/80 backdrop-blur-md z-20 flex-shrink-0">
-                <div className="flex items-center gap-2">
-                    <h1 className="text-base sm:text-xl font-bold tracking-tight flex items-center gap-2">
-                        <Store size={18} className="text-orange-500"/> Loja
-                    </h1>
-                    {user?.documento_verificado && (
-                        <CheckCircle size={14} className="text-blue-500 fill-blue-500" />
-                    )}
-                </div>
-                <div className="flex items-center gap-2">
-                    <button onClick={logout} className="text-zinc-500 hover:text-white"><LogOut size={18}/></button>
+        <ScreenWrapper>
+        <div className="min-h-[100dvh] w-full bg-[#050505] text-white font-sans flex justify-center overflow-x-hidden">
+            <div className="app-container w-full min-h-[100dvh] max-w-[430px] flex flex-col overflow-x-hidden bg-[#050505] shadow-[0_0_0_1px_rgba(255,255,255,0.04)]">
+            <div className="sticky top-0 z-20 px-3 pt-3 pb-2 bg-[#050505]/95 backdrop-blur-xl flex-shrink-0">
+                <div className="flex justify-between items-center rounded-[1.5rem] border border-zinc-800/80 bg-zinc-950/90 px-4 py-3 shadow-xl shadow-black/25">
+                    <div className="flex items-center gap-2 min-w-0">
+                        <h1 className="text-lg font-black tracking-tight flex items-center gap-2 truncate">
+                            <Store size={18} className="text-orange-500"/> Loja
+                        </h1>
+                        {user?.documento_verificado && (
+                            <CheckCircle size={14} className="text-blue-500 fill-blue-500" />
+                        )}
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                        <button onClick={logout} className="h-10 w-10 rounded-full bg-zinc-900 border border-zinc-800 flex items-center justify-center text-zinc-400 hover:text-white hover:bg-zinc-800 transition-colors"><LogOut size={18}/></button>
+                    </div>
                 </div>
             </div>
 
@@ -445,14 +451,14 @@ export default function ShopDashboard({ token, logout, notify, API_URL }) {
                         )}
                         
                         <h2 className="text-sm font-bold text-zinc-300 uppercase tracking-wide">Bem-vindo à Barbearia</h2>
-                        <div className="bg-zinc-900/60 border border-zinc-800 rounded-xl p-3 text-xs text-zinc-400">
+                        <div className="bm-card p-3 text-xs text-zinc-400">
                             <p>Selecione uma aba abaixo para gerenciar sua barbearia.</p>
                         </div>
 
                         <div className="bg-purple-600/10 border border-purple-600/30 p-5 rounded-2xl mb-6">
                           <div className="flex items-center justify-between mb-4">
                             <h3 className="text-purple-400 font-bold text-sm flex items-center gap-2">💺 Suas Cadeiras ({cadeirasBarbearia.length})</h3>
-                            <button className="bg-purple-600 hover:bg-purple-700 text-white px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1 transition-all"><span className="text-lg leading-none">+</span> Nova</button>
+                            <button className="bg-gradient-to-r from-orange-600 to-red-600 text-white px-3 py-1.5 rounded-2xl text-xs font-extrabold flex items-center gap-1 transition-all"><span className="text-lg leading-none">+</span> Nova</button>
                           </div>
 
                           {loadingCadeirasBarbearia ? (
@@ -625,7 +631,7 @@ export default function ShopDashboard({ token, logout, notify, API_URL }) {
                         </button>
 
                         {/* PRESENTES */}
-                        <div className="bg-zinc-900/60 border border-zinc-800/80 rounded-xl p-3 space-y-2">
+                        <div className="bm-card p-3 space-y-2">
                             <h3 className="text-xs font-bold text-zinc-400 uppercase tracking-wide">Freelancers Presentes</h3>
                             {freelancersPresentesNaBarbearia.length === 0 ? (
                                 <p className="text-zinc-600 text-xs">Nenhum freelancer presente no momento</p>
@@ -667,7 +673,7 @@ export default function ShopDashboard({ token, logout, notify, API_URL }) {
                         </div>
 
                         {/* DISPONÍVEIS */}
-                        <div className="bg-zinc-900/60 border border-zinc-800/80 rounded-xl p-3 space-y-2">
+                        <div className="bm-card p-3 space-y-2">
                             <div className="flex items-center justify-between">
                                 <h3 className="text-xs font-bold text-zinc-400 uppercase tracking-wide">Disponíveis para sua Barbearia</h3>
                                 <span className="text-[11px] text-green-400 font-bold">{freelancersDisponiveis.length}</span>
@@ -687,7 +693,7 @@ export default function ShopDashboard({ token, logout, notify, API_URL }) {
                         </div>
 
                         {/* AGUARDANDO APROVAÇÃO */}
-                        <div className="bg-zinc-900/60 border border-zinc-800/80 rounded-xl p-3 space-y-2">
+                        <div className="bm-card p-3 space-y-2">
                             <div className="flex items-center justify-between">
                                 <h3 className="text-xs font-bold text-zinc-400 uppercase tracking-wide">Aguardando Aprovação</h3>
                                 <span className="text-[11px] text-yellow-400 font-bold">{freelancersPendentesAprovacao.length}</span>
@@ -717,7 +723,7 @@ export default function ShopDashboard({ token, logout, notify, API_URL }) {
                         ) : (
                             <div className="space-y-2 max-w-2xl mx-auto w-full">
                                 {agendamentos.map(ag => (
-                                    <div key={ag.id} className="bg-zinc-900/60 border border-zinc-800/80 p-3.5 rounded-xl space-y-2.5 overflow-hidden">
+                                    <div key={ag.id} className="bm-card p-3.5 space-y-2.5 overflow-hidden">
                                         <div className="flex justify-between items-start">
                                             <div className="min-w-0 pr-2">
                                                 <p className="font-bold text-sm truncate">{ag.servico_nome || 'Serviço'}</p>
@@ -870,8 +876,8 @@ export default function ShopDashboard({ token, logout, notify, API_URL }) {
                 )}
 
                 {chatTarget && (
-                    <div className="fixed right-4 bottom-20 w-80 z-50">
-                        <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-2">
+                    <div className="fixed left-3 right-3 bottom-20 z-50 mx-auto max-w-[430px]">
+                        <div className="bg-zinc-950 border border-zinc-800 rounded-[1.5rem] p-3 shadow-2xl shadow-black/40">
                             <div className="flex items-center justify-between mb-2">
                                 <div>
                                     <p className="font-bold text-sm">Chat do chamado #{chatTarget}</p>
@@ -884,15 +890,17 @@ export default function ShopDashboard({ token, logout, notify, API_URL }) {
                 )}
             </div>
 
-            <div className="sticky bottom-0 left-0 w-full h-[calc(4rem+env(safe-area-inset-bottom))] pb-[env(safe-area-inset-bottom)] bg-zinc-950/98 backdrop-blur-lg border-t border-zinc-800 flex justify-between items-center z-40 overflow-x-auto">
-                <button onClick={() => setTab('barbeiros')} className={`flex flex-col items-center justify-center gap-0.5 h-full flex-1 text-center transition-colors min-w-max ${tab === 'barbeiros' ? 'text-orange-500 bg-orange-500/5' : 'text-zinc-400 hover:text-zinc-200'}`}><Store size={14} /><span className="text-[7px] font-bold">Loja</span></button>
-                <button onClick={() => setTab('freelancers')} className={`flex flex-col items-center justify-center gap-0.5 h-full flex-1 text-center transition-colors min-w-max ${tab === 'freelancers' ? 'text-orange-500 bg-orange-500/5' : 'text-zinc-400 hover:text-zinc-200'}`}><Users size={14} /><span className="text-[7px] font-bold">Freelancers</span></button>
-                <button onClick={() => setTab('agenda')} className={`flex flex-col items-center justify-center gap-0.5 h-full flex-1 text-center transition-colors min-w-max ${tab === 'agenda' ? 'text-orange-500 bg-orange-500/5' : 'text-zinc-400 hover:text-zinc-200'}`}><Calendar size={14} /><span className="text-[7px] font-bold">Agenda</span></button>
-                <button onClick={() => setTab('avaliar')} className={`flex flex-col items-center justify-center gap-0.5 h-full flex-1 text-center transition-colors min-w-max ${tab === 'avaliar' ? 'text-orange-500 bg-orange-500/5' : 'text-zinc-400 hover:text-zinc-200'}`}><Star size={14} /><span className="text-[7px] font-bold">Avaliar</span></button>
-                <button onClick={() => setTab('assinatura')} className={`flex flex-col items-center justify-center gap-0.5 h-full flex-1 text-center transition-colors min-w-max ${tab === 'assinatura' ? 'text-orange-500 bg-orange-500/5' : 'text-zinc-400 hover:text-zinc-200'}`}><TrendingUp size={14} /><span className="text-[7px] font-bold">Plano</span></button>
-                <button onClick={() => setTab('perfil')} className={`flex flex-col items-center justify-center gap-0.5 h-full flex-1 text-center transition-colors min-w-max ${tab === 'perfil' ? 'text-orange-500 bg-orange-500/5' : 'text-zinc-400 hover:text-zinc-200'}`}><User size={14} /><span className="text-[7px] font-bold">Perfil</span></button>
-                <button onClick={() => setTab('pagamento')} className={`flex flex-col items-center justify-center gap-0.5 h-full flex-1 text-center transition-colors min-w-max ${tab === 'pagamento' ? 'text-orange-500 bg-orange-500/5' : 'text-zinc-400 hover:text-zinc-200'}`}><CreditCard size={14} /><span className="text-[7px] font-bold">Pagamentos</span></button>
+            <div className="bm-bottom-nav sticky bottom-0 left-0 w-full h-[calc(4rem+env(safe-area-inset-bottom))] pb-[env(safe-area-inset-bottom)] flex justify-between items-center z-40 overflow-x-auto">
+                <button data-active={tab === 'barbeiros'} onClick={() => setTab('barbeiros')} className={`bm-bottom-nav-btn flex flex-col items-center justify-center gap-0.5 h-full flex-1 text-center min-w-max ${tab === 'barbeiros' ? 'text-orange-500 bg-orange-500/5' : 'text-zinc-400 hover:text-zinc-200'}`}><Store size={14} /><span>Loja</span></button>
+                <button data-active={tab === 'freelancers'} onClick={() => setTab('freelancers')} className={`bm-bottom-nav-btn flex flex-col items-center justify-center gap-0.5 h-full flex-1 text-center min-w-max ${tab === 'freelancers' ? 'text-orange-500 bg-orange-500/5' : 'text-zinc-400 hover:text-zinc-200'}`}><Users size={14} /><span>Freelancers</span></button>
+                <button data-active={tab === 'agenda'} onClick={() => setTab('agenda')} className={`bm-bottom-nav-btn flex flex-col items-center justify-center gap-0.5 h-full flex-1 text-center min-w-max ${tab === 'agenda' ? 'text-orange-500 bg-orange-500/5' : 'text-zinc-400 hover:text-zinc-200'}`}><Calendar size={14} /><span>Agenda</span></button>
+                <button data-active={tab === 'avaliar'} onClick={() => setTab('avaliar')} className={`bm-bottom-nav-btn flex flex-col items-center justify-center gap-0.5 h-full flex-1 text-center min-w-max ${tab === 'avaliar' ? 'text-orange-500 bg-orange-500/5' : 'text-zinc-400 hover:text-zinc-200'}`}><Star size={14} /><span>Avaliar</span></button>
+                <button data-active={tab === 'assinatura'} onClick={() => setTab('assinatura')} className={`bm-bottom-nav-btn flex flex-col items-center justify-center gap-0.5 h-full flex-1 text-center min-w-max ${tab === 'assinatura' ? 'text-orange-500 bg-orange-500/5' : 'text-zinc-400 hover:text-zinc-200'}`}><TrendingUp size={14} /><span>Plano</span></button>
+                <button data-active={tab === 'perfil'} onClick={() => setTab('perfil')} className={`bm-bottom-nav-btn flex flex-col items-center justify-center gap-0.5 h-full flex-1 text-center min-w-max ${tab === 'perfil' ? 'text-orange-500 bg-orange-500/5' : 'text-zinc-400 hover:text-zinc-200'}`}><User size={14} /><span>Perfil</span></button>
+                <button data-active={tab === 'pagamento'} onClick={() => setTab('pagamento')} className={`bm-bottom-nav-btn flex flex-col items-center justify-center gap-0.5 h-full flex-1 text-center min-w-max ${tab === 'pagamento' ? 'text-orange-500 bg-orange-500/5' : 'text-zinc-400 hover:text-zinc-200'}`}><CreditCard size={14} /><span>Pagamentos</span></button>
+            </div>
             </div>
         </div>
+        </ScreenWrapper>
     );
 }

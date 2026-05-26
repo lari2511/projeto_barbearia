@@ -26,25 +26,19 @@ export default class ErrorBoundary extends React.Component {
     if (this.state.hasError) {
       const stack = (this.state.error && this.state.error.stack) || (this.state.info && this.state.info.componentStack);
       return (
-        <div style={{ padding: 16, fontFamily: 'system-ui, Arial', color: '#111', background: '#fff' }}>
-          <h1 style={{ fontSize: 18, marginBottom: 8 }}>Ocorreu um erro ao renderizar a página</h1>
-          <p style={{ marginBottom: 12 }}>Se a tela estava em branco, aqui vai o detalhe do erro para diagnóstico:</p>
+        <div className="p-4 font-sans text-white bg-black">
+          <h1 className="text-lg mb-2 font-extrabold">Ocorreu um erro ao renderizar a página</h1>
+          <p className="mb-3">Se a tela estava em branco, aqui vai o detalhe do erro para diagnóstico:</p>
           {this.state.error && (
-            <pre style={{ whiteSpace: 'pre-wrap', background: '#f9fafb', border: '1px solid #e5e7eb', padding: 12, borderRadius: 8 }}>
-              {String(this.state.error)}
-            </pre>
+            <pre className="whitespace-pre-wrap bg-zinc-900 border border-zinc-800 p-3 rounded">{String(this.state.error)}</pre>
           )}
           {stack && (
-            <details open style={{ marginTop: 12 }}>
+            <details open className="mt-3">
               <summary>Stack técnico</summary>
-              <pre style={{ whiteSpace: 'pre-wrap', background: '#f9fafb', border: '1px solid #e5e7eb', padding: 12, borderRadius: 8 }}>
-                {stack}
-              </pre>
+              <pre className="whitespace-pre-wrap bg-zinc-900 border border-zinc-800 p-3 rounded mt-2">{stack}</pre>
             </details>
           )}
-          <button onClick={this.handleReload} style={{ marginTop: 16, padding: '8px 12px', background: '#111827', color: '#fff', borderRadius: 6 }}>
-            Recarregar página
-          </button>
+          <button onClick={this.handleReload} className="mt-4 px-3 py-2 bg-zinc-800 text-white rounded">Recarregar página</button>
         </div>
       );
     }
