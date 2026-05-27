@@ -1,7 +1,12 @@
 import React from 'react'
 import { FiHome, FiFileText, FiScissors, FiCreditCard, FiUser } from 'react-icons/fi'
+import { FiLogOut } from 'react-icons/fi'
+import { useAuth } from '../context/AuthProvider'
+import { useNavigate } from 'react-router-dom'
 
 export default function Navbar({ activeTab, setActiveTab }) {
+  const auth = useAuth()
+  const navigate = useNavigate()
   const menuItems = [
     { id: 'inicio', label: 'Início', icon: <FiHome size={22} /> },
     { id: 'chamados', label: 'Chamados', icon: <FiFileText size={22} /> },
@@ -24,6 +29,20 @@ export default function Navbar({ activeTab, setActiveTab }) {
           <span className="text-[10px] font-medium mt-1">{item.label}</span>
         </button>
       ))}
+      <div className="absolute right-4 top-0 transform -translate-y-1/2">
+        <button
+          onClick={() => {
+            auth && auth.logout && auth.logout()
+            localStorage.removeItem('barbermove_token')
+            localStorage.removeItem('user_profile')
+            navigate('/')
+          }}
+          className="p-2 rounded-full bg-transparent text-barberTextGray hover:text-white"
+          title="Sair"
+        >
+          <FiLogOut size={20} />
+        </button>
+      </div>
     </div>
   )
 }

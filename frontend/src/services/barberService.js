@@ -19,5 +19,15 @@ export const barberService = {
     return res.data
   },
 
+  finishAppointment: async (id) => {
+    const res = await axios.post('/appointments/finish', { id })
+    return res.data
+  },
+
+  pauseAppointment: async (id) => {
+    const res = await axios.post('/appointments/pause', { id })
+    return res.data
+  },
+
   // Other API helpers can be added here
 }

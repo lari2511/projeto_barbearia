@@ -1,6 +1,7 @@
 import React, { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import axios from '../api/axios'
+import { useAuth } from '../context/AuthProvider'
+import { barberService } from '../services/barberService'
 import LayoutMobile from './LayoutMobile'
 
 export default function Registro() {
@@ -12,13 +13,14 @@ export default function Registro() {
   const [error, setError] = useState('')
   const [success, setSuccess] = useState(false)
 
+  const auth = useAuth()
   const handleRegister = async (e) => {
     e.preventDefault()
     setError('')
     setSuccess(false)
 
     try {
-      await axios.post('/auth/register', {
+      await barberService.register({
         nome,
         email,
         senha: password,
@@ -26,10 +28,15 @@ export default function Registro() {
         role: userType.toLowerCase(),
       })
 
-      setSuccess(true)
-      setTimeout(() => {
-        navigate('/')
-      }, 1200)
+      // after successful register, auto-login
+      const loginRes = await auth.login({ email, password, type: userType })
+      if (loginRes.ok) {
+        setSuccess(true)
+        navigate('/dashboard')
+      } else {
+        setSuccess(true)
+        setTimeout(() => navigate('/'), 1200)
+      }
     } catch (err) {
       setError(err.response?.data?.message || 'Erro ao realizar o cadastro. Tente novamente.')
     }

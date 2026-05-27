@@ -1,26 +1,28 @@
 import React, { useState } from 'react'
 import { FiBell, FiAlertTriangle, FiCheck } from 'react-icons/fi'
 import Navbar from './Navbar'
-import axios from '../api/axios'
+import { barberService } from '../services/barberService'
 
 export default function DashboardCliente() {
   const [activeMenu, setActiveMenu] = useState('inicio')
 
   const handleFinish = async () => {
     try {
-      await axios.post('/appointments/finish', { id: 36 })
-      alert('Atendimento finalizado (simulação)')
+      await barberService.finishAppointment(36)
+      alert('Atendimento finalizado com sucesso')
     } catch (err) {
       console.error(err)
+      alert('Erro ao finalizar atendimento')
     }
   }
 
   const handlePause = async () => {
     try {
-      await axios.post('/appointments/pause', { id: 36 })
-      alert('Atendimento pausado (simulação)')
+      await barberService.pauseAppointment(36)
+      alert('Atendimento pausado com sucesso')
     } catch (err) {
       console.error(err)
+      alert('Erro ao pausar atendimento')
     }
   }
 
