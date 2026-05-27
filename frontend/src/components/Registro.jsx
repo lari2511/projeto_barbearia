@@ -1,4 +1,5 @@
 import React, { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import axios from '../api/axios'
 import LayoutMobile from './LayoutMobile'
 
@@ -27,8 +28,8 @@ export default function Registro() {
 
       setSuccess(true)
       setTimeout(() => {
-        window.location.href = '/'
-      }, 1500)
+        navigate('/')
+      }, 1200)
     } catch (err) {
       setError(err.response?.data?.message || 'Erro ao realizar o cadastro. Tente novamente.')
     }
@@ -108,7 +109,7 @@ export default function Registro() {
         <div className="text-center">
           <p className="text-xs text-barberTextGray">
             Já possui uma conta?{' '}
-            <span onClick={() => window.location.href = '/'} className="text-barberOrange font-bold cursor-pointer hover:underline">Fazer Login</span>
+            <span onClick={() => navigate('/')} className="text-barberOrange font-bold cursor-pointer hover:underline">Fazer Login</span>
           </p>
         </div>
 

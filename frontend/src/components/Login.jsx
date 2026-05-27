@@ -1,4 +1,5 @@
 import React, { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import axios from '../api/axios'
 
 export default function Login({ onAuth }) {
@@ -7,6 +8,7 @@ export default function Login({ onAuth }) {
   const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
+  const navigate = useNavigate()
 
   const handleLogin = async (e) => {
     e.preventDefault()
@@ -18,6 +20,7 @@ export default function Login({ onAuth }) {
       if (token) {
         localStorage.setItem('access_token', token)
         onAuth && onAuth()
+        navigate('/dashboard')
       } else {
         setError('Resposta inválida do servidor')
       }
@@ -89,7 +92,7 @@ export default function Login({ onAuth }) {
         <div className="text-center pt-2">
           <p className="text-sm text-barberTextGray">
             Não tem uma conta?{' '}
-            <span className="text-barberOrange font-bold cursor-pointer hover:underline">Registre-se</span>
+            <span onClick={() => navigate('/registro')} className="text-barberOrange font-bold cursor-pointer hover:underline">Registre-se</span>
           </p>
         </div>
       </div>
