@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect } from 'react'
-import axios from '../api/axios'
+import { barberService } from '../services/barberService'
 
 const AuthContext = createContext(null)
 
@@ -9,7 +9,6 @@ export function useAuth() {
 
 export default function AuthProvider({ children }) {
   const [accessToken, setAccessToken] = useState(() => localStorage.getItem('access_token'))
-  const [refreshToken, setRefreshToken] = useState(() => localStorage.getItem('refresh_token'))
   const [loading, setLoading] = useState(false)
 
   useEffect(() => {
@@ -17,20 +16,14 @@ export default function AuthProvider({ children }) {
     else localStorage.removeItem('access_token')
   }, [accessToken])
 
-  useEffect(() => {
-    if (refreshToken) localStorage.setItem('refresh_token', refreshToken)
-    else localStorage.removeItem('refresh_token')
-  }, [refreshToken])
-
   const login = async (credentials) => {
     setLoading(true)
     try {
-      const res = await axios.post('/auth/login', credentials)
-      const token = res?.data?.access_token || res?.data?.token
-      const rtoken = res?.data?.refresh_token || res?.data?.refreshToken
-      if (token) {
-        setAccessToken(token)
-        if (rtoken) setRefreshToken(rtoken)
+      const res = await barberService.login(credentials.email, credentials.password, credentials.type)
+      if (res?.token) {
+        setAccessToken(res.token)
+        localStorage.setItem('barbermove_token', res.token)
+        if (res.user) localStorage.setItem('user_profile', JSON.stringify(res.user))
         return { ok: true }
       }
       return { ok: false, error: 'Resposta inválida do servidor' }
@@ -43,12 +36,13 @@ export default function AuthProvider({ children }) {
 
   const logout = () => {
     setAccessToken(null)
-    setRefreshToken(null)
+    localStorage.removeItem('user_profile')
+    localStorage.removeItem('barbermove_token')
+    localStorage.removeItem('access_token')
   }
 
   const value = {
     accessToken,
-    refreshToken,
     login,
     logout,
     loading,

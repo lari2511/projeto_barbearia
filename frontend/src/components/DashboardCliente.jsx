@@ -19,10 +19,20 @@ export default function DashboardCliente() {
   const handlePause = async () => {
     try {
       await barberService.pauseAppointment(36)
-      alert('Atendimento pausado com sucesso')
+      alert('Corte iniciado com sucesso')
     } catch (err) {
       console.error(err)
-      alert('Erro ao pausar atendimento')
+      alert('Erro ao iniciar o corte')
+    }
+  }
+
+  const handleCancel = async () => {
+    try {
+      await barberService.cancelAppointment(36)
+      alert('Chamado cancelado com sucesso')
+    } catch (err) {
+      console.error(err)
+      alert('Erro ao cancelar chamado')
     }
   }
 
@@ -54,7 +64,7 @@ export default function DashboardCliente() {
               <h3 className="text-lg font-black mt-2">Chamado ativo</h3>
               <p className="text-xs text-barberTextGray">ID: 36 – barba</p>
             </div>
-            <button className="bg-[#CC2929] hover:bg-red-700 text-white font-bold text-xs px-3 py-2 rounded-lg transition-colors shadow-md">
+            <button onClick={handleCancel} className="bg-[#CC2929] hover:bg-red-700 text-white font-bold text-xs px-3 py-2 rounded-lg transition-colors shadow-md">
               Cancelar com taxa de R$ 8,00
             </button>
           </div>

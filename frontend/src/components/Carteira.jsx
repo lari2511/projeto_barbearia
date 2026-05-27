@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react'
-import axios from '../api/axios'
+import { barberService } from '../services/barberService'
 import LayoutMobile from './LayoutMobile'
 import Navbar from './Navbar'
 
@@ -12,9 +12,11 @@ export default function Carteira() {
   useEffect(() => {
     async function carregarDadosCarteira() {
       try {
-        const response = await axios.get('/financeiro/carteira')
-        setSaldo(response.data.saldo ?? 0)
-        setHistorico(response.data.transacoes ?? [])
+        const response = await barberService.getCarteira()
+        const saldoNormalizado = response?.saldo ?? response?.valor ?? response?.total ?? 0
+        const transacoesNormalizadas = response?.transacoes ?? response?.historico ?? response?.movimentacoes ?? []
+        setSaldo(saldoNormalizado)
+        setHistorico(transacoesNormalizadas)
       } catch (error) {
         console.error('Erro ao carregar dados financeiros', error)
       } finally {
@@ -34,7 +36,7 @@ export default function Carteira() {
       <div className="flex-1 p-4 space-y-5 pb-24">
         <div className="bg-gradient-to-br from-barberOrange to-[#B34700] p-6 rounded-2xl shadow-xl space-y-1">
           <p className="text-[11px] text-white/80 font-bold uppercase tracking-widest">Saldo Disponível</p>
-          <h3 className="text-3xl font-black text-white">R$ {saldo.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</h3>
+          <h3 className="text-3xl font-black text-white">R$ {Number(saldo || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</h3>
           <div className="pt-2 flex justify-between items-center text-[11px] text-white/90">
             <span>Rastreamento automático ativo</span>
             <span className="bg-black/20 px-2 py-0.5 rounded font-bold">Barber Move</span>
@@ -60,7 +62,7 @@ export default function Carteira() {
                   </div>
                   <div className="text-right">
                     <span className={`text-xs font-black ${transacao.tipo === 'entrada' ? 'text-emerald-400' : 'text-red-400'}`}>
-                      {transacao.tipo === 'entrada' ? '+' : '-'} R$ {transacao.valor.toFixed(2)}
+                      {transacao.tipo === 'entrada' ? '+' : '-'} R$ {Number(transacao.valor || 0).toFixed(2)}
                     </span>
                     <p className="text-[9px] text-barberTextGray font-medium mt-0.5">{transacao.status}</p>
                   </div>

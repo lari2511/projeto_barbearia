@@ -1,7 +1,6 @@
 import React, { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthProvider'
-import { barberService } from '../services/barberService'
 
 export default function Login({ onAuth }) {
   const [userType, setUserType] = useState('Cliente')
@@ -17,16 +16,11 @@ export default function Login({ onAuth }) {
     setLoading(true)
     setError(null)
     try {
-      const data = await barberService.login(email, password, userType)
-      if (!data || !data.token) {
+      const result = await auth.login({ email, password, type: userType })
+      if (!result?.ok) {
         setError('Credenciais inválidas')
         return
       }
-
-      // Store both old and new token keys for compatibility
-      localStorage.setItem('barbermove_token', data.token)
-      localStorage.setItem('access_token', data.token)
-      if (data.user) localStorage.setItem('user_profile', JSON.stringify(data.user))
 
       onAuth && onAuth()
       navigate('/dashboard')

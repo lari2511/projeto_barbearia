@@ -10,6 +10,7 @@ export default function Registro() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [documento, setDocumento] = useState('')
+  const [endereco, setEndereco] = useState('')
   const [error, setError] = useState('')
   const [success, setSuccess] = useState(false)
 
@@ -20,11 +21,16 @@ export default function Registro() {
     setSuccess(false)
 
     try {
+      if (userType === 'Barbeiro') {
+        throw new Error('Cadastro de barbeiro é feito internamente após login. Use Cliente ou Barbearia neste formulário.')
+      }
+
       await barberService.register({
         nome,
         email,
         senha: password,
-        documento,
+        cpf: documento,
+        endereco,
         role: userType.toLowerCase(),
       })
 
@@ -98,6 +104,17 @@ export default function Registro() {
             className="w-full bg-[#EBF2FA] text-black placeholder-gray-500 font-medium px-4 py-3.5 rounded-xl focus:outline-none text-sm"
             required
           />
+
+          {userType === 'Barbearia' && (
+            <input
+              type="text"
+              placeholder="Endereço da barbearia"
+              value={endereco}
+              onChange={(e) => setEndereco(e.target.value)}
+              className="w-full bg-[#EBF2FA] text-black placeholder-gray-500 font-medium px-4 py-3.5 rounded-xl focus:outline-none text-sm"
+              required
+            />
+          )}
 
           <input
             type="password"
