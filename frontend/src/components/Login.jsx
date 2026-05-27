@@ -36,7 +36,14 @@ export default function Login({ onAuth }) {
       <div className="w-full max-w-md flex flex-col items-center space-y-8">
         <div className="flex flex-col items-center space-y-3">
           <div className="w-28 h-28 bg-white rounded-lg flex items-center justify-center p-2 shadow-lg">
-            <img src="/logo.svg" alt="BarberMove Logo" className="w-full h-full object-contain" />
+            <img
+              src="/logo.png"
+              alt="BarberMove Logo"
+              className="w-full h-full object-contain"
+              onError={(e) => {
+                if (e.target.src.endsWith('logo.png')) e.target.src = '/logo.svg'
+              }}
+            />
           </div>
 
           <h1 className="text-4xl font-black tracking-tight mt-2">
