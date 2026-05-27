@@ -1,6 +1,6 @@
 import React, { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import axios from '../api/axios'
+import { useAuth } from '../context/AuthProvider'
 
 export default function Login({ onAuth }) {
   const [userType, setUserType] = useState('Cliente')
@@ -9,23 +9,22 @@ export default function Login({ onAuth }) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
   const navigate = useNavigate()
+  const auth = useAuth()
 
   const handleLogin = async (e) => {
     e.preventDefault()
     setLoading(true)
     setError(null)
     try {
-      const res = await axios.post('/auth/login', { email, password, type: userType })
-      const token = res?.data?.access_token || res?.data?.token
-      if (token) {
-        localStorage.setItem('access_token', token)
+      const res = await auth.login({ email, password, type: userType })
+      if (res.ok) {
         onAuth && onAuth()
         navigate('/dashboard')
       } else {
-        setError('Resposta inválida do servidor')
+        setError(res.error || 'Falha ao autenticar')
       }
     } catch (err) {
-      setError(err?.response?.data?.detail || 'Falha ao autenticar')
+      setError(err?.message || 'Falha ao autenticar')
     } finally {
       setLoading(false)
     }
