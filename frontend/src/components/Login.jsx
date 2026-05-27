@@ -1,13 +1,31 @@
 import React, { useState } from 'react'
+import axios from '../api/axios'
 
-export default function Login() {
+export default function Login({ onAuth }) {
   const [userType, setUserType] = useState('Cliente')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState(null)
 
-  const handleLogin = (e) => {
+  const handleLogin = async (e) => {
     e.preventDefault()
-    console.log(`Logando como ${userType}:`, { email, password })
+    setLoading(true)
+    setError(null)
+    try {
+      const res = await axios.post('/auth/login', { email, password, type: userType })
+      const token = res?.data?.access_token || res?.data?.token
+      if (token) {
+        localStorage.setItem('access_token', token)
+        onAuth && onAuth()
+      } else {
+        setError('Resposta inválida do servidor')
+      }
+    } catch (err) {
+      setError(err?.response?.data?.detail || 'Falha ao autenticar')
+    } finally {
+      setLoading(false)
+    }
   }
 
   return (
@@ -15,7 +33,7 @@ export default function Login() {
       <div className="w-full max-w-md flex flex-col items-center space-y-8">
         <div className="flex flex-col items-center space-y-3">
           <div className="w-28 h-28 bg-white rounded-lg flex items-center justify-center p-2 shadow-lg">
-            <img src="/path-to-your-logo.png" alt="BarberMove Logo" className="w-full h-full object-contain" />
+            <img src="/logo.svg" alt="BarberMove Logo" className="w-full h-full object-contain" />
           </div>
 
           <h1 className="text-4xl font-black tracking-tight mt-2">
@@ -62,9 +80,10 @@ export default function Login() {
             />
           </div>
 
-          <button type="submit" className="w-full bg-[#E5E5E5] text-black font-black py-4 rounded-xl hover:bg-white transition-colors duration-200 text-center text-base mt-2 shadow-md">
-            Entrar na Conta
+          <button disabled={loading} type="submit" className="w-full bg-[#E5E5E5] text-black font-black py-4 rounded-xl hover:bg-white transition-colors duration-200 text-center text-base mt-2 shadow-md">
+            {loading ? 'Entrando...' : 'Entrar na Conta'}
           </button>
+          {error && <p className="text-sm text-red-400">{error}</p>}
         </form>
 
         <div className="text-center pt-2">

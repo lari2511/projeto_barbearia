@@ -1,14 +1,22 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import Login from './components/Login'
-import Navbar from './components/Navbar'
+import DashboardCliente from './components/DashboardCliente'
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState('inicio')
+  const [authenticated, setAuthenticated] = useState(false)
+
+  useEffect(() => {
+    const token = localStorage.getItem('access_token')
+    if (token) setAuthenticated(true)
+  }, [])
 
   return (
     <div className="min-h-screen bg-barberBg text-white">
-      <Login />
-      <Navbar activeTab={activeTab} setActiveTab={setActiveTab} />
+      {!authenticated ? (
+        <Login onAuth={() => setAuthenticated(true)} />
+      ) : (
+        <DashboardCliente />
+      )}
     </div>
   )
 }
