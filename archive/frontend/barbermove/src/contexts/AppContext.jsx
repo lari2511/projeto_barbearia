@@ -107,6 +107,17 @@ export const AppProvider = ({ children }) => {
       setUserType(tipo);
       
       await fetchUserData();
+
+      // Garantir que a barbearia existe/vinculada ao usuário (cria se necessário)
+      if (tipo === 'barbearia') {
+        try {
+          await fetch(`${API_URL}/api/v1/barbearia/minha`, {
+            headers: { 'Authorization': `Bearer ${data.access_token}` }
+          });
+        } catch (_err) {
+          // Não bloquear o fluxo de login por falha nessa chamada
+        }
+      }
       
       notify('✅ Login realizado com sucesso!', 'success');
       return true;

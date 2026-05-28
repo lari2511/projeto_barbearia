@@ -18,6 +18,24 @@ export default defineConfig({
       }
     }
   },
+  optimizeDeps: {
+    exclude: [
+      'react-native',
+      '@expo/vector-icons',
+      '@react-native-firebase/messaging',
+      '@react-native-firebase/app',
+      '@react-native/assets-registry'
+    ]
+  },
+  resolve: {
+    alias: {
+      'react-native': '/src/shims/react-native.js',
+      '@expo/vector-icons': '/src/shims/expo-vector-icons.js',
+      '@react-native-firebase/messaging': '/src/shims/rn-firebase-messaging.js',
+      '@react-native-firebase/app': '/src/shims/rn-firebase-app.js',
+      '@react-native/assets-registry': '/src/shims/rn-assets-registry.js'
+    }
+  },
   plugins: [
     react(),
     VitePWA({
