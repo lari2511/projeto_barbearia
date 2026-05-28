@@ -17,6 +17,12 @@ async function ensureBarbearia() {
 }
 
 ensureBarbearia().finally(() => {
-	const root = createRoot(document.getElementById('root'));
-	root.render(<LiberarCadeirasComponent token={token} API_URL={API_URL} notify={notify} barbeariaId={2} />);
+		const root = createRoot(document.getElementById('root'));
+		root.render(
+			<div className="min-h-screen bg-black text-white flex justify-center bm-app-frame">
+				<div className="w-full max-w-[430px] min-h-screen p-4 bm-shell-content">
+					<LiberarCadeirasComponent token={token} API_URL={API_URL} notify={notify} barbeariaId={2} />
+				</div>
+			</div>
+		);
 });
