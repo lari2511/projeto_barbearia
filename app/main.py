@@ -58,7 +58,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="BarberMove API", lifespan=lifespan)
 
 # Configuração CORS - Lê do .env
-origins_env = os.getenv("ALLOWED_ORIGINS", "http://localhost:5173,http://localhost:5175")
+origins_env = os.getenv("ALLOWED_ORIGINS", "http://localhost:5173,http://localhost:5174,http://localhost:5175")
 cors_origins = [o.strip() for o in origins_env.split(",") if o and o.strip()]
 
 # Origens do app mobile (Capacitor) para evitar bloqueio CORS no APK.
