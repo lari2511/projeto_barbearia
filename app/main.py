@@ -39,6 +39,7 @@ from .routes_transacoes import router as router_transacoes  # 💰 Rastreamento 
 from .routes_firebase import router as router_firebase  # 🔔 Gerenciamento de Firebase Cloud Messaging (FCM tokens)
 from .routes_on_demand import router as router_on_demand  # 📍 Sistema On-Demand com geolocalização (estilo Uber)
 from .routes_pagamento_perfis import router as router_pagamento_perfis  # 💳 Conta do barbeiro e split admin
+from .routes_senha import router as router_senha  # 🔑 Reset de senha
 from .realtime import realtime_manager
 from .database import Base, engine, init_db
 from sqlalchemy import text
@@ -55,7 +56,11 @@ async def lifespan(app: FastAPI):
     # Shutdown
     pass
 
-app = FastAPI(title="BarberMove API", lifespan=lifespan)
+app = FastAPI(
+    title="BarberMove API", 
+    lifespan=lifespan,
+    timeout=300.0  # Aumenta timeout para 5 minutos
+)
 
 # Configuração CORS - Lê do .env
 origins_env = os.getenv("ALLOWED_ORIGINS", "http://localhost:5173,http://localhost:5174,http://localhost:5175")
@@ -122,6 +127,7 @@ app.include_router(router_firebase)  # 🔔 Firebase Cloud Messaging
 app.include_router(router_on_demand)  # 📍 On-Demand com geolocalização
 app.include_router(router_admin_avaliacoes)  # 🛡️ Gerenciamento admin de avaliações e bloqueios
 app.include_router(router_pagamento_perfis)  # 💳 Configurações de pagamento
+app.include_router(router_senha)  # 🔑 Reset de senha
 # Rotas legais (Termos e Privacidade)
 app.include_router(router_legais, prefix="/api/v1")
 

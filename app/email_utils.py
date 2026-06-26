@@ -4,11 +4,11 @@ import ssl
 from email.message import EmailMessage
 from typing import Optional
 
-SMTP_HOST = os.getenv("SMTP_HOST")
-SMTP_PORT = int(os.getenv("SMTP_PORT") or "587")
-SMTP_USER = os.getenv("SMTP_USER")
-SMTP_PASSWORD = os.getenv("SMTP_PASSWORD")
-SMTP_FROM = os.getenv("SMTP_FROM", SMTP_USER)
+SMTP_HOST = os.getenv("SMTP_HOST") or os.getenv("MAIL_SERVER")
+SMTP_PORT = int(os.getenv("SMTP_PORT") or os.getenv("MAIL_PORT") or "587")
+SMTP_USER = os.getenv("SMTP_USER") or os.getenv("MAIL_USERNAME")
+SMTP_PASSWORD = os.getenv("SMTP_PASSWORD") or os.getenv("MAIL_PASSWORD")
+SMTP_FROM = os.getenv("SMTP_FROM") or os.getenv("MAIL_FROM") or SMTP_USER
 SMTP_USE_TLS = os.getenv("SMTP_USE_TLS", "1") == "1"
 
 

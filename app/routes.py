@@ -10,7 +10,7 @@ from urllib.request import urlopen
 
 from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks, Request
 from sqlalchemy.orm import Session
-from sqlalchemy import or_, and_, func
+from sqlalchemy import or_, and_, func, case
 from datetime import timedelta
 from passlib.context import CryptContext
 from passlib.exc import UnknownHashError
@@ -366,6 +366,14 @@ def _buscar_chamado_para_tracking(db: Session, chamado_id: int) -> models.Chamad
     return chamado
 
 
+def _normalizar_status_chamado(status: str | None) -> str:
+    return str(status or "").strip().lower()
+
+
+def _tracking_ativo_por_status(status: str | None) -> bool:
+    return _normalizar_status_chamado(status) in {"confirmado", "aceito"}
+
+
 def _validar_acesso_tracking(db: Session, user: models.Usuario, chamado: models.Chamado) -> None:
     if user.tipo == "cliente" and chamado.cliente_id == user.id:
         return
@@ -447,6 +455,9 @@ def _montar_payload_tracking(db: Session, chamado: models.Chamado, ativo: models
     return {
         "chamado_id": chamado.id,
         "status": chamado.status,
+        "mostrar_mapa": _tracking_ativo_por_status(chamado.status),
+        "cliente_chegou": bool(getattr(chamado, "cliente_chegou", False)),
+        "barbeiro_chegou": bool(getattr(chamado, "barbeiro_chegou", False)),
         "barbearia": {
             "id": barbearia.id if barbearia else chamado.barbearia_id,
             "nome": barbearia.nome if barbearia else None,
@@ -534,8 +545,11 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
     if not hashed_password:
         return False
     try:
+        # Trunca para 72 bytes (limite do bcrypt) antes de verificar
+        if len(plain_password.encode('utf-8')) > 72:
+            plain_password = plain_password.encode('utf-8')[:72].decode('utf-8', errors='ignore')
         return pwd_context.verify(plain_password, hashed_password)
-    except UnknownHashError:
+    except (UnknownHashError, ValueError):
         return False
 
 def get_password_hash(password: str) -> str:
@@ -1875,6 +1889,8 @@ def aceitar_chamado(id: int, token: str = Depends(oauth2_scheme), db: Session = 
     chamado.barbeiro_id = user.id
     chamado.status = models.StatusAgendamento.CONFIRMADO.value  # Usar Enum
     chamado.observacao = None  # Limpar observação quando barbeiro aceita
+    chamado.cliente_chegou = False
+    chamado.barbeiro_chegou = False
     chamado.aprovado_barbeiro = True
     chamado.aprovado_barbeiro_em = datetime.utcnow()
     chamado.horario_match = datetime.utcnow()  # ✅ Iniciar contagem de 5 minutos para cancelamento
@@ -1955,6 +1971,115 @@ def aceitar_chamado(id: int, token: str = Depends(oauth2_scheme), db: Session = 
             "numero": cadeira_reservada.numero,
             "status": cadeira_reservada.status,
         } if cadeira_reservada else None
+    }
+
+
+@router.put("/chamados/{id}/chegar")
+async def chegar_chamado(id: int, token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
+    """Registra chegada do cliente/barbeiro e muda para em_atendimento somente quando ambos confirmarem."""
+    user = get_current_user(token=token, db=db)
+    if user.tipo not in {"cliente", "barbeiro"}:
+        raise HTTPException(status_code=403, detail="Apenas cliente ou barbeiro podem marcar chegada")
+
+    chamado = db.query(models.Chamado).filter(models.Chamado.id == id).first()
+    if not chamado:
+        raise HTTPException(status_code=404, detail="Chamado não encontrado")
+
+    if user.tipo == "cliente" and chamado.cliente_id != user.id:
+        raise HTTPException(status_code=403, detail="Você não está associado a este chamado")
+    if user.tipo == "barbeiro" and chamado.barbeiro_id != user.id:
+        raise HTTPException(status_code=403, detail="Você não está associado a este chamado")
+
+    status_normalizado = _normalizar_status_chamado(chamado.status)
+    if status_normalizado in {models.StatusAgendamento.CANCELADO.value, models.StatusAgendamento.CONCLUIDO.value}:
+        raise HTTPException(status_code=400, detail="Chamado já finalizado")
+
+    if status_normalizado not in {"aceito", models.StatusAgendamento.CONFIRMADO.value, models.StatusAgendamento.EM_ATENDIMENTO.value}:
+        raise HTTPException(status_code=400, detail="Chegada só pode ser confirmada quando o chamado estiver confirmado")
+
+    if user.tipo == "cliente":
+        chamado.cliente_chegou = True
+    else:
+        chamado.barbeiro_chegou = True
+
+    chamado.horario_chegada = datetime.utcnow()
+
+    cliente_chegou = bool(getattr(chamado, "cliente_chegou", False))
+    barbeiro_chegou = bool(getattr(chamado, "barbeiro_chegou", False))
+    status_anterior = chamado.status
+    virou_em_atendimento = False
+
+    if cliente_chegou and barbeiro_chegou and status_normalizado != models.StatusAgendamento.EM_ATENDIMENTO.value:
+        chamado.status = models.StatusAgendamento.EM_ATENDIMENTO.value
+        virou_em_atendimento = True
+
+        barbeiro = db.query(models.Usuario).filter(models.Usuario.id == chamado.barbeiro_id).first() if chamado.barbeiro_id else None
+        if barbeiro:
+            barbeiro.disponivel = False
+            barbeiro.em_atendimento = True
+
+        db.add(models.ChamadoHistorico(
+            chamado_id=chamado.id,
+            status_anterior=status_anterior,
+            status_novo=chamado.status,
+            usuario_id=user.id,
+            observacao='Cliente e barbeiro confirmaram chegada. Atendimento iniciado.'
+        ))
+
+        db.add(models.Notificacao(
+            usuario_id=chamado.cliente_id,
+            titulo="Atendimento iniciado",
+            mensagem="Cliente e barbeiro confirmaram chegada. O serviço foi iniciado.",
+            tipo="chamado",
+            referencia_id=chamado.id
+        ))
+        if chamado.barbeiro_id:
+            db.add(models.Notificacao(
+                usuario_id=chamado.barbeiro_id,
+                titulo="Atendimento iniciado",
+                mensagem="Cliente e barbeiro confirmaram chegada. O serviço foi iniciado.",
+                tipo="chamado",
+                referencia_id=chamado.id
+            ))
+
+    db.commit()
+    db.refresh(chamado)
+
+    payload_tracking = None
+    if chamado.status in {models.StatusAgendamento.CONFIRMADO.value, models.StatusAgendamento.EM_ATENDIMENTO.value}:
+        try:
+            ativo = _obter_ou_criar_agendamento_ativo(db, chamado)
+            db.commit()
+            db.refresh(ativo)
+            payload_tracking = _montar_payload_tracking(db, chamado, ativo)
+        except Exception:
+            payload_tracking = None
+
+    if virou_em_atendimento:
+        await broadcast_event(
+            "chamado_em_atendimento",
+            chamado_id=chamado.id,
+            status=chamado.status,
+            tracking=payload_tracking,
+        )
+    else:
+        await broadcast_event(
+            "chamado_chegada_atualizada",
+            chamado_id=chamado.id,
+            status=chamado.status,
+            cliente_chegou=bool(getattr(chamado, "cliente_chegou", False)),
+            barbeiro_chegou=bool(getattr(chamado, "barbeiro_chegou", False)),
+            tracking=payload_tracking,
+        )
+
+    return {
+        "id": chamado.id,
+        "status": chamado.status,
+        "cliente_chegou": bool(getattr(chamado, "cliente_chegou", False)),
+        "barbeiro_chegou": bool(getattr(chamado, "barbeiro_chegou", False)),
+        "horario_chegada": chamado.horario_chegada.isoformat() if chamado.horario_chegada else None,
+        "tracking": payload_tracking,
+        "message": "Chegada registrada" if not virou_em_atendimento else "Ambos chegaram. Atendimento iniciado"
     }
 
 
@@ -2877,6 +3002,9 @@ async def atualizar_posicao_cliente_tracking(
     if user.tipo != "cliente" or chamado.cliente_id != user.id:
         raise HTTPException(status_code=403, detail="Apenas o cliente do chamado pode atualizar essa posição")
 
+    if not _tracking_ativo_por_status(chamado.status):
+        raise HTTPException(status_code=409, detail="Tracking desativado para o status atual do chamado")
+
     ativo = _obter_ou_criar_agendamento_ativo(db, chamado)
     # AUDITORIA: logar coordenadas recebidas e atuais para diagnóstico de GPS
     try:
@@ -2914,6 +3042,9 @@ async def atualizar_posicao_barbeiro_tracking(
 
     if user.tipo != "barbeiro" or chamado.barbeiro_id != user.id:
         raise HTTPException(status_code=403, detail="Apenas o barbeiro do chamado pode atualizar essa posição")
+
+    if not _tracking_ativo_por_status(chamado.status):
+        raise HTTPException(status_code=409, detail="Tracking desativado para o status atual do chamado")
 
     ativo = _obter_ou_criar_agendamento_ativo(db, chamado)
     # AUDITORIA: logar coordenadas recebidas e atuais para diagnóstico de GPS
@@ -2972,6 +3103,10 @@ async def atualizar_localizacao_compat(
     if payload.chamado_id is not None:
         chamado = _buscar_chamado_para_tracking(db, payload.chamado_id)
         _validar_acesso_tracking(db, user, chamado)
+
+        if not _tracking_ativo_por_status(chamado.status):
+            raise HTTPException(status_code=409, detail="Tracking desativado para o status atual do chamado")
+
         ativo = _obter_ou_criar_agendamento_ativo(db, chamado)
 
         agora = datetime.utcnow()
@@ -3066,6 +3201,104 @@ def listar_barbeiros_presentes(
         })
     
     return resultado
+
+
+@router.get("/barbearia/{barbearia_id}/barbeiros-priorizados")
+def listar_barbeiros_priorizados_barbearia(
+    barbearia_id: int,
+    latitude: float | None = None,
+    longitude: float | None = None,
+    raio_km: float = 10.0,
+    incluir_indisponiveis: bool = False,
+    db: Session = Depends(get_db),
+):
+    """
+    Lista barbeiros para uma barbearia com prioridade:
+    1) Profissionais da casa (presentes na barbearia)
+    2) Freelancers online na região
+    """
+    barbearia = db.query(models.Barbearia).filter(models.Barbearia.id == barbearia_id).first()
+    if not barbearia:
+        raise HTTPException(status_code=404, detail="Barbearia não encontrada")
+
+    criterio_profissional_da_casa = and_(
+        models.Usuario.presente_em_local == True,
+        models.Usuario.barbearia_atual_id == barbearia_id,
+    )
+
+    prioridade_sql = case((criterio_profissional_da_casa, 1), else_=2)
+
+    barbeiros = db.query(models.Usuario).filter(
+        models.Usuario.tipo == 'barbeiro',
+        models.Usuario.perfil_aprovado == True,
+        or_(
+            criterio_profissional_da_casa,
+            models.Usuario.online_regiao == True,
+        )
+    ).order_by(
+        prioridade_sql.asc(),
+        func.lower(models.Usuario.nome).asc()
+    ).all()
+
+    usar_filtro_distancia = latitude is not None and longitude is not None
+
+    resultado = []
+    for barbeiro in barbeiros:
+        profissional_da_casa = bool(
+            barbeiro.presente_em_local and
+            barbeiro.barbearia_atual_id == barbearia_id
+        )
+
+        if not profissional_da_casa and not barbeiro.online_regiao:
+            continue
+
+        distancia_km = None
+        if usar_filtro_distancia:
+            if barbeiro.latitude is None or barbeiro.longitude is None:
+                if not profissional_da_casa:
+                    continue
+            else:
+                distancia_km = calcular_distancia_km(latitude, longitude, barbeiro.latitude, barbeiro.longitude)
+                if distancia_km is not None and distancia_km > raio_km and not profissional_da_casa:
+                    continue
+
+        disponivel_real = bool(barbeiro.disponivel) and not esta_em_servico_agora(db, barbeiro.id)
+        if not incluir_indisponiveis and not disponivel_real:
+            continue
+
+        resultado.append({
+            "id": barbeiro.id,
+            "nome": barbeiro.nome,
+            "telefone": barbeiro.telefone,
+            "endereco": barbeiro.endereco,
+            "foto_perfil": barbeiro.foto_perfil,
+            "latitude": barbeiro.latitude,
+            "longitude": barbeiro.longitude,
+            "distancia_km": round(distancia_km, 2) if distancia_km is not None else None,
+            "tempo_estimado_minutos": max(1, int(round((distancia_km / 40) * 60))) if distancia_km is not None else None,
+            "disponivel": disponivel_real,
+            "presente_em_local": bool(barbeiro.presente_em_local),
+            "barbearia_atual_id": barbeiro.barbearia_atual_id,
+            "barbearia_atual_nome": barbearia.nome if profissional_da_casa else None,
+            "online_regiao": bool(barbeiro.online_regiao),
+            "profissional_da_casa": profissional_da_casa,
+            "origem": "casa" if profissional_da_casa else "freelancer",
+            "prioridade": 1 if profissional_da_casa else 2,
+            "pode_receber_chamado_agora": bool(profissional_da_casa),
+        })
+
+    resultado.sort(key=lambda item: (
+        item.get("prioridade", 2),
+        item.get("distancia_km") if item.get("distancia_km") is not None else float('inf'),
+        str(item.get("nome") or '').lower()
+    ))
+
+    return {
+        "barbearia_id": barbearia_id,
+        "barbearia_nome": barbearia.nome,
+        "total": len(resultado),
+        "barbeiros": resultado,
+    }
 
 
 # --- ENDPOINTS DE BARBEARIA ---

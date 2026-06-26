@@ -1,0 +1,12 @@
+/* File cleared to remove legacy global styles that conflict with Tailwind.
+   Backup created at src/theme/painel.css.bak
+   If you need to restore, copy the .bak file back into this file. */
+
+:root{
+  --bm-bg: #050406;
+}
+
+/* Keep minimal placeholder variables to avoid breaking imports */
+
+
+

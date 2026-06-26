@@ -1,0 +1,307 @@
+// Contexto de autenticação e estado global do BarberMove
+import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import { getApiBaseUrl } from '../utils/api';
+
+const API_URL = getApiBaseUrl();
+
+// Função auxiliar para converter QUALQUER coisa para string legível
+function toReadableString(value) {
+  if (value === null || value === undefined) return 'Erro desconhecido';
+  if (typeof value === 'string') return value;
+  if (typeof value === 'number') return String(value);
+  if (typeof value === 'boolean') return String(value);
+  
+  if (Array.isArray(value)) {
+    return value
+      .map(v => toReadableString(v))
+      .filter(s => s && s !== 'Erro desconhecido')
+      .join('; ') || 'Erro desconhecido';
+  }
+  
+  if (typeof value === 'object') {
+    // Prioridade: detail > message > msg > desc > error > description
+    if (value.detail !== undefined) return toReadableString(value.detail);
+    if (value.message !== undefined) return toReadableString(value.message);
+    if (value.msg !== undefined) return toReadableString(value.msg);
+    if (value.desc !== undefined) return toReadableString(value.desc);
+    if (value.error !== undefined) return toReadableString(value.error);
+    if (value.description !== undefined) return toReadableString(value.description);
+    
+    // Se nenhum desses, tenta toString
+    const str = String(value);
+    if (str !== '[object Object]') return str;
+  }
+  
+  return 'Erro desconhecido';
+}
+
+export const AppContext = createContext();
+
+// eslint-disable-next-line react-refresh/only-export-components
+export const useApp = () => {
+  const context = useContext(AppContext);
+  if (!context) {
+    throw new Error('useApp deve ser usado dentro de AppProvider');
+  }
+  return context;
+};
+
+export const AppProvider = ({ children }) => {
+  const [user, setUser] = useState(null);
+  const [token, setToken] = useState(localStorage.getItem('token'));
+  const [userType, setUserType] = useState(localStorage.getItem('userType'));
+  const [loading, setLoading] = useState(false);
+  const [toast, setToast] = useState(null);
+
+  const fetchUserData = useCallback(async (overrideToken = token, overrideType = userType) => {
+    if (!overrideToken || !overrideType) {
+      return;
+    }
+
+    if (overrideType !== 'barbearia') {
+      return;
+    }
+
+    try {
+      const response = await fetch(`${API_URL}/api/v1/barbearia/minha`, {
+        headers: { 'Authorization': `Bearer ${overrideToken}` }
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        setUser(data);
+      }
+    } catch (_error) {
+      // Erro ao buscar dados do usuário
+    }
+  }, [token, userType]);
+
+  // Verificar se tem token ao carregar
+  useEffect(() => {
+    if (token && userType) {
+      fetchUserData(token, userType);
+    }
+  }, [fetchUserData, token, userType]);
+
+  const login = async (email, senha, tipo) => {
+    setLoading(true);
+    try {
+      const body = new URLSearchParams({ username: email, password: senha });
+      
+      const response = await fetch(`${API_URL}/api/v1/login/${tipo}/`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body
+      });
+
+      if (!response.ok) {
+        let detail = `Erro ${response.status}: Email ou senha incorretos`;
+        try {
+          const error = await response.json();
+          detail = toReadableString(error);
+        } catch (_) {
+          // Não conseguiu parsear erro JSON
+        }
+        throw new Error(detail);
+      }
+
+      const data = await response.json();
+
+      const dataJson = data || {};
+
+      // Priorizar o tipo/role retornado pelo backend quando disponível
+      const serverType = (
+        dataJson.user?.tipo_usuario ||
+        dataJson.usuario?.tipo_usuario ||
+        dataJson.user_type ||
+        dataJson.tipo_usuario ||
+        dataJson.role ||
+        tipo
+      );
+
+      localStorage.setItem('token', dataJson.access_token);
+      localStorage.setItem('userType', serverType);
+      localStorage.setItem('userId', dataJson.user_id);
+
+      setToken(dataJson.access_token);
+      setUserType(serverType);
+
+      setUser({
+        id: dataJson.user_id,
+        tipo: serverType,
+        email,
+      });
+
+      await fetchUserData(data.access_token, tipo);
+
+      // Garantir que a barbearia existe/vinculada ao usuário (cria se necessário)
+      if (tipo === 'barbearia') {
+        try {
+          await fetch(`${API_URL}/api/v1/barbearia/minha`, {
+            headers: { 'Authorization': `Bearer ${data.access_token}` }
+          });
+        } catch (_err) {
+          // Não bloquear o fluxo de login por falha nessa chamada
+        }
+      }
+      
+      notify('✅ Login realizado com sucesso!', 'success');
+      return true;
+    } catch (error) {
+      let msg = 'Erro desconhecido ao fazer login';
+      
+      // Tenta extrair mensagem de diferentes tipos de erro
+      if (error instanceof Error) {
+        msg = error.message || msg;
+      } else if (typeof error === 'string') {
+        msg = error;
+      } else if (error && typeof error === 'object') {
+        msg = toReadableString(error);
+      }
+      
+      // Garante que nunca fica [object Object]
+      if (msg.includes('[object Object]')) {
+        msg = 'Email ou senha incorretos. Tente novamente.';
+      }
+      
+      notify(`❌ ${msg}`, 'error');
+      return false;
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const register = async (tipo, payload) => {
+    setLoading(true);
+    try {
+      const endpoints = {
+        cliente: '/api/v1/clientes/',
+        barbeiro: '/api/v1/barbeiros/',
+        barbearia: '/api/v1/barbearias/',
+      };
+
+      const endpoint = endpoints[tipo];
+      if (!endpoint) {
+        throw new Error('Tipo de cadastro inválido');
+      }
+
+      const response = await fetch(`${API_URL}${endpoint}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+
+      if (!response.ok) {
+        let detail = `Erro ${response.status}: não foi possível concluir o cadastro`;
+        try {
+          const error = await response.json();
+          detail = toReadableString(error);
+        } catch (_) {
+          // Não conseguiu ler o detalhe do erro
+        }
+        throw new Error(detail);
+      }
+
+      const dataJson = await response.json();
+      const userData = dataJson.usuario || dataJson.user || null;
+
+      // Priorizar o tipo/role retornado pelo backend quando disponível
+      const serverType = (
+        dataJson.usuario?.tipo_usuario ||
+        dataJson.user?.tipo_usuario ||
+        dataJson.user_type ||
+        dataJson.tipo_usuario ||
+        dataJson.role ||
+        tipo
+      );
+
+      localStorage.setItem('token', dataJson.access_token);
+      localStorage.setItem('userType', serverType);
+      if (userData?.id) {
+        localStorage.setItem('userId', String(userData.id));
+      }
+
+      setToken(dataJson.access_token);
+      setUserType(serverType);
+      setUser(userData ? { ...userData, tipo: serverType } : { ...payload, tipo: serverType });
+
+      if (tipo === 'barbearia') {
+        await fetchUserData(data.access_token, tipo);
+      }
+
+      notify('✅ Cadastro realizado com sucesso!', 'success');
+      return data;
+    } catch (error) {
+      let msg = 'Erro desconhecido ao cadastrar';
+
+      if (error instanceof Error) {
+        msg = error.message || msg;
+      } else if (typeof error === 'string') {
+        msg = error;
+      } else if (error && typeof error === 'object') {
+        msg = toReadableString(error);
+      }
+
+      notify(`❌ ${msg}`, 'error');
+      return false;
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const logout = () => {
+    localStorage.clear();
+    setToken(null);
+    setUserType(null);
+    setUser(null);
+    notify('Logout realizado', 'info');
+  };
+
+  const notify = (message, type = 'info') => {
+    // Garante ABSOLUTO que message é string legível
+    const msg = toReadableString(message);
+    setToast({ message: msg, type, id: Date.now() });
+    setTimeout(() => setToast(null), 5000);
+  };
+
+  const apiRequest = async (endpoint, options = {}) => {
+    const headers = {
+      'Content-Type': 'application/json',
+      ...options.headers,
+    };
+
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
+
+    const response = await fetch(`${API_URL}${endpoint}`, {
+      ...options,
+      headers,
+    });
+
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.detail || 'Erro na requisição');
+    }
+
+    return response.json();
+  };
+
+  const value = {
+    user,
+    token,
+    userType,
+    loading,
+    toast,
+    login,
+    register,
+    logout,
+    notify,
+    apiRequest,
+    setLoading,
+    fetchUserData,
+    API_URL
+  };
+
+  return <AppContext.Provider value={value}>{children}</AppContext.Provider>;
+};

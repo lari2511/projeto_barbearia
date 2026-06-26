@@ -1,7 +1,7 @@
 # --- ARQUIVO: app/models.py ---
 # Modelos SQLAlchemy para o banco de dados
 
-from sqlalchemy import Column, Integer, String, Float, DateTime, ForeignKey, Boolean, Enum
+from sqlalchemy import Column, Integer, String, Float, DateTime, ForeignKey, Boolean, Enum, UniqueConstraint
 from sqlalchemy.orm import relationship
 from datetime import datetime
 from .database import Base
@@ -187,6 +187,8 @@ class Chamado(Base):
     
     # --- STATUS (Máquina de estados) ---
     status = Column(String, default=StatusAgendamento.PENDENTE)  # pendente, confirmado, concluído, cancelado
+    cliente_chegou = Column(Boolean, default=False)  # Cliente confirmou chegada no local
+    barbeiro_chegou = Column(Boolean, default=False)  # Barbeiro confirmou chegada no local
     
     # --- APROVAÇÕES (Bidirecional) ---
     aprovado_barbeiro = Column(Boolean, default=False)  # Barbeiro aprovou
@@ -959,6 +961,44 @@ class SolicitacaoBarbeiro(Base):
     cliente = relationship("Usuario", foreign_keys=[cliente_id], backref="solicitacoes_como_cliente")
     barbearia = relationship("Barbearia", foreign_keys=[barbearia_id])
     barbeiro_aceito = relationship("Usuario", foreign_keys=[barbeiro_aceito_id], backref="solicitacoes_aceitas")
+    visualizacoes = relationship("RequestView", back_populates="solicitacao", cascade="all, delete-orphan")
+
+
+class CadeiraAcionada(Base):
+    """
+    Evento de vaga relampago acionada pela barbearia para aceite em tempo real.
+
+    Fluxo principal:
+    - status='disponivel': vaga aberta para barbeiros/clientes elegiveis.
+    - status='ocupada_por_barbeiro': barbeiro assumiu a cadeira.
+    - status='reservada_por_cliente': cliente reservou atendimento imediato.
+    - status='expirada': tempo limite encerrado sem aceite valido.
+    """
+
+    __tablename__ = "cadeiras_acionadas"
+
+    id = Column(Integer, primary_key=True, index=True)
+    barbearia_id = Column(Integer, ForeignKey("barbearias.id"), nullable=False, index=True)
+    cadeira_id = Column(Integer, ForeignKey("cadeiras.id"), nullable=True, index=True)
+
+    status = Column(String, default="disponivel", index=True)
+    barbeiro_id = Column(Integer, ForeignKey("usuarios.id"), nullable=True, index=True)
+    cliente_id = Column(Integer, ForeignKey("usuarios.id"), nullable=True, index=True)
+
+    raio_km = Column(Float, default=5.0)
+    tipo_servico = Column(String, nullable=True)
+    valor_oferta = Column(Float, nullable=True)
+    observacoes = Column(String, nullable=True)
+
+    criado_em = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+    atualizado_em = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    limite_chegada = Column(DateTime, nullable=True, index=True)
+    expira_em = Column(DateTime, nullable=True, index=True)
+
+    barbearia = relationship("Barbearia", foreign_keys=[barbearia_id])
+    cadeira = relationship("Cadeira", foreign_keys=[cadeira_id])
+    barbeiro = relationship("Usuario", foreign_keys=[barbeiro_id])
+    cliente = relationship("Usuario", foreign_keys=[cliente_id])
 
 
 class NotificacaoBarbeiro(Base):
@@ -987,3 +1027,20 @@ class NotificacaoBarbeiro(Base):
     # Relacionamentos
     barbeiro = relationship("Usuario", foreign_keys=[barbeiro_id])
     solicitacao = relationship("SolicitacaoBarbeiro")
+
+
+class RequestView(Base):
+    """Registro de visualização/recebimento de uma solicitação on-demand."""
+
+    __tablename__ = "request_views"
+    __table_args__ = (
+        UniqueConstraint("request_id", "freelancer_id", name="uq_request_views_request_freelancer"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    request_id = Column(Integer, ForeignKey("solicitacoes_barbeiro.id"), nullable=False, index=True)
+    freelancer_id = Column(Integer, ForeignKey("usuarios.id"), nullable=False, index=True)
+    viewed_at = Column(DateTime, default=datetime.utcnow, index=True)
+
+    solicitacao = relationship("SolicitacaoBarbeiro", back_populates="visualizacoes")
+    freelancer = relationship("Usuario", foreign_keys=[freelancer_id])

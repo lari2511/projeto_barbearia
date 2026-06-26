@@ -45,11 +45,27 @@ def init_db():
             "valor_taxa_cancelamento": "FLOAT",
             "motivo_cancelamento": "VARCHAR(255)",
             "horario_match": "DATETIME",  # ✅ Novo: timestamp quando freelancer aceita (inicia 5 min)
+            "cliente_chegou": "BOOLEAN DEFAULT 0",
+            "barbeiro_chegou": "BOOLEAN DEFAULT 0",
         }
 
         with engine.begin() as connection:
             for nome_coluna, definicao in colunas_esperadas.items():
                 if nome_coluna not in colunas_existentes:
                     connection.execute(text(f"ALTER TABLE chamados ADD COLUMN {nome_coluna} {definicao}"))
+
+    if "radar_freelancer" in inspector.get_table_names():
+        colunas_existentes = {coluna["name"] for coluna in inspector.get_columns("radar_freelancer")}
+        colunas_esperadas = {
+            "ocupado_ate": "DATETIME",
+            "localizacao_atualizada_em": "DATETIME",
+            "barbearia_atendimento_id": "INTEGER",
+            "cliente_atendimento_id": "INTEGER",
+        }
+
+        with engine.begin() as connection:
+            for nome_coluna, definicao in colunas_esperadas.items():
+                if nome_coluna not in colunas_existentes:
+                    connection.execute(text(f"ALTER TABLE radar_freelancer ADD COLUMN {nome_coluna} {definicao}"))
 
     print("--- Banco de dados inicializado com sucesso ---")
