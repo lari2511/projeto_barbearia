@@ -631,6 +631,41 @@ class TipoTransacao(str, enum.Enum):
     DEVOLUCAO = "devolucao"                      # Devolução por cancelamento
 
 
+class CarteiraBarbeiro(Base):
+    """Saldo virtual do barbeiro para controle de ganhos e débito de comissão."""
+    __tablename__ = "carteiras"
+
+    id = Column(Integer, primary_key=True, index=True)
+    barbeiro_id = Column(Integer, ForeignKey("usuarios.id"), nullable=False, unique=True, index=True)
+    saldo = Column(Float, default=0.0, nullable=False)
+    limite_negativo = Column(Float, default=-50.0, nullable=False)
+    criado_em = Column(DateTime, default=datetime.utcnow)
+    atualizado_em = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    barbeiro = relationship("Usuario", foreign_keys=[barbeiro_id])
+    movimentacoes = relationship("HistoricoMovimentacaoFinanceira", back_populates="carteira")
+
+
+class HistoricoMovimentacaoFinanceira(Base):
+    """Auditoria linha a linha de cada crédito/débito aplicado na carteira do barbeiro."""
+    __tablename__ = "historico_movimentacoes"
+
+    id = Column(Integer, primary_key=True, index=True)
+    carteira_id = Column(Integer, ForeignKey("carteiras.id"), nullable=False, index=True)
+    barbeiro_id = Column(Integer, ForeignKey("usuarios.id"), nullable=False, index=True)
+    chamado_id = Column(Integer, ForeignKey("chamados.id"), nullable=True, index=True)
+    tipo = Column(String, nullable=False, index=True)
+    descricao = Column(String, nullable=False)
+    valor = Column(Float, nullable=False)
+    saldo_antes = Column(Float, nullable=False)
+    saldo_depois = Column(Float, nullable=False)
+    criado_em = Column(DateTime, default=datetime.utcnow, index=True)
+
+    carteira = relationship("CarteiraBarbeiro", back_populates="movimentacoes")
+    barbeiro = relationship("Usuario", foreign_keys=[barbeiro_id])
+    chamado = relationship("Chamado", foreign_keys=[chamado_id])
+
+
 class Corte(Base):
     """
     Registro de cada serviço realizado na plataforma.

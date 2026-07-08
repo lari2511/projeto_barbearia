@@ -8,11 +8,17 @@ from sqlalchemy.orm import Session
 from typing import List
 from datetime import datetime, timedelta
 from sqlalchemy import func
+from pydantic import BaseModel
+import qrcode
+import io
+import base64
+import os
 
 from app.database import get_db
 from app.models import (
     Usuario, Freelancer, EspecialidadeFreelancer, PortfolioFreelancer,
-    AvaliacaoFreelancer, Comissao, Chamado, OrigemCliente
+    AvaliacaoFreelancer, Comissao, Chamado, OrigemCliente,
+    CarteiraBarbeiro, HistoricoMovimentacaoFinanceira, Saque
 )
 from app.schemas import (
     FreelancerCreate, FreelancerResponse, FreelancerDetalhes,
@@ -23,6 +29,61 @@ from app.schemas import (
 from app.routes import get_current_user  # Import da função de autenticação
 
 router = APIRouter(prefix="/api/v1/freelancer", tags=["Freelancer"])
+
+LIMITE_NEGATIVO_PADRAO = -50.0
+
+
+class CarteiraQuitacaoConfirmarRequest(BaseModel):
+    valor: float
+
+
+class CarteiraSaquePixRequest(BaseModel):
+    chave_pix: str
+    valor: float | None = None
+
+
+def _obter_ou_criar_carteira(db: Session, barbeiro_id: int) -> CarteiraBarbeiro:
+    carteira = db.query(CarteiraBarbeiro).filter(CarteiraBarbeiro.barbeiro_id == barbeiro_id).first()
+    if carteira:
+        if carteira.limite_negativo is None:
+            carteira.limite_negativo = LIMITE_NEGATIVO_PADRAO
+        return carteira
+
+    carteira = CarteiraBarbeiro(
+        barbeiro_id=barbeiro_id,
+        saldo=0.0,
+        limite_negativo=LIMITE_NEGATIVO_PADRAO,
+    )
+    db.add(carteira)
+    db.flush()
+    return carteira
+
+
+def _registrar_movimentacao(
+    db: Session,
+    *,
+    carteira: CarteiraBarbeiro,
+    tipo: str,
+    descricao: str,
+    valor: float,
+    chamado_id: int | None = None,
+):
+    saldo_antes = float(carteira.saldo or 0.0)
+    saldo_depois = saldo_antes + float(valor)
+    carteira.saldo = saldo_depois
+
+    mov = HistoricoMovimentacaoFinanceira(
+        carteira_id=carteira.id,
+        barbeiro_id=carteira.barbeiro_id,
+        chamado_id=chamado_id,
+        tipo=tipo,
+        descricao=descricao,
+        valor=float(valor),
+        saldo_antes=saldo_antes,
+        saldo_depois=saldo_depois,
+    )
+    db.add(mov)
+    return mov
 
 
 @router.post("/cadastro", response_model=dict)
@@ -560,6 +621,29 @@ def obter_relatorio_comissoes(
     comissoes_pagas = sum([c.valor_comissao for c in comissoes if c.status == "pago"])
     
     ganhos_liquidos = ganhos_brutos - total_comissoes
+
+    carteira = _obter_ou_criar_carteira(db, usuario_atual.id)
+    limite_negativo = float(carteira.limite_negativo if carteira.limite_negativo is not None else LIMITE_NEGATIVO_PADRAO)
+    saldo_carteira = float(carteira.saldo or 0.0)
+    bloqueado_financeiro = saldo_carteira <= limite_negativo
+
+    historico = db.query(HistoricoMovimentacaoFinanceira).filter(
+        HistoricoMovimentacaoFinanceira.barbeiro_id == usuario_atual.id
+    ).order_by(HistoricoMovimentacaoFinanceira.criado_em.desc()).limit(20).all()
+
+    historico_payload = [
+        {
+            "id": h.id,
+            "tipo": h.tipo,
+            "descricao": h.descricao,
+            "valor": float(h.valor or 0.0),
+            "saldo_antes": float(h.saldo_antes or 0.0),
+            "saldo_depois": float(h.saldo_depois or 0.0),
+            "chamado_id": h.chamado_id,
+            "criado_em": h.criado_em.isoformat() if h.criado_em else None,
+        }
+        for h in historico
+    ]
     
     return {
         "total_atendimentos": total_atendimentos,
@@ -570,5 +654,143 @@ def obter_relatorio_comissoes(
         "ganhos_liquidos": ganhos_liquidos,
         "comissoes_pendentes": comissoes_pendentes,
         "comissoes_pagas": comissoes_pagas,
-        "comissoes": comissoes
+        "comissoes": comissoes,
+        "saldo_carteira": saldo_carteira,
+        "limite_negativo": limite_negativo,
+        "bloqueado_financeiro": bloqueado_financeiro,
+        "historico_movimentacoes": historico_payload,
+    }
+
+
+@router.get("/carteira/resumo", response_model=dict)
+def obter_resumo_carteira(
+    db: Session = Depends(get_db),
+    usuario_atual = Depends(get_current_user)
+):
+    carteira = _obter_ou_criar_carteira(db, usuario_atual.id)
+    limite_negativo = float(carteira.limite_negativo if carteira.limite_negativo is not None else LIMITE_NEGATIVO_PADRAO)
+    saldo = float(carteira.saldo or 0.0)
+
+    return {
+        "saldo": saldo,
+        "limite_negativo": limite_negativo,
+        "bloqueado_financeiro": saldo <= limite_negativo,
+    }
+
+
+@router.post("/carteira/quitacao/pix-gerar", response_model=dict)
+def gerar_pix_quitacao_carteira(
+    db: Session = Depends(get_db),
+    usuario_atual = Depends(get_current_user)
+):
+    carteira = _obter_ou_criar_carteira(db, usuario_atual.id)
+    saldo = float(carteira.saldo or 0.0)
+    if saldo >= 0:
+        raise HTTPException(status_code=400, detail="Não há saldo devedor para quitar")
+
+    valor = round(abs(saldo), 2)
+    pix_chave = os.getenv("PIX_CHAVE", "+5511999999999")
+    nome_recebedor = (os.getenv("PIX_NOME", "BarberMove") + " " * 13)[:13]
+    cidade_recebedor = (os.getenv("PIX_CIDADE", "SAO PAULO") + " " * 9)[:9]
+    valor_str = f"{valor:.2f}"
+    pix_payload = (
+        f"00020126360014BR.GOV.BCB.PIX0114{pix_chave}"
+        f"0204000053039865406{valor_str}5802BR"
+        f"5913{nome_recebedor}6009{cidade_recebedor}"
+        f"62140510DEBITO{usuario_atual.id:04d}6304"
+    )
+
+    qr = qrcode.QRCode(version=1, box_size=10, border=5)
+    qr.add_data(pix_payload)
+    qr.make(fit=True)
+    img = qr.make_image(fill_color="black", back_color="white")
+    buffer = io.BytesIO()
+    img.save(buffer, format="PNG")
+    qrcode_base64 = base64.b64encode(buffer.getvalue()).decode()
+
+    return {
+        "valor_devedor": valor,
+        "pix_copia_cola": pix_payload,
+        "qrcode_base64": qrcode_base64,
+    }
+
+
+@router.post("/carteira/quitacao/confirmar", response_model=dict)
+def confirmar_quitacao_carteira(
+    dados: CarteiraQuitacaoConfirmarRequest,
+    db: Session = Depends(get_db),
+    usuario_atual = Depends(get_current_user)
+):
+    carteira = _obter_ou_criar_carteira(db, usuario_atual.id)
+    valor = round(float(dados.valor or 0.0), 2)
+    if valor <= 0:
+        raise HTTPException(status_code=400, detail="Valor inválido para quitação")
+
+    _registrar_movimentacao(
+        db,
+        carteira=carteira,
+        tipo="quitacao_debito_pix",
+        descricao="Pagamento de saldo devedor para liberar o app",
+        valor=valor,
+        chamado_id=None,
+    )
+    db.commit()
+
+    saldo = float(carteira.saldo or 0.0)
+    limite_negativo = float(carteira.limite_negativo if carteira.limite_negativo is not None else LIMITE_NEGATIVO_PADRAO)
+    return {
+        "message": "Saldo devedor quitado com sucesso",
+        "saldo_atual": saldo,
+        "bloqueado_financeiro": saldo <= limite_negativo,
+    }
+
+
+@router.post("/carteira/saque/pix", response_model=dict)
+def solicitar_saque_pix(
+    dados: CarteiraSaquePixRequest,
+    db: Session = Depends(get_db),
+    usuario_atual = Depends(get_current_user)
+):
+    carteira = _obter_ou_criar_carteira(db, usuario_atual.id)
+    saldo = float(carteira.saldo or 0.0)
+    if saldo <= 0:
+        raise HTTPException(status_code=400, detail="Sem saldo positivo para saque")
+
+    valor_saque = round(float(dados.valor if dados.valor is not None else saldo), 2)
+    if valor_saque <= 0:
+        raise HTTPException(status_code=400, detail="Valor de saque inválido")
+    if valor_saque > saldo:
+        raise HTTPException(status_code=400, detail="Valor de saque maior que saldo disponível")
+
+    taxa = 0.0
+    valor_liquido = valor_saque - taxa
+
+    saque = Saque(
+        usuario_id=usuario_atual.id,
+        valor=valor_saque,
+        valor_liquido=valor_liquido,
+        taxa=taxa,
+        status="pendente",
+        banco="PIX",
+        agencia="PIX",
+        conta=dados.chave_pix.strip(),
+        tipo_conta="pix",
+    )
+    db.add(saque)
+
+    _registrar_movimentacao(
+        db,
+        carteira=carteira,
+        tipo="solicitacao_saque_pix",
+        descricao=f"Solicitação de saque via PIX ({dados.chave_pix.strip()})",
+        valor=-valor_saque,
+        chamado_id=None,
+    )
+
+    db.commit()
+    return {
+        "message": "Solicitação de saque enviada",
+        "saque_id": saque.id,
+        "valor": valor_saque,
+        "saldo_atual": float(carteira.saldo or 0.0),
     }

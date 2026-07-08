@@ -71,28 +71,34 @@ export default function ProfileCard({ usuarioId, userType, token, isOwnProfile: 
       if (userType === 'barbearia') {
         setCarregandoBarbearia(true);
         try {
-          const barbeariasRes = await fetch(`${API_URL}/api/v1/barbearias/todas-aprovadas`, {
+          const barbeariaRes = await fetch(`${API_URL}/api/v1/barbearia/minha`, {
             headers: token ? { 'Authorization': `Bearer ${token}` } : {}
           });
 
-          if (barbeariasRes.ok) {
-            const lista = await barbeariasRes.json();
-            const barbearias = Array.isArray(lista?.barbearias) ? lista.barbearias : [];
-            const encontrada = barbearias.find((item) => Number(item.usuario_id) === Number(usuarioId) || Number(item.id) === Number(usuarioId));
+          if (barbeariaRes.ok) {
+            const encontrada = await barbeariaRes.json();
 
             if (encontrada?.id) {
-              setBarbeariaProfile(encontrada);
-
               const cadeirasRes = await fetch(`${API_URL}/api/v1/cadeiras/barbearia/${encontrada.id}`, {
                 headers: token ? { 'Authorization': `Bearer ${token}` } : {}
               });
 
+              let cadeiras = [];
               if (cadeirasRes.ok) {
                 const cadeirasData = await cadeirasRes.json();
-                setCadeirasBarbearia(Array.isArray(cadeirasData) ? cadeirasData : []);
-              } else {
-                setCadeirasBarbearia([]);
+                cadeiras = Array.isArray(cadeirasData) ? cadeirasData : [];
               }
+
+              const possuiCadeiraDisponivel = cadeiras.some((cadeira) => {
+                const status = String(cadeira?.status || cadeira?.status_atendimento || '').toLowerCase();
+                return status.includes('dispon') || status === 'livre' || status === 'ativo';
+              });
+
+              setBarbeariaProfile({
+                ...encontrada,
+                cadeira_disponivel: possuiCadeiraDisponivel,
+              });
+              setCadeirasBarbearia(cadeiras);
             }
           }
         } catch (_err) {

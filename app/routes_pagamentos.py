@@ -25,6 +25,8 @@ from .models import (
     ConfiguracaoSplitPagamento,
     Barbearia,
     TipoTransacao,
+    CarteiraBarbeiro,
+    HistoricoMovimentacaoFinanceira,
 )
 from .routes import get_current_user
 from .firebase_config import enviar_notificacao_pagamento
@@ -104,6 +106,92 @@ def _upsert_transacao_split(
     transacao.data_repasse = data_repasse
     transacao.motivo_falha = motivo_falha
 
+
+def _obter_ou_criar_carteira_barbeiro(db: Session, barbeiro_id: int) -> CarteiraBarbeiro:
+    carteira = db.query(CarteiraBarbeiro).filter(CarteiraBarbeiro.barbeiro_id == barbeiro_id).first()
+    if carteira:
+        return carteira
+
+    carteira = CarteiraBarbeiro(barbeiro_id=barbeiro_id, saldo=0.0)
+    db.add(carteira)
+    db.flush()
+    return carteira
+
+
+def _registrar_movimentacao_carteira(
+    db: Session,
+    *,
+    carteira: CarteiraBarbeiro,
+    chamado_id: Optional[int],
+    tipo: str,
+    descricao: str,
+    valor: float,
+) -> HistoricoMovimentacaoFinanceira:
+    saldo_antes = float(carteira.saldo or 0.0)
+    saldo_depois = saldo_antes + float(valor)
+    carteira.saldo = saldo_depois
+
+    historico = HistoricoMovimentacaoFinanceira(
+        carteira_id=carteira.id,
+        barbeiro_id=carteira.barbeiro_id,
+        chamado_id=chamado_id,
+        tipo=tipo,
+        descricao=descricao,
+        valor=float(valor),
+        saldo_antes=saldo_antes,
+        saldo_depois=saldo_depois,
+    )
+    db.add(historico)
+    return historico
+
+
+def _aplicar_movimentacao_financeira_carteira(
+    db: Session,
+    *,
+    chamado: Chamado,
+    metodo_pagamento: str,
+    valor_total: float,
+) -> Optional[HistoricoMovimentacaoFinanceira]:
+    """
+    Regras de carteira:
+    - dinheiro: barbeiro fica devendo 10% (débito)
+    - pix/cartão: barbeiro recebe 90% na carteira (crédito)
+    """
+    if not chamado or not chamado.barbeiro_id:
+        return None
+
+    metodo = (metodo_pagamento or "").strip().lower()
+    taxa_app = round(float(valor_total or 0.0) * 0.10, 2)
+    ganho_barbeiro = round(float(valor_total or 0.0) * 0.90, 2)
+
+    if metodo == "dinheiro":
+        tipo = "debito_taxa_dinheiro"
+        descricao = f"Corte #{chamado.id} (dinheiro) -> Taxa do App"
+        valor = -taxa_app
+    elif metodo in {"pix", "cartao", "cartão", "cartao_credito", "cartao_debito"}:
+        tipo = "credito_ganho_app"
+        descricao = f"Corte #{chamado.id} ({metodo}) -> Ganho"
+        valor = ganho_barbeiro
+    else:
+        return None
+
+    existente = db.query(HistoricoMovimentacaoFinanceira).filter(
+        HistoricoMovimentacaoFinanceira.chamado_id == chamado.id,
+        HistoricoMovimentacaoFinanceira.tipo == tipo,
+    ).first()
+    if existente:
+        return existente
+
+    carteira = _obter_ou_criar_carteira_barbeiro(db, chamado.barbeiro_id)
+    return _registrar_movimentacao_carteira(
+        db,
+        carteira=carteira,
+        chamado_id=chamado.id,
+        tipo=tipo,
+        descricao=descricao,
+        valor=valor,
+    )
+
 # --- SCHEMAS ---
 class PagamentoCriar(BaseModel):
     chamado_id: int
@@ -177,9 +265,10 @@ def criar_pagamento(
     if chamado.cliente_id != usuario_atual.id:
         raise HTTPException(status_code=403, detail="Apenas o cliente pode criar o pagamento")
     
-    # Aceitar chamados PENDENTE ou CONFIRMADO para permitir pagamento
-    if chamado.status not in (StatusAgendamento.PENDENTE, StatusAgendamento.CONFIRMADO):
-        raise HTTPException(status_code=400, detail="Chamado já foi concluído ou cancelado")
+    # Bloquear apenas chamados cancelados. Chamado concluído ainda pode ser pago.
+    status_chamado = (str(chamado.status or '')).strip().lower()
+    if status_chamado == StatusAgendamento.CANCELADO:
+        raise HTTPException(status_code=400, detail="Chamado cancelado não pode ser pago")
     
     # Se já existe pagamento, retornar o existente (idempotente)
     pagamento_existente = db.query(Pagamento).filter(Pagamento.chamado_id == dados.chamado_id).first()
@@ -275,9 +364,46 @@ def confirmar_pagamento(
     if metodo not in metodos_permitidos:
         raise HTTPException(status_code=400, detail="Metodo de pagamento invalido")
 
+    # Para pagamento em dinheiro iniciado pelo cliente, apenas registra intenção.
+    # O recebimento real deve ser confirmado pelo barbeiro depois do atendimento.
+    if metodo == "dinheiro" and usuario_atual.id == chamado.cliente_id:
+        corte = db.query(Corte).filter(Corte.chamado_id == chamado.id).first()
+        if not corte:
+            corte = Corte(
+                cliente_id=chamado.cliente_id,
+                freelancer_id=chamado.barbeiro_id,
+                barbearia_id=chamado.barbearia_id,
+                servico_id=chamado.servico_id,
+                chamado_id=chamado.id,
+                valor_total=float(pagamento.valor_total or 0.0),
+                metodo_pagamento="DINHEIRO",
+                status_pagamento="pendente_no_local",
+                data_conclusao=datetime.utcnow(),
+            )
+            db.add(corte)
+        else:
+            corte.metodo_pagamento = "DINHEIRO"
+            corte.status_pagamento = "pendente_no_local"
+
+        _aplicar_movimentacao_financeira_carteira(
+            db,
+            chamado=chamado,
+            metodo_pagamento="dinheiro",
+            valor_total=float(pagamento.valor_total or 0.0),
+        )
+
+        db.commit()
+        return {
+            "message": "Pagamento em dinheiro registrado. Aguarde o barbeiro confirmar o recebimento.",
+            "metodo": metodo,
+            "status_pagamento": "pendente_no_local",
+            "aguarda_confirmacao_barbeiro": True,
+            "valor_total": float(pagamento.valor_total or 0.0),
+        }
+
     # Marcar como pago
     pagamento.pago_em = datetime.now()
-    
+
     # Atualizar status do chamado para concluído
     chamado.status = StatusAgendamento.CONCLUIDO
     chamado.concluido_em = datetime.now()
@@ -379,6 +505,13 @@ def confirmar_pagamento(
         status_repasse="pendente" if prazo_repasse_ate else "concluido",
         data_repasse=prazo_repasse_ate if prazo_repasse_ate else datetime.utcnow(),
         motivo_falha="Repasse manual em ate 12 horas" if prazo_repasse_ate else None,
+    )
+
+    _aplicar_movimentacao_financeira_carteira(
+        db,
+        chamado=chamado,
+        metodo_pagamento=metodo,
+        valor_total=valor_total,
     )
 
     db.commit()
@@ -734,6 +867,12 @@ def criar_pagamento_cartao_mercadopago(
                 pagamento.pago_em = datetime.now()
                 pagamento.chamado.status = StatusAgendamento.CONCLUIDO
                 pagamento.chamado.concluido_em = datetime.now()
+                _aplicar_movimentacao_financeira_carteira(
+                    db,
+                    chamado=pagamento.chamado,
+                    metodo_pagamento="cartao",
+                    valor_total=float(pagamento.valor_total or 0.0),
+                )
                 db.commit()
             
             return MercadoPagoResponse(
@@ -754,6 +893,12 @@ def criar_pagamento_cartao_mercadopago(
                     cadeira_local.status = StatusCadeira.OCUPADA
                     cadeira_local.ocupada_em = datetime.now()
                     cadeira_local.chamado_id = chamado_local.id
+            _aplicar_movimentacao_financeira_carteira(
+                db,
+                chamado=chamado_local,
+                metodo_pagamento="cartao",
+                valor_total=float(pagamento.valor_total or 0.0),
+            )
             db.commit()
             return MercadoPagoResponse(
                 id=pagamento.id,
@@ -820,6 +965,12 @@ def webhook_mercadopago(
             if pagamento.chamado:
                 pagamento.chamado.status = StatusAgendamento.CONCLUIDO
                 pagamento.chamado.concluido_em = datetime.now()
+                _aplicar_movimentacao_financeira_carteira(
+                    db,
+                    chamado=pagamento.chamado,
+                    metodo_pagamento="pix",
+                    valor_total=float(pagamento.valor_total or 0.0),
+                )
             
             # 2️⃣ Buscar e atualizar Corte (sistema novo)
             # O Corte pode estar vinculado através do chamado ou diretamente

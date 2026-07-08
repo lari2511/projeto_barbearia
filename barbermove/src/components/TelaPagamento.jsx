@@ -6,6 +6,11 @@ import { AlertCircle, CheckCircle, Copy, Loader, CreditCard, QrCode, DollarSign,
 import {
   salvarMetodoPreferidoCliente,
   lerMetodoPreferidoCliente,
+  lerCartoesSalvosCliente,
+  salvarCartaoReferenciaCliente,
+  removerCartaoReferenciaCliente,
+  lerCartaoPadraoCliente,
+  salvarCartaoPadraoCliente,
   normalizarPixMercadoPago,
   gerarQrDataUrl,
   validarCartaoBasico
@@ -28,6 +33,10 @@ export default function TelaPagamento({ chamadoId, valor, onPago }) {
   const [parcelas, setParcelas] = useState(1);
   const [validandoCupom, setValidandoCupom] = useState(false);
   const [statusProcessamento, setStatusProcessamento] = useState('Preparando transacao...');
+  const [cartoesSalvos, setCartoesSalvos] = useState(() => lerCartoesSalvosCliente());
+  const [salvarCartaoRef, setSalvarCartaoRef] = useState(true);
+  const [cartaoPadraoId, setCartaoPadraoId] = useState(() => lerCartaoPadraoCliente());
+  const [cartaoSelecionadoId, setCartaoSelecionadoId] = useState(null);
 
   // Dados cartão
   const [cartao, setCartao] = useState({
@@ -39,6 +48,25 @@ export default function TelaPagamento({ chamadoId, valor, onPago }) {
 
   // Erros de validação
   const [erros, setErros] = useState({});
+
+  useEffect(() => {
+    setCartoesSalvos(lerCartoesSalvosCliente());
+  }, []);
+
+  useEffect(() => {
+    if (!cartoesSalvos.length) {
+      setCartaoSelecionadoId(null);
+      return;
+    }
+
+    const padraoValido = cartoesSalvos.find((c) => c.id === cartaoPadraoId);
+    const inicial = padraoValido?.id || cartoesSalvos[0].id;
+    setCartaoSelecionadoId(inicial);
+    if (!padraoValido && cartoesSalvos[0]?.id) {
+      setCartaoPadraoId(cartoesSalvos[0].id);
+      salvarCartaoPadraoCliente(cartoesSalvos[0].id);
+    }
+  }, [cartoesSalvos, cartaoPadraoId]);
 
   // Funções de formatação
   const formatarNumeroCartao = (valor) => {
@@ -188,6 +216,19 @@ export default function TelaPagamento({ chamadoId, valor, onPago }) {
         if (response.ok) {
           const data = await response.json();
           if (data.status === 'approved') {
+            if (salvarCartaoRef) {
+              const atualizados = salvarCartaoReferenciaCliente(cartao);
+              setCartoesSalvos(atualizados);
+              const numero = String(cartao?.numero || '').replace(/\D/g, '');
+              const ultimos4 = numero.slice(-4);
+              const titular = String(cartao?.titular || '').trim().toUpperCase();
+              const salvoRecemCriado = atualizados.find((item) => item.ultimos4 === ultimos4 && item.titular === titular);
+              if (salvoRecemCriado?.id) {
+                setCartaoPadraoId(salvoRecemCriado.id);
+                setCartaoSelecionadoId(salvoRecemCriado.id);
+                salvarCartaoPadraoCliente(salvoRecemCriado.id);
+              }
+            }
             setStatusProcessamento('Pagamento aprovado! Atualizando agendamento...');
             setEtapa('confirmacao');
             mostrarMensagem('✅ Pagamento aprovado com sucesso!', 'success');
@@ -239,10 +280,18 @@ export default function TelaPagamento({ chamadoId, valor, onPago }) {
         });
 
         if (response.ok) {
-          setStatusProcessamento('Pagamento em dinheiro registrado! Finalizando...');
-          setEtapa('confirmacao');
-          mostrarMensagem('Pagamento em dinheiro confirmado!', 'success');
-          setTimeout(() => onPago && onPago(), 2500);
+          const data = await response.json().catch(() => ({}));
+          if (data?.aguarda_confirmacao_barbeiro) {
+            setStatusProcessamento('Pagamento em dinheiro registrado. Aguarde a confirmação do barbeiro.');
+            setEtapa('confirmacao');
+            mostrarMensagem('Dinheiro na hora registrado. O barbeiro vai confirmar o recebimento no fim do atendimento.', 'warning');
+            setTimeout(() => onPago && onPago(data), 2500);
+          } else {
+            setStatusProcessamento('Pagamento em dinheiro registrado! Finalizando...');
+            setEtapa('confirmacao');
+            mostrarMensagem('Pagamento em dinheiro confirmado!', 'success');
+            setTimeout(() => onPago && onPago(data), 2500);
+          }
         } else {
           const error = await response.json();
           setEtapa('metodo');
@@ -320,6 +369,12 @@ export default function TelaPagamento({ chamadoId, valor, onPago }) {
     return () => clearTimeout(timer);
   }, [criarPagamento]);
 
+  const textoBotaoPagamentoCartao = loading
+    ? 'Processando pagamento...'
+    : `Pagar R$ ${valorComDesconto.toFixed(2)}`;
+
+  const cartaoSelecionado = cartoesSalvos.find((c) => c.id === cartaoSelecionadoId) || null;
+
   return (
     <div className="bg-gradient-to-br from-zinc-900 via-zinc-900 to-zinc-800 rounded-3xl p-6 sm:p-8 border border-zinc-700 max-w-xl mx-auto shadow-2xl">
       {/* Header */}
@@ -379,6 +434,62 @@ export default function TelaPagamento({ chamadoId, valor, onPago }) {
       {/* Seleção de Método */}
       {etapa === 'metodo' && (
         <div className="space-y-5">
+          {cartoesSalvos.length > 0 && (
+            <div className="bg-gradient-to-r from-emerald-700/20 to-cyan-700/20 rounded-2xl p-4 border border-emerald-500/30 shadow-lg">
+              <div className="flex items-center justify-between gap-3 mb-3">
+                <p className="text-sm text-emerald-200 font-bold">Carteira rapida</p>
+                <span className="text-[11px] px-2 py-1 rounded-full bg-emerald-500/20 text-emerald-200 border border-emerald-400/30">estilo app</span>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-3">
+                {cartoesSalvos.slice(0, 2).map((item) => {
+                  const ativo = item.id === (cartaoSelecionadoId || cartaoPadraoId);
+                  return (
+                    <button
+                      key={item.id}
+                      type="button"
+                      onClick={() => {
+                        setCartaoSelecionadoId(item.id);
+                        setCartao((prev) => ({
+                          ...prev,
+                          titular: item.titular || prev.titular,
+                          validade: (item.validade || '').replace(/\D/g, '').slice(0, 4) || prev.validade,
+                        }));
+                      }}
+                      className={`text-left rounded-xl px-3 py-2 border transition ${ativo ? 'border-emerald-400 bg-emerald-500/15' : 'border-zinc-700 bg-zinc-900/60 hover:border-zinc-500'}`}
+                    >
+                      <p className="text-sm font-bold text-white">{item.bandeira} •••• {item.ultimos4}</p>
+                      <p className="text-[11px] text-zinc-300">{item.titular || 'Titular'}</p>
+                    </button>
+                  );
+                })}
+              </div>
+
+              <button
+                type="button"
+                onClick={() => {
+                  const escolhido = cartoesSalvos.find((c) => c.id === (cartaoSelecionadoId || cartaoPadraoId)) || cartoesSalvos[0];
+                  if (escolhido) {
+                    setCartaoSelecionadoId(escolhido.id);
+                    setCartao((prev) => ({
+                      ...prev,
+                      titular: escolhido.titular || prev.titular,
+                      validade: (escolhido.validade || '').replace(/\D/g, '').slice(0, 4) || prev.validade,
+                    }));
+                  }
+                  salvarMetodoPreferidoCliente('cartao_credito');
+                  setMetodoPreferidoCliente('cartao_credito');
+                  criarPagamento('cartao');
+                }}
+                disabled={loading}
+                className="w-full bg-gradient-to-r from-emerald-600 to-cyan-600 hover:from-emerald-700 hover:to-cyan-700 text-white font-bold py-3 rounded-xl transition disabled:opacity-50"
+              >
+                Usar cartao salvo
+              </button>
+              <p className="text-[11px] text-zinc-300 mt-2">No proximo passo, confirme numero e CVV para autorizar.</p>
+            </div>
+          )}
+
           {metodoPreferidoCliente && (
             <div className="bg-zinc-800/50 rounded-xl p-3 border border-zinc-700">
               <p className="text-xs text-zinc-300">
@@ -600,6 +711,65 @@ export default function TelaPagamento({ chamadoId, valor, onPago }) {
       {/* Tela Cartão */}
       {etapa === 'cartao' && (
         <div className="space-y-5 animate-in fade-in duration-500">
+          {cartoesSalvos.length > 0 && (
+            <div className="bg-zinc-800/40 rounded-xl p-3 border border-zinc-700">
+              <p className="text-xs text-zinc-400 mb-2 uppercase tracking-wide font-bold">Cartoes salvos</p>
+              <div className="space-y-2">
+                {cartoesSalvos.map((item) => (
+                  <div key={item.id} className={`rounded-lg border px-3 py-2 flex items-center justify-between gap-2 ${item.id === cartaoSelecionadoId ? 'border-emerald-400 bg-emerald-500/15' : 'border-zinc-700 bg-zinc-900/70'}`}>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setCartaoSelecionadoId(item.id);
+                        setCartao((prev) => ({
+                          ...prev,
+                          titular: item.titular || prev.titular,
+                          validade: (item.validade || '').replace(/\D/g, '').slice(0, 4) || prev.validade,
+                        }));
+                        mostrarMensagem(`Cartao ${item.bandeira} •••• ${item.ultimos4} selecionado. Informe o numero e CVV para confirmar.`, 'info');
+                      }}
+                      className="text-left flex-1"
+                    >
+                      <p className="text-sm font-bold text-white">{item.bandeira} •••• {item.ultimos4}</p>
+                      <p className="text-[11px] text-zinc-400">{item.titular || 'Titular'} {item.validade ? `• ${item.validade}` : ''}</p>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (item.id === cartaoPadraoId) {
+                          setCartaoPadraoId(null);
+                          salvarCartaoPadraoCliente(null);
+                        }
+                        const atualizados = removerCartaoReferenciaCliente(item.id);
+                        setCartoesSalvos(atualizados);
+                        if (item.id === cartaoSelecionadoId) {
+                          setCartaoSelecionadoId(atualizados[0]?.id || null);
+                        }
+                      }}
+                      className="text-red-400 hover:text-red-300 text-xs font-bold"
+                    >
+                      Remover
+                    </button>
+                  </div>
+                ))}
+              </div>
+
+              {cartaoSelecionadoId && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCartaoPadraoId(cartaoSelecionadoId);
+                    salvarCartaoPadraoCliente(cartaoSelecionadoId);
+                    mostrarMensagem('Cartao definido como padrao da carteira', 'success');
+                  }}
+                  className="mt-3 text-xs text-emerald-300 hover:text-emerald-200 font-bold"
+                >
+                  Definir selecionado como padrao
+                </button>
+              )}
+            </div>
+          )}
+
           {/* Badge MercadoPago */}
           <div className="flex justify-center">
             <div className="bg-gradient-to-r from-yellow-600 to-yellow-500 px-4 py-2 rounded-full text-white text-xs font-bold">
@@ -750,23 +920,61 @@ export default function TelaPagamento({ chamadoId, valor, onPago }) {
             </div>
           </div>
 
-          <button
-            onClick={confirmarPagamento}
-            disabled={loading}
-            className="w-full bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 text-white font-bold py-4 rounded-xl transition transform hover:scale-105 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed shadow-lg flex items-center justify-center gap-2"
-          >
-            {loading ? (
-              <>
-                <Loader size={20} className="animate-spin" />
-                <span>Processando pagamento...</span>
-              </>
-            ) : (
-              <>
-                <CreditCard size={20} />
-                <span>Pagar R$ {valorComDesconto.toFixed(2)}</span>
-              </>
+          <label className="flex items-center gap-2 text-xs text-zinc-300">
+            <input
+              type="checkbox"
+              checked={salvarCartaoRef}
+              onChange={(e) => setSalvarCartaoRef(e.target.checked)}
+              className="accent-green-500"
+            />
+            Salvar este cartao na carteira (somente referencia, sem CVV)
+          </label>
+
+          <div className="hidden sm:block">
+            <button
+              onClick={confirmarPagamento}
+              disabled={loading}
+              className="w-full bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 text-white font-bold py-4 rounded-xl transition transform hover:scale-105 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed shadow-lg flex items-center justify-center gap-2"
+            >
+              {loading ? (
+                <>
+                  <Loader size={20} className="animate-spin" />
+                  <span>{textoBotaoPagamentoCartao}</span>
+                </>
+              ) : (
+                <>
+                  <CreditCard size={20} />
+                  <span>{textoBotaoPagamentoCartao}</span>
+                </>
+              )}
+            </button>
+          </div>
+
+          <div className="sm:hidden h-24" />
+          <div className="sm:hidden fixed bottom-0 left-0 right-0 z-40 p-4 bg-zinc-950/95 border-t border-zinc-800 backdrop-blur">
+            {cartaoSelecionado && (
+              <p className="text-[11px] text-zinc-300 mb-2 text-center">
+                Pagando com {cartaoSelecionado.bandeira} •••• {cartaoSelecionado.ultimos4}
+              </p>
             )}
-          </button>
+            <button
+              onClick={confirmarPagamento}
+              disabled={loading}
+              className="w-full bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 text-white font-bold py-4 rounded-xl transition disabled:opacity-50 disabled:cursor-not-allowed shadow-lg flex items-center justify-center gap-2"
+            >
+              {loading ? (
+                <>
+                  <Loader size={20} className="animate-spin" />
+                  <span>{textoBotaoPagamentoCartao}</span>
+                </>
+              ) : (
+                <>
+                  <CreditCard size={20} />
+                  <span>{textoBotaoPagamentoCartao}</span>
+                </>
+              )}
+            </button>
+          </div>
         </div>
       )}
 

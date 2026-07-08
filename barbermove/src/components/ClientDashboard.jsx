@@ -30,8 +30,14 @@ const ordenarBarbeirosParaExibicao = (lista) => {
     if (!Array.isArray(lista)) return [];
 
     return [...lista].sort((a, b) => {
+        const aPresente = Number(Boolean(a?.presente_em_local && a?.barbearia_atual_id));
+        const bPresente = Number(Boolean(b?.presente_em_local && b?.barbearia_atual_id));
         const aTeste = /teste/i.test(a?.nome || '') ? 1 : 0;
         const bTeste = /teste/i.test(b?.nome || '') ? 1 : 0;
+
+        if (aPresente !== bPresente) {
+            return bPresente - aPresente;
+        }
 
         if (aTeste !== bTeste) {
             return bTeste - aTeste;
@@ -40,6 +46,24 @@ const ordenarBarbeirosParaExibicao = (lista) => {
         return String(a?.nome || '').localeCompare(String(b?.nome || ''), 'pt-BR', { sensitivity: 'base' });
     });
 };
+
+const mapearBarbeiroProximo = (item) => ({
+    id: item?.id ?? item?.usuario_id,
+    usuario_id: item?.usuario_id ?? item?.id,
+    nome: item?.nome,
+    foto_perfil: item?.foto_perfil,
+    endereco: item?.endereco ?? item?.barbearia_endereco ?? item?.endereco_barbearia ?? null,
+    distancia_km: item?.distancia_km,
+    media_avaliacoes: item?.media_avaliacoes,
+    total_avaliacoes: item?.total_avaliacoes,
+    latitude: item?.latitude,
+    longitude: item?.longitude,
+    disponivel: Boolean(item?.disponivel ?? (!item?.status_pausado)),
+    online_regiao: Boolean(item?.online_regiao ?? (!item?.status_pausado)),
+    presente_em_local: Boolean(item?.presente_em_local),
+    barbearia_atual_id: item?.barbearia_atual_id ?? null,
+    barbearia_atual_nome: item?.barbearia_atual_nome ?? null,
+});
 
 const lerBarbeirosCache = () => {
     if (typeof window === 'undefined') return [];
@@ -122,6 +146,26 @@ const estimarTempoMinutos = (distanciaKm) => {
     return Math.max(1, Math.round((distancia / 40) * 60));
 };
 
+const confirmarAcaoChamada = (mensagem) => {
+    if (typeof window === 'undefined') return true;
+
+    try {
+        const userAgent = String(window.navigator?.userAgent || '').toLowerCase();
+        const ambienteMobile = /android|iphone|ipad|ipod|wv|webview|capacitor/.test(userAgent);
+
+        // Em webviews mobile, dialogos nativos podem falhar/sumir; segue direto.
+        if (ambienteMobile) return true;
+
+        if (typeof window.confirm === 'function') {
+            return window.confirm(mensagem);
+        }
+
+        return true;
+    } catch (_err) {
+        return true;
+    }
+};
+
 export default function ClientDashboard({ token, logout, API_URL, notify, onChamadoAceito }) {
     const NGROK_TEST_OVERRIDE = typeof window !== 'undefined' && String(window.location.hostname || '').includes('ngrok-free.dev');
     const TEST_GPS_OVERRIDE_ATIVO = DEV_GPS_OVERRIDE || NGROK_TEST_OVERRIDE;
@@ -155,6 +199,12 @@ export default function ClientDashboard({ token, logout, API_URL, notify, onCham
     const [vagasRelampago, setVagasRelampago] = useState([]);
 
     const isConcluido = (status = '') => (status || '').toString().toLowerCase().includes('conclu');
+    const isPagamentoConcluido = (order = {}) => {
+        if (!order || typeof order !== 'object') return false;
+        if (order.pagamento_concluido === true) return true;
+        if (order.pagamento_pago_em) return true;
+        return false;
+    };
 
     const getCancelamentoInfo = (chamado) => {
         if (!chamado) return { taxa: 0, motivo: '', minutos: 0, segundos: 0, tempoRestante: '5:00', texto: '' };
@@ -307,25 +357,22 @@ export default function ClientDashboard({ token, logout, API_URL, notify, onCham
         const loadShopsByLocation = useCallback(async (latitude, longitude, { mostrarErro = false } = {}) => {
             try {
                 const raio_km = 15; // Raio padrão de busca
-                const res = await fetch(`${API_URL}/api/v1/freelancer/proximos?latitude=${latitude}&longitude=${longitude}&raio_km=${raio_km}`);
-            
-                if (!res.ok) {
-                    throw new Error(`HTTP ${res.status}`);
+                let data = [];
+                const resBarbeiros = await fetch(`${API_URL}/api/v1/barbeiros/proximos?latitude=${latitude}&longitude=${longitude}&raio_km=${raio_km}`);
+
+                if (resBarbeiros.ok) {
+                    data = await resBarbeiros.json();
+                } else {
+                    const resFreelancer = await fetch(`${API_URL}/api/v1/freelancer/proximos?latitude=${latitude}&longitude=${longitude}&raio_km=${raio_km}`);
+                    if (!resFreelancer.ok) {
+                        throw new Error(`HTTP ${resFreelancer.status}`);
+                    }
+                    data = await resFreelancer.json();
                 }
 
-                const freelancers = await res.json();
-            
-                // Converter freelancers para formato compatível com o resto do app
-                const lista = Array.isArray(freelancers) ? freelancers.map(f => ({
-                    id: f.usuario_id,
-                    nome: f.nome,
-                    foto_perfil: f.foto_perfil,
-                    distancia_km: f.distancia_km,
-                    media_avaliacoes: f.media_avaliacoes,
-                    total_avaliacoes: f.total_avaliacoes,
-                    latitude: f.latitude,
-                    longitude: f.longitude
-                })) : [];
+                const lista = ordenarBarbeirosParaExibicao(Array.isArray(data)
+                    ? data.map(mapearBarbeiroProximo).filter((item) => Boolean(item.id))
+                    : []);
             
                 setShops(lista);
                 salvarBarbeirosCache(lista);
@@ -474,8 +521,8 @@ export default function ClientDashboard({ token, logout, API_URL, notify, onCham
 
     const fetchNearbyShops = async (location) => {
         try {
-            // BUSCAR APENAS FREELANCERS PRÓXIMOS
-            const url = new URL(`${API_URL}/api/v1/freelancer/proximos`);
+            // Prioriza endpoint de barbeiros para respeitar status online/disponivel
+            const url = new URL(`${API_URL}/api/v1/barbeiros/proximos`);
             url.searchParams.append('latitude', location.latitude);
             url.searchParams.append('longitude', location.longitude);
             url.searchParams.append('raio_km', '10.0');
@@ -490,16 +537,7 @@ export default function ClientDashboard({ token, logout, API_URL, notify, onCham
             if (res.ok) {
                 const data = await res.json();
                 const lista = ordenarBarbeirosParaExibicao(Array.isArray(data)
-                    ? data.map((freelancer) => ({
-                        id: freelancer.usuario_id,
-                        nome: freelancer.nome,
-                        foto_perfil: freelancer.foto_perfil,
-                        distancia_km: freelancer.distancia_km,
-                        media_avaliacoes: freelancer.media_avaliacoes,
-                        total_avaliacoes: freelancer.total_avaliacoes,
-                        latitude: freelancer.latitude,
-                        longitude: freelancer.longitude,
-                    }))
+                    ? data.map(mapearBarbeiroProximo).filter((item) => Boolean(item.id))
                     : []);
                 setShops(lista);
                 salvarBarbeirosCache(lista);
@@ -510,7 +548,30 @@ export default function ClientDashboard({ token, logout, API_URL, notify, onCham
                     notify(`${lista.length} barbeiro(s) encontrado(s) próximo a você!`, "success");
                 }
             } else {
-                await loadDefaultShops({ mostrarErro: false });
+                const fallbackUrl = new URL(`${API_URL}/api/v1/freelancer/proximos`);
+                fallbackUrl.searchParams.append('latitude', location.latitude);
+                fallbackUrl.searchParams.append('longitude', location.longitude);
+                fallbackUrl.searchParams.append('raio_km', '10.0');
+
+                const fallbackRes = await fetch(fallbackUrl.toString(), {
+                    method: 'GET',
+                    headers: {
+                        'Authorization': `Bearer ${token}`
+                    }
+                });
+
+                if (!fallbackRes.ok) {
+                    await loadDefaultShops({ mostrarErro: false });
+                    return;
+                }
+
+                const fallbackData = await fallbackRes.json();
+                const lista = ordenarBarbeirosParaExibicao(Array.isArray(fallbackData)
+                    ? fallbackData.map(mapearBarbeiroProximo).filter((item) => Boolean(item.id))
+                    : []);
+
+                setShops(lista);
+                salvarBarbeirosCache(lista);
             }
         } catch (err) {
             await loadDefaultShops({ mostrarErro: false });
@@ -987,7 +1048,7 @@ export default function ClientDashboard({ token, logout, API_URL, notify, onCham
             ? { latitude: Number(selectedBarbearia.latitude), longitude: Number(selectedBarbearia.longitude) }
             : localizacao;
 
-        if(!confirm(`${mensagemAgendamento} ${service.nome} com ${selectedBarber.nome}? R$${service.valor}`)) return;
+        if (!confirmarAcaoChamada(`${mensagemAgendamento} ${service.nome} com ${selectedBarber.nome}? R$${service.valor}`)) return;
 
         try {
             const res = await fetch(`${API_URL}/api/v1/chamados`, {
@@ -1066,7 +1127,7 @@ export default function ClientDashboard({ token, logout, API_URL, notify, onCham
         }
 
         const nomes = selectedServices.map((s) => s.nome).join(', ');
-        if (!confirm(`${mensagemAgendamento} ${nomes} com ${selectedBarber.nome}? R$${totalSelecionado}`)) {
+        if (!confirmarAcaoChamada(`${mensagemAgendamento} ${nomes} com ${selectedBarber.nome}? R$${totalSelecionado}`)) {
             return;
         }
 
@@ -1125,11 +1186,7 @@ export default function ClientDashboard({ token, logout, API_URL, notify, onCham
 
         return (
         <div className="client-dashboard-shell min-h-[100dvh] w-full bg-[#050505] text-white font-sans flex justify-center overflow-x-hidden">
-                <button type="button" onClick={logout} className="logout-fab" aria-label="Sair da conta">
-                    <LogOut size={14} />
-                    Sair
-                </button>
-                <div className="w-full min-h-[100dvh] max-w-[430px] flex flex-col overflow-x-hidden bg-[#050505] shadow-[0_0_0_1px_rgba(255,255,255,0.04)] dashboard-surface">
+            <div className="w-full min-h-[100dvh] max-w-[430px] flex flex-col overflow-x-hidden bg-[#050505] shadow-[0_0_0_1px_rgba(255,255,255,0.04)] dashboard-surface">
         {/* HEADER */}
         <div className="sticky top-0 z-20 px-3 pt-3 pb-2 bg-[#050505]/95 backdrop-blur-xl flex-shrink-0">
             <div className="dashboard-card bg-zinc-900 rounded-2xl p-4 border border-zinc-800/60 flex justify-between items-center">
@@ -1376,7 +1433,11 @@ export default function ClientDashboard({ token, logout, API_URL, notify, onCham
                                     const barbeiroDeTeste = /teste/i.test(barber.nome || '');
                                     const profissionalDaCasa = barber.profissional_da_casa === true;
                                     // Determinar status do freelancer
-                                    const statusInfo = barbeiroDeTeste ? {
+                                    const statusInfo = barber.liberacao_antecipada ? {
+                                        texto: 'LIBERADO EM 10 MIN',
+                                        cor: 'bg-amber-600',
+                                        icone: '⏳'
+                                    } : barbeiroDeTeste ? {
                                         texto: 'BARBEIRO DE TESTE',
                                         cor: 'bg-indigo-600',
                                         icone: '🧪'
@@ -1403,45 +1464,57 @@ export default function ClientDashboard({ token, logout, API_URL, notify, onCham
                                     };
 
                                     return (
-                                    <div key={barber.id} className="barber-card bm-card bg-zinc-900 rounded-2xl overflow-hidden border border-zinc-800/60 hover:border-orange-500 transition-colors">
-                                        <div className="barber-image bg-gradient-to-r from-zinc-800 to-zinc-900">
-                                            <img src={getShopImage(barber.id)} alt={barber.nome} />
-                                            <div className="absolute inset-0 flex items-end p-2">
-                                                <div>
-                                                    <p className="font-bold text-sm">{barber.nome}</p>
-                                                    <p className="text-xs text-zinc-400">{barber.endereco}</p>
-                                                </div>
-                                            </div>
-                                            <div className={`absolute top-2 left-2 ${statusInfo.cor} px-2 py-1 rounded text-xs font-bold flex items-center gap-1`}>
-                                                <span>{statusInfo.icone}</span>
-                                                <span>{statusInfo.texto}</span>
-                                            </div>
-                                            <div className="absolute top-2 right-2 bg-orange-600 px-2 py-1 rounded text-xs font-bold flex gap-1">
-                                                <Star size={10} className="fill-white"/> {barber.avaliacao || 5.0}
-                                            </div>
+                                    <div key={barber.id} className="barber-card bm-card bg-zinc-900 rounded-2xl border border-zinc-800/60 hover:border-orange-500 transition-colors p-2 flex gap-3 items-start">
+                                        <div className="barber-image relative w-24 h-24 sm:w-28 sm:h-28 md:w-32 md:h-32 shrink-0 rounded-xl overflow-hidden bg-gradient-to-r from-zinc-800 to-zinc-900">
+                                            <img
+                                                src={barber.foto_perfil || getShopImage(barber.id)}
+                                                alt=""
+                                                className="w-full h-full object-cover"
+                                                onError={(e) => {
+                                                    e.currentTarget.onerror = null;
+                                                    e.currentTarget.src = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="800" height="320"><rect width="100%" height="100%" fill="%23111827"/><text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" fill="%239ca3af" font-size="28" font-family="Arial">Sem foto</text></svg>';
+                                                }}
+                                            />
                                         </div>
-                                        <div className="barber-body">
-                                            <div>
-                                                <div className="text-xs text-zinc-400 truncate">{barber.servico_principal || ''}</div>
+                                        <div className="barber-body min-w-0 flex-1 flex flex-col gap-2">
+                                            <div className="min-w-0">
+                                                <p className="font-bold text-sm text-white truncate">{barber.nome}</p>
+                                                <div className="mt-1 flex items-center gap-1.5 sm:gap-2 flex-wrap">
+                                                    <div className={`${statusInfo.cor} px-1.5 py-0.5 sm:px-2 sm:py-1 rounded text-[9px] sm:text-[10px] leading-none font-bold flex items-center gap-1 max-w-full`}>
+                                                        <span>{statusInfo.icone}</span>
+                                                        <span className="truncate">{statusInfo.texto}</span>
+                                                    </div>
+                                                    {barber.liberacao_antecipada && (
+                                                        <div className="bg-amber-500/15 border border-amber-500/40 text-amber-300 px-1.5 py-0.5 sm:px-2 sm:py-1 rounded text-[9px] sm:text-[10px] leading-none font-bold">
+                                                            Pode receber o proximo
+                                                        </div>
+                                                    )}
+                                                    <div className="bg-orange-600 px-1.5 py-0.5 sm:px-2 sm:py-1 rounded text-[9px] sm:text-[10px] leading-none font-bold flex items-center gap-1">
+                                                        <Star size={9} className="fill-white sm:w-[10px] sm:h-[10px]" />
+                                                        <span>{barber.avaliacao || 5.0}</span>
+                                                    </div>
+                                                </div>
+                                                <p className="text-xs text-zinc-400 truncate">{barber.endereco || barber.barbearia_atual_nome || 'Endereço disponível no perfil'}</p>
+                                                <div className="text-xs text-zinc-400 truncate mt-1">{barber.servico_principal || ''}</div>
                                             </div>
-                                            <div>
-                                                <div className="actions">
+                                            <div className="relative z-10">
+                                                <div className="actions grid grid-cols-2 gap-2">
                                                     <button
                                                         onClick={() => handleSelectShop(barber)}
                                                         disabled={!barbeiroDeTeste && (statusInfo.texto === 'INDISPONÍVEL' || statusInfo.texto === 'OFFLINE')}
-                                                        className={` ${(!barbeiroDeTeste && (statusInfo.texto === 'INDISPONÍVEL' || statusInfo.texto === 'OFFLINE')) ? 'bg-zinc-700 cursor-not-allowed' : 'bg-orange-600 hover:bg-orange-700'} text-white rounded-lg text-xs font-bold`}
+                                                        className={`w-full py-2 px-2 ${(!barbeiroDeTeste && (statusInfo.texto === 'INDISPONÍVEL' || statusInfo.texto === 'OFFLINE')) ? 'bg-zinc-700 cursor-not-allowed' : 'bg-orange-600 hover:bg-orange-700'} text-white rounded-lg text-xs font-bold`}
                                                     >
                                                         {(!barbeiroDeTeste && (statusInfo.texto === 'INDISPONÍVEL' || statusInfo.texto === 'OFFLINE')) ? 'Indisponível' : 'Escolher'}
                                                     </button>
                                                     <button
                                                         onClick={() => setPerfilModal({ id: barber.id, tipo: 'barbeiro' })}
-                                                        className="bg-zinc-800 hover:bg-zinc-700 text-white rounded-lg text-xs font-bold"
+                                                        className="w-full py-2 px-2 bg-zinc-800 hover:bg-zinc-700 text-white rounded-lg text-xs font-bold"
                                                     >
                                                         Ver perfil
                                                     </button>
                                                 </div>
                                                 {barber.distancia_km !== undefined && (
-                                                    <div className="meta text-xs text-zinc-400">
+                                                    <div className="meta mt-2 flex items-center justify-between text-xs text-zinc-400">
                                                         <div className="flex items-center gap-1">
                                                             <MapPin size={12} />
                                                             <span>{barber.distancia_km} km</span>
@@ -1482,36 +1555,54 @@ export default function ClientDashboard({ token, logout, API_URL, notify, onCham
                                     </div>
                                 )}
                                 {barbearias && barbearias.length > 0 ? barbearias.map(barbearia => (
-                                    <div key={barbearia.id} className="bm-card bg-zinc-900 rounded-2xl p-4 border border-zinc-800/60 hover:border-orange-500 transition-colors">
-                                        <p className="font-bold text-sm">{barbearia.nome}</p>
-                                        <p className="text-xs text-zinc-400">{barbearia.endereco || 'Endereco nao informado'}</p>
-                                        {/* 📍 DISTÂNCIA E TEMPO like Uber */}
-                                        {barbearia.distancia_km !== undefined && (
-                                            <div className="mt-2 mb-2 flex items-center justify-between text-xs text-zinc-400">
-                                                <div className="flex items-center gap-1">
-                                                    <MapPin size={12} />
-                                                    <span>{barbearia.distancia_km} km</span>
+                                    <div key={barbearia.id} className="bm-card bg-zinc-900 rounded-2xl border border-zinc-800/60 hover:border-orange-500 transition-colors p-2 flex gap-3 items-start">
+                                        <div className="relative w-24 h-24 sm:w-28 sm:h-28 md:w-32 md:h-32 shrink-0 rounded-xl overflow-hidden bg-gradient-to-r from-zinc-800 to-zinc-900">
+                                            <img
+                                                src={barbearia.foto_perfil || getShopImage(barbearia.id)}
+                                                alt=""
+                                                className="w-full h-full object-cover"
+                                                onError={(e) => {
+                                                    e.currentTarget.onerror = null;
+                                                    e.currentTarget.src = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="800" height="320"><rect width="100%" height="100%" fill="%23111827"/><text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" fill="%239ca3af" font-size="28" font-family="Arial">Sem foto</text></svg>';
+                                                }}
+                                            />
+                                        </div>
+                                        <div className="min-w-0 flex-1 flex flex-col gap-2">
+                                            <div className="min-w-0">
+                                                <p className="font-bold text-sm text-white truncate">{barbearia.nome}</p>
+                                                <div className="mt-1 flex items-start gap-1.5 text-xs text-zinc-300 min-w-0">
+                                                    <MapPin size={12} className="mt-0.5 shrink-0 text-orange-400" />
+                                                    <p className="truncate">{barbearia.endereco || 'Endereço disponível no perfil'}</p>
                                                 </div>
-                                                {barbearia.tempo_estimado_minutos !== undefined && (
-                                                    <div className="text-orange-400 font-bold">
-                                                        ⏱ {barbearia.tempo_estimado_minutos} min
-                                                    </div>
-                                                )}
                                             </div>
-                                        )}
-                                        <div className="mt-2 flex gap-2">
-                                            <button
-                                                onClick={() => handleSelectBarbeariaInicial(barbearia)}
-                                                className="flex-1 bg-orange-600 hover:bg-orange-700 text-white py-2 rounded-lg text-xs font-bold"
-                                            >
-                                                Escolher
-                                            </button>
-                                            <button
-                                                onClick={() => setPerfilModal({ id: barbearia.usuario_id || barbearia.id, tipo: 'barbearia' })}
-                                                className="flex-1 bg-zinc-800 hover:bg-zinc-700 text-white py-2 rounded-lg text-xs font-bold"
-                                            >
-                                                Ver perfil
-                                            </button>
+                                            {/* 📍 DISTÂNCIA E TEMPO like Uber */}
+                                            {barbearia.distancia_km !== undefined && (
+                                                <div className="flex items-center justify-between text-xs text-zinc-400">
+                                                    <div className="flex items-center gap-1">
+                                                        <MapPin size={12} />
+                                                        <span>{barbearia.distancia_km} km</span>
+                                                    </div>
+                                                    {barbearia.tempo_estimado_minutos !== undefined && (
+                                                        <div className="text-orange-400 font-bold">
+                                                            ⏱ {barbearia.tempo_estimado_minutos} min
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            )}
+                                            <div className="grid grid-cols-2 gap-2">
+                                                <button
+                                                    onClick={() => handleSelectBarbeariaInicial(barbearia)}
+                                                    className="w-full bg-orange-600 hover:bg-orange-700 text-white py-2 px-2 rounded-lg text-xs font-bold"
+                                                >
+                                                    Escolher
+                                                </button>
+                                                <button
+                                                    onClick={() => setPerfilModal({ id: barbearia.usuario_id || barbearia.id, tipo: 'barbearia' })}
+                                                    className="w-full bg-zinc-800 hover:bg-zinc-700 text-white py-2 px-2 rounded-lg text-xs font-bold"
+                                                >
+                                                    Ver perfil
+                                                </button>
+                                            </div>
                                         </div>
                                     </div>
                                 )) : (
@@ -1545,7 +1636,7 @@ export default function ClientDashboard({ token, logout, API_URL, notify, onCham
                                 <div className="bm-card p-3 rounded-lg">
                                     <p className="text-[10px] uppercase tracking-wide text-zinc-500 mb-1">Barbearia selecionada</p>
                                     <p className="text-sm font-bold text-white">{selectedBarbearia?.nome || 'Barbearia'}</p>
-                                    <p className="text-[11px] text-zinc-400 truncate">{selectedBarbearia?.endereco || 'Endereço não informado'}</p>
+                                    <p className="text-[11px] text-zinc-400 truncate">{selectedBarbearia?.endereco || selectedBarber?.endereco || selectedBarber?.barbearia_atual_nome || 'Endereço disponível no perfil'}</p>
                                 </div>
                             </div>
                             <div className="bm-card p-3 flex items-center justify-between rounded-lg">
@@ -1740,17 +1831,7 @@ export default function ClientDashboard({ token, logout, API_URL, notify, onCham
             {/* ABA: PERFIL */}
             {tab === 'perfil' && (
                 <div className="p-2 sm:p-4 pb-20 max-w-3xl mx-auto w-full">
-                    <div className="mb-3 flex justify-end">
-                        <button
-                            type="button"
-                            onClick={logout}
-                            className="inline-flex items-center gap-2 rounded-full border border-red-500/20 bg-red-500/10 px-4 py-2 text-xs font-black uppercase tracking-[0.16em] text-red-300 hover:bg-red-500/20 hover:text-white transition-colors"
-                        >
-                            <LogOut size={14} />
-                            Sair da conta
-                        </button>
-                    </div>
-                    <TelaPerfilUsuario userType="cliente" token={token} onLogout={logout} onNotify={notify} />
+                    <TelaPerfilUsuario userType="cliente" token={token} API_URL={API_URL} onLogout={logout} onNotify={notify} />
                 </div>
             )}
 
@@ -1784,12 +1865,18 @@ export default function ClientDashboard({ token, logout, API_URL, notify, onCham
                                             <span className="text-green-400 font-bold text-sm">R$ {Number(order.valor || 0).toFixed(2)}</span>
                                         </div>
                                         <div className="flex gap-2 pt-1">
-                                            <button
-                                                onClick={() => setChamadoParaPagar({ id: order.id, valor: Number(order.valor || 0), descricao: order.servico_nome || order.descricao || 'Serviço' })}
-                                                className="flex-1 bg-gradient-to-r from-orange-600 to-orange-500 hover:from-orange-700 hover:to-orange-600 text-white py-2 rounded-lg text-xs font-bold flex items-center justify-center gap-1 active:scale-95 transition-all"
-                                            >
-                                                <DollarSign size={13} /> Pagar agora
-                                            </button>
+                                            {isPagamentoConcluido(order) ? (
+                                                <div className="flex-1 bg-emerald-600/20 border border-emerald-500/40 text-emerald-300 py-2 rounded-lg text-xs font-bold flex items-center justify-center gap-1">
+                                                    <CheckCircle size={13} /> Concluído
+                                                </div>
+                                            ) : (
+                                                <button
+                                                    onClick={() => setChamadoParaPagar({ id: order.id, valor: Number(order.valor || 0), descricao: order.servico_nome || order.descricao || 'Serviço' })}
+                                                    className="flex-1 bg-gradient-to-r from-orange-600 to-orange-500 hover:from-orange-700 hover:to-orange-600 text-white py-2 rounded-lg text-xs font-bold flex items-center justify-center gap-1 active:scale-95 transition-all"
+                                                >
+                                                    <DollarSign size={13} /> Pagar agora
+                                                </button>
+                                            )}
                                         </div>
                                     </div>
                                 ))}
@@ -1811,8 +1898,12 @@ export default function ClientDashboard({ token, logout, API_URL, notify, onCham
                     <TelaPagamento
                         chamadoId={chamadoParaPagar.id}
                         valor={chamadoParaPagar.valor}
-                        onPago={() => {
-                            notify('Pagamento confirmado!', 'success');
+                        onPago={(resultadoPagamento) => {
+                            if (resultadoPagamento?.aguarda_confirmacao_barbeiro) {
+                                notify('Dinheiro registrado. Aguarde o barbeiro confirmar o recebimento.', 'warning');
+                            } else {
+                                notify('Pagamento confirmado!', 'success');
+                            }
                             setChamadoParaPagar(null);
                             carregarMeusPedidos();
                         }}
@@ -1833,7 +1924,7 @@ export default function ClientDashboard({ token, logout, API_URL, notify, onCham
 
         {perfilModal && (
             <div className="fixed inset-0 bg-black/70 z-[90] flex items-center justify-center p-4">
-                <div className="bg-zinc-950 border border-zinc-800 rounded-2xl w-full max-w-[420px] max-h-[90vh] overflow-y-auto p-4">
+                <div className="profile-modal bg-zinc-950 border border-zinc-800 rounded-2xl w-full max-w-[420px] max-h-[90vh] overflow-y-auto p-4">
                     <div className="flex justify-between items-center mb-3">
                         <h3 className="text-sm font-bold text-white">Perfil</h3>
                         <button onClick={() => setPerfilModal(null)} className="text-zinc-400">✕</button>

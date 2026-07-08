@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from datetime import date, datetime, time
 from typing import Any, Set
 
 from fastapi import WebSocket
@@ -21,7 +22,7 @@ class RealtimeManager:
         if not self._connections:
             return
 
-        message = json.dumps(payload, ensure_ascii=False)
+        message = json.dumps(payload, ensure_ascii=False, default=_json_default)
         dead: list[WebSocket] = []
         for ws in list(self._connections):
             try:
@@ -34,6 +35,12 @@ class RealtimeManager:
 
 
 realtime_manager = RealtimeManager()
+
+
+def _json_default(value: Any) -> Any:
+    if isinstance(value, (datetime, date, time)):
+        return value.isoformat()
+    return str(value)
 
 
 async def broadcast_event(event_type: str, **data: Any) -> None:

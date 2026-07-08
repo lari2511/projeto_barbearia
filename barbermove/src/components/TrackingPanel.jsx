@@ -34,6 +34,20 @@ export default function TrackingPanel({ chamado, token, API_URL, notify, modo = 
     const isBarbeariaMode = modo === 'barbearia';
     const isClienteMode = modo === 'cliente';
     const chamadoIdAtual = chamado?.id || resumo?.id;
+    const barbeariaDoChamadoId = chamado?.barbearia_id || resumo?.barbearia_id;
+    const barbeiroPresenteNoLocal = useMemo(() => {
+        const presente = Boolean((chamado?.barbeiro_presente_em_local ?? resumo?.barbeiro_presente_em_local));
+        const barbeariaAtualId = chamado?.barbeiro_barbearia_atual_id ?? resumo?.barbeiro_barbearia_atual_id;
+        if (!presente || barbeariaAtualId == null || barbeariaDoChamadoId == null) return false;
+        return Number(barbeariaAtualId) === Number(barbeariaDoChamadoId);
+    }, [
+        chamado?.barbeiro_barbearia_atual_id,
+        chamado?.barbeiro_presente_em_local,
+        resumo?.barbeiro_barbearia_atual_id,
+        resumo?.barbeiro_presente_em_local,
+        barbeariaDoChamadoId,
+    ]);
+    const chegadaDoUsuarioConfirmada = isClienteMode ? clienteChegou : (barbeiroChegou || barbeiroPresenteNoLocal);
     const trackingAtivo = isBarbeariaMode
         ? Boolean(chamadoIdAtual)
         : ['confirmado', 'aceito'].includes(String(statusChamadoAtual || '').toLowerCase());
@@ -434,23 +448,29 @@ export default function TrackingPanel({ chamado, token, API_URL, notify, modo = 
                             <div className={`rounded-lg border px-2.5 py-2 ${clienteChegou ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-200' : 'border-zinc-700 bg-zinc-900/40 text-zinc-300'}`}>
                                 Cliente: {clienteChegou ? 'Chegou' : 'A caminho'}
                             </div>
-                            <div className={`rounded-lg border px-2.5 py-2 ${barbeiroChegou ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-200' : 'border-zinc-700 bg-zinc-900/40 text-zinc-300'}`}>
-                                Barbeiro: {barbeiroChegou ? 'Chegou' : 'A caminho'}
+                            <div className={`rounded-lg border px-2.5 py-2 ${(barbeiroChegou || barbeiroPresenteNoLocal) ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-200' : 'border-zinc-700 bg-zinc-900/40 text-zinc-300'}`}>
+                                Barbeiro: {(barbeiroChegou || barbeiroPresenteNoLocal) ? 'Chegou' : 'A caminho'}
                             </div>
                         </div>
 
-                        <button
-                            type="button"
-                            onClick={marcarChegada}
-                            disabled={marcandoChegada || (isClienteMode ? clienteChegou : barbeiroChegou)}
-                            className="w-full rounded-xl bg-orange-500 px-3 py-2.5 text-sm font-bold text-white transition-opacity disabled:opacity-50"
-                        >
-                            {marcandoChegada
-                                ? 'Registrando...'
-                                : (isClienteMode ? clienteChegou : barbeiroChegou)
-                                    ? 'Chegada já confirmada'
-                                    : 'Cheguei'}
-                        </button>
+                        {!(isBarbeiroMode && barbeiroPresenteNoLocal) ? (
+                            <button
+                                type="button"
+                                onClick={marcarChegada}
+                                disabled={marcandoChegada || chegadaDoUsuarioConfirmada}
+                                className="w-full rounded-xl bg-orange-500 px-3 py-2.5 text-sm font-bold text-white transition-opacity disabled:opacity-50"
+                            >
+                                {marcandoChegada
+                                    ? 'Registrando...'
+                                    : chegadaDoUsuarioConfirmada
+                                        ? 'Chegada já confirmada'
+                                        : 'Cheguei'}
+                            </button>
+                        ) : (
+                            <div className="w-full rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-3 py-2.5 text-sm font-semibold text-emerald-200 text-center">
+                                Você já está presente na barbearia. Apenas o cliente precisa confirmar chegada.
+                            </div>
+                        )}
                     </div>
                 )}
             </div>

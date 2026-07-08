@@ -10,7 +10,7 @@ const RadarBarbeiro = ({ navigation }) => {
   const [carregando, setCarregando] = useState(false);
   const [mensagemStatus, setMensagemStatus] = useState('Radar inativo');
   const [localizacaoAtual, setLocalizacaoAtual] = useState(null);
-  const [numSolicitacoes] = useState(0);
+  const [numSolicitacoes, setNumSolicitacoes] = useState(0);
   const [tempoUltimaAtualizacao, setTempoUltimaAtualizacao] = useState(null);
   const watchIdRef = useRef(null);
 
@@ -18,16 +18,79 @@ const RadarBarbeiro = ({ navigation }) => {
   const defaultProtocol = typeof window !== 'undefined' && window.location.protocol === 'https:' ? 'https' : 'http';
   const API_URL = import.meta.env.VITE_API_URL || `${defaultProtocol}://${defaultHost}:8000`;
 
+  const atualizarStatusRadar = async (isOnline) => {
+    const token = localStorage.getItem('token');
+    const res = await fetch(`${API_URL}/api/v1/on-demand/ligar-radar`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: token ? `Bearer ${token}` : '',
+      },
+      body: JSON.stringify({ is_online: isOnline }),
+    });
+
+    if (!res.ok) {
+      const error = await res.json().catch(() => ({}));
+      throw new Error(error?.detail || 'Não foi possível atualizar o status do radar');
+    }
+  };
+
+  const carregarStatusInicial = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      const res = await fetch(`${API_URL}/api/v1/on-demand/status-meu-radar`, {
+        headers: { Authorization: token ? `Bearer ${token}` : '' },
+      });
+
+      if (!res.ok) return;
+      const data = await res.json();
+      const online = Boolean(data?.is_online);
+      setRadarOnline(online);
+      setMensagemStatus(online ? '🟢 Radar ativo - Procurando clientes' : 'Radar inativo');
+    } catch (_) {
+      // mantém fallback visual local
+    }
+  };
+
+  const carregarSolicitacoesAtivas = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      const res = await fetch(`${API_URL}/api/v1/on-demand/cadeiras-acionadas/ativas`, {
+        headers: { Authorization: token ? `Bearer ${token}` : '' },
+      });
+
+      if (!res.ok) {
+        setNumSolicitacoes(0);
+        return;
+      }
+
+      const data = await res.json().catch(() => []);
+      setNumSolicitacoes(Array.isArray(data) ? data.length : 0);
+    } catch (_) {
+      setNumSolicitacoes(0);
+    }
+  };
+
   useEffect(() => {
+    carregarStatusInicial();
+    carregarSolicitacoesAtivas();
+
+    const interval = setInterval(() => {
+      carregarSolicitacoesAtivas();
+    }, 10000);
+
     return () => {
+      clearInterval(interval);
       if (watchIdRef.current && navigator.geolocation) navigator.geolocation.clearWatch(watchIdRef.current);
     };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const iniciarRadar = async () => {
     if (!navigator.geolocation) { console.log('[alert]','Geolocalização não disponível'); return; }
     setCarregando(true);
     try {
+      await atualizarStatusRadar(true);
       setMensagemStatus('🟢 Radar ativo - Procurando clientes');
       setTempoUltimaAtualizacao(new Date());
       const id = navigator.geolocation.watchPosition(async (pos) => {
@@ -45,10 +108,13 @@ const RadarBarbeiro = ({ navigation }) => {
       }, (err) => { console.error(err); }, { enableHighAccuracy: true, maximumAge: 5000 });
       watchIdRef.current = id;
       setRadarOnline(true);
+      carregarSolicitacoesAtivas();
       console.log('[alert]','Radar iniciado');
     } catch (e) {
       console.error(e);
       console.log('[alert]','Erro ao iniciar radar');
+      setMensagemStatus('Radar inativo');
+      setRadarOnline(false);
     }
     setCarregando(false);
   };
@@ -58,8 +124,10 @@ const RadarBarbeiro = ({ navigation }) => {
     try {
       if (watchIdRef.current && navigator.geolocation) navigator.geolocation.clearWatch(watchIdRef.current);
       watchIdRef.current = null;
+      await atualizarStatusRadar(false);
       setRadarOnline(false);
       setMensagemStatus('🔴 Radar inativo - Offline');
+      setNumSolicitacoes(0);
     } catch (e) { console.error(e); }
     setCarregando(false);
   };

@@ -171,9 +171,9 @@ img, svg, picture {
 }
 
 .bm-bottom-nav {
-  background: rgba(8, 8, 10, 0.96);
-  backdrop-filter: blur(22px);
-  border-top: 1px solid rgba(39, 39, 42, 0.8);
+  background: #0b0b0f;
+  backdrop-filter: none;
+  border-top: 1px solid #27272a;
   box-shadow: 0 -10px 30px rgba(0, 0, 0, 0.28);
 }
 
@@ -226,6 +226,12 @@ img, svg, picture {
   height: 16px !important;
 }
 
+
+/* Evita que mapas no modal de perfil capturem toques e bloqueiem ações de reserva */
+.profile-modal .leaflet-container,
+.profile-modal iframe {
+  pointer-events: none;
+}
 /* Smooth scrolling */
 html {
   scroll-behavior: smooth;

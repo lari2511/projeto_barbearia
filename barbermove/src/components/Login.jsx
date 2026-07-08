@@ -16,21 +16,27 @@ export default function Login({ onLoginSuccess }) {
   const [selectedType, setSelectedType] = useState(null);
   const [email, setEmail] = useState('');
   const [senha, setSenha] = useState('');
+  const [erroLogin, setErroLogin] = useState('');
 
   const handleTypeSelect = (type) => {
     setSelectedType(type);
+    setErroLogin('');
     setStep('login');
   };
 
   const handleLogin = async (e) => {
     e.preventDefault();
     try {
+      setErroLogin('');
       const success = await login(email, senha, selectedType);
       if (success && onLoginSuccess) {
         onLoginSuccess();
+        return;
       }
+
+      setErroLogin('Email ou senha incorretos. Verifique e tente novamente.');
     } catch (erro) {
-      // Erro de login tratado pelo contexto
+      setErroLogin('Email ou senha incorretos. Verifique e tente novamente.');
     }
   };
 
@@ -134,6 +140,12 @@ export default function Login({ onLoginSuccess }) {
           </div>
 
           <form onSubmit={handleLogin}>
+            {erroLogin && (
+              <div className="mb-3 rounded-xl border border-red-500/40 bg-red-500/10 px-3 py-2 text-xs text-red-200 font-semibold">
+                {erroLogin}
+              </div>
+            )}
+
             <Input
               label="Email"
               type="email"

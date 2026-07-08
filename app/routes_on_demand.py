@@ -538,8 +538,17 @@ async def solicitar_barbeiro(
     """
     Cliente (ou barbearia) solicita um barbeiro agora.
     """
+    barbearia_id_origem = None
+    nome_barbearia_origem = "Próximo a você"
+    if current_user.tipo == "barbearia":
+        barbearia_origem = db.query(Barbearia).filter(Barbearia.usuario_id == current_user.id).first()
+        if barbearia_origem:
+            barbearia_id_origem = barbearia_origem.id
+            nome_barbearia_origem = barbearia_origem.nome or nome_barbearia_origem
+
     solicitacao = SolicitacaoBarbeiro(
         cliente_id=current_user.id,
+        barbearia_id=barbearia_id_origem,
         latitude=request.latitude,
         longitude=request.longitude,
         endereco=request.endereco,
@@ -587,7 +596,7 @@ async def solicitar_barbeiro(
                     token_dispositivo=barbeiro.device_token,
                     nome_cliente=current_user.nome,
                     nome_servico=request.tipo_servico or "Serviço",
-                    nome_barbearia="Próximo a você",
+                    nome_barbearia=nome_barbearia_origem,
                 )
                 barbeiros_notificados += 1
 
@@ -904,19 +913,6 @@ async def listar_cadeiras_acionadas_ativas(
         if not barbearia or barbearia.latitude is None or barbearia.longitude is None:
             continue
 
-        if current_user.latitude is None or current_user.longitude is None:
-            continue
-
-        eta_min = _calcular_eta_minutos(
-            current_user.latitude,
-            current_user.longitude,
-            barbearia.latitude,
-            barbearia.longitude,
-        )
-
-        if eta_min > 10:
-            continue
-
         if current_user.tipo == "barbeiro":
             radar = db.query(RadarFreelancer).filter(
                 RadarFreelancer.freelancer_id == current_user.id,
@@ -925,7 +921,35 @@ async def listar_cadeiras_acionadas_ativas(
             ).first()
             if not radar:
                 continue
-        elif current_user.tipo != "cliente":
+
+            eta_min = None
+            # Prioriza a posição em tempo real do radar para não depender de
+            # coordenadas antigas salvas no perfil do usuário.
+            origem_lat = radar.latitude if radar.latitude is not None else current_user.latitude
+            origem_lon = radar.longitude if radar.longitude is not None else current_user.longitude
+
+            if origem_lat is not None and origem_lon is not None:
+                eta_min = _calcular_eta_minutos(
+                    origem_lat,
+                    origem_lon,
+                    barbearia.latitude,
+                    barbearia.longitude,
+                )
+                if eta_min > 10:
+                    continue
+        elif current_user.tipo == "cliente":
+            if current_user.latitude is None or current_user.longitude is None:
+                continue
+
+            eta_min = _calcular_eta_minutos(
+                current_user.latitude,
+                current_user.longitude,
+                barbearia.latitude,
+                barbearia.longitude,
+            )
+            if eta_min > 10:
+                continue
+        else:
             continue
 
         resultado.append(_serializar_cadeira_acionada(vaga, eta_min_usuario_atual=eta_min))
@@ -1053,6 +1077,14 @@ async def aceitar_cadeira_acionada_como_barbeiro(
 
     if atualizado == 0:
         raise HTTPException(status_code=409, detail="Outro usuario aceitou esta vaga primeiro")
+
+    # Ao assumir a vaga relampago, o barbeiro passa a ser considerado
+    # presente no local da barbearia vinculada.
+    usuario_db = db.query(Usuario).filter(Usuario.id == current_user.id).first()
+    if usuario_db:
+        usuario_db.presente_em_local = True
+        usuario_db.barbearia_atual_id = vaga.barbearia_id
+        usuario_db.horario_chegada = datetime.utcnow()
 
     db.commit()
     vaga = db.query(CadeiraAcionada).filter(CadeiraAcionada.id == vaga_id).first()

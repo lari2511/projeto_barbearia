@@ -211,6 +211,35 @@ def _calcular_taxa_cancelamento(chamado: models.Chamado, barbeiro: models.Usuari
     return 0.0, diferenca_minutos, "Cancelamento dentro da janela gratuita de 5 minutos"
 
 
+def _iniciar_atendimento_chamado(db: Session, chamado: models.Chamado, barbeiro: models.Usuario):
+    """Inicia atendimento de um chamado da fila e atualiza barbeiro/cadeira."""
+    agora = datetime.now()
+
+    servico = db.query(models.Servico).filter(models.Servico.id == chamado.servico_id).first()
+    duracao_minutos = servico.duracao_minutos if (servico and servico.duracao_minutos) else 30
+
+    chamado.status = models.StatusAgendamento.EM_ATENDIMENTO.value
+    chamado.data_hora_inicio = agora
+    chamado.data_hora_fim = agora + timedelta(minutes=duracao_minutos)
+
+    barber = db.query(models.Usuario).filter(models.Usuario.id == barbeiro.id).first()
+    if barber:
+        barber.disponivel = False
+        barber.em_atendimento = True
+        barber.ocupado_ate = chamado.data_hora_fim
+
+    cadeira = None
+    if chamado.cadeira_id:
+        cadeira = db.query(models.Cadeira).filter(models.Cadeira.id == chamado.cadeira_id).first()
+        if cadeira:
+            cadeira.status = models.StatusCadeira.OCUPADA
+            cadeira.freelancer_id = barbeiro.id
+            cadeira.chamado_id = chamado.id
+            cadeira.ocupada_em = agora
+
+    return servico, chamado, cadeira, agora
+
+
 def _finalizar_chamado_e_avancar_fila(db: Session, chamado: models.Chamado, barbeiro: models.Usuario):
     status_anterior = chamado.status
     chamado.status = models.StatusAgendamento.CONCLUIDO.value
@@ -483,6 +512,21 @@ def _montar_payload_tracking(db: Session, chamado: models.Chamado, ativo: models
         "atualizado_em": datetime.utcnow().isoformat(),
     }
 
+def _esta_na_janela_liberacao_antecipada(barbeiro: models.Usuario, agora: datetime | None = None, janela_min: int = 10) -> bool:
+    if not barbeiro:
+        return False
+
+    ocupado_ate = getattr(barbeiro, 'ocupado_ate', None)
+    if not ocupado_ate:
+        return False
+
+    referencia = agora or datetime.now()
+    if ocupado_ate <= referencia:
+        return False
+
+    minutos_restantes = (ocupado_ate - referencia).total_seconds() / 60
+    return minutos_restantes <= janela_min
+
 def esta_em_servico_agora(db: Session, barbeiro_id: int) -> bool:
     # Verifica se o barbeiro está em um serviço ATIVO no momento.
     from datetime import datetime
@@ -490,10 +534,13 @@ def esta_em_servico_agora(db: Session, barbeiro_id: int) -> bool:
     
     agora = datetime.now()
     
-    # Verifica se o barbeiro tem ocupado_ate definido e ainda não passou
+    # Verifica se o barbeiro tem ocupado_ate definido e ainda não passou.
+    # Regra de negócio: na janela final (<=10 min) ele já pode receber próximo chamado.
     barbeiro = db.query(models.Usuario).filter(models.Usuario.id == barbeiro_id).first()
     if barbeiro and barbeiro.ocupado_ate:
         if barbeiro.ocupado_ate > agora:
+            if _esta_na_janela_liberacao_antecipada(barbeiro, agora=agora, janela_min=10):
+                return False
             return True  # Ainda está ocupado
     
     # Procura por agendamento ativo no momento (apenas CONFIRMADO)
@@ -513,7 +560,7 @@ def pode_receber_chamado(barbeiro_id: int, db: Session = Depends(get_db)):
 
     Regras:
     - Se `ocupado_ate` não estiver definido ou já passou -> disponível
-    - Se `ocupado_ate` definido e faltar 15 minutos ou menos -> disponível (liberação antecipada)
+    - Se `ocupado_ate` definido e faltar 10 minutos ou menos -> disponível (liberação antecipada)
     - Caso contrário -> não disponível e retorna minutos restantes até permitir
     """
     barbeiro = db.query(models.Usuario).filter(models.Usuario.id == barbeiro_id).first()
@@ -530,7 +577,7 @@ def pode_receber_chamado(barbeiro_id: int, db: Session = Depends(get_db)):
         return {"disponivel": True}
 
     minutos_restantes = (ocupado_ate - agora).total_seconds() / 60
-    if minutos_restantes <= 15:
+    if minutos_restantes <= 10:
         return {
             "disponivel": True,
             "aviso": f"Finalizando corte em {int(round(minutos_restantes))} min. Já pode aceitar o próximo."
@@ -538,7 +585,7 @@ def pode_receber_chamado(barbeiro_id: int, db: Session = Depends(get_db)):
 
     return {
         "disponivel": False,
-        "minutos_para_liberar": int(math.ceil(minutos_restantes - 15))
+        "minutos_para_liberar": int(math.ceil(minutos_restantes - 10))
     }
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
@@ -1098,6 +1145,12 @@ def criar_chamado(chamado: schemas.ChamadoCreate, token: str = Depends(oauth2_sc
                 models.Freelancer.usuario_id == barbeiro.id
             ).first()
             
+            if freelancer_perfil and getattr(freelancer_perfil, 'status_pausado', False):
+                raise HTTPException(
+                    status_code=400,
+                    detail="Barbeiro está com atendimentos pausados no momento."
+                )
+
             if freelancer_perfil:
                 especialidades = db.query(models.EspecialidadeFreelancer).filter(
                     models.EspecialidadeFreelancer.freelancer_id == freelancer_perfil.id
@@ -1145,8 +1198,8 @@ def criar_chamado(chamado: schemas.ChamadoCreate, token: str = Depends(oauth2_sc
             try:
                 if barbeiro_check.ocupado_ate > agora:
                     minutos_restantes = (barbeiro_check.ocupado_ate - chamado.data_hora_inicio).total_seconds() / 60
-                    # Se faltar 15 minutos ou menos, permitimos criar chamado (liberação antecipada)
-                    if minutos_restantes <= 15:
+                    # Se faltar 10 minutos ou menos, permitimos criar chamado (liberação antecipada)
+                    if minutos_restantes <= 10:
                         pass  # permitir, o chamado ficará na fila e será aceito quando possível
                     else:
                         raise HTTPException(
@@ -1487,6 +1540,12 @@ def listar_agendamentos_barbeiro(barbeiro_id: int, db: Session = Depends(get_db)
         servico = db.query(models.Servico).filter(models.Servico.id == chamado.servico_id).first()
         barbearia = db.query(models.Barbearia).filter(models.Barbearia.id == chamado.barbearia_id).first()
         cadeira = db.query(models.Cadeira).filter(models.Cadeira.id == chamado.cadeira_id).first() if chamado.cadeira_id else None
+
+        duracao_minutos = (servico.duracao_minutos if servico and servico.duracao_minutos else 30)
+        inicio_base = chamado.data_hora_inicio or chamado.data_agendamento or chamado.criado_em
+        data_hora_fim_resolvida = chamado.data_hora_fim
+        if not data_hora_fim_resolvida and inicio_base:
+            data_hora_fim_resolvida = inicio_base + timedelta(minutes=duracao_minutos)
         
         ja_avaliado = db.query(models.Avaliacao).filter(
             models.Avaliacao.chamado_id == chamado.id,
@@ -1507,8 +1566,10 @@ def listar_agendamentos_barbeiro(barbeiro_id: int, db: Session = Depends(get_db)
             "cadeira_id": chamado.cadeira_id,
             "cadeira_numero": cadeira.numero if cadeira else None,
             "data_hora_inicio": chamado.data_hora_inicio.isoformat() if chamado.data_hora_inicio else None,
+            "duracao_minutos": duracao_minutos,
             "data_agendamento": chamado.data_agendamento.isoformat() if chamado.data_agendamento else None,
             "criado_em": chamado.criado_em.isoformat() if chamado.criado_em else None,
+            "data_hora_fim": data_hora_fim_resolvida.isoformat() if data_hora_fim_resolvida else None,
             "barbearia_nome": barbearia.nome if barbearia else "Barbearia",
             "barbearia_endereco": barbearia.endereco if barbearia else "",
             "barbearia_latitude": barbearia.latitude if barbearia else None,
@@ -1771,6 +1832,18 @@ def aceitar_chamado(id: int, token: str = Depends(oauth2_scheme), db: Session = 
     user = get_current_user(token=token, db=db)
     if user.tipo != "barbeiro":
         raise HTTPException(status_code=403, detail="Apenas barbeiros podem aceitar chamados")
+
+    carteira = db.query(models.CarteiraBarbeiro).filter(
+        models.CarteiraBarbeiro.barbeiro_id == user.id
+    ).first()
+    if carteira:
+        saldo = float(carteira.saldo or 0.0)
+        limite = float(carteira.limite_negativo if carteira.limite_negativo is not None else -50.0)
+        if saldo <= limite:
+            raise HTTPException(
+                status_code=403,
+                detail=f"Carteira bloqueada por saldo devedor (R$ {saldo:.2f}). Quite a fatura para voltar a aceitar chamados.",
+            )
     
     chamado = db.query(models.Chamado).filter(models.Chamado.id == id).first()
     if not chamado:
@@ -1997,6 +2070,20 @@ async def chegar_chamado(id: int, token: str = Depends(oauth2_scheme), db: Sessi
     if status_normalizado not in {"aceito", models.StatusAgendamento.CONFIRMADO.value, models.StatusAgendamento.EM_ATENDIMENTO.value}:
         raise HTTPException(status_code=400, detail="Chegada só pode ser confirmada quando o chamado estiver confirmado")
 
+    barbeiro = db.query(models.Usuario).filter(models.Usuario.id == chamado.barbeiro_id).first() if chamado.barbeiro_id else None
+    barbeiro_ja_presente_na_barbearia = bool(
+        barbeiro
+        and barbeiro.presente_em_local
+        and barbeiro.barbearia_atual_id
+        and chamado.barbearia_id
+        and int(barbeiro.barbearia_atual_id) == int(chamado.barbearia_id)
+    )
+
+    # Se o barbeiro já está marcado como presente na barbearia do chamado,
+    # considera a chegada dele automaticamente para não exigir confirmação manual.
+    if barbeiro_ja_presente_na_barbearia:
+        chamado.barbeiro_chegou = True
+
     if user.tipo == "cliente":
         chamado.cliente_chegou = True
     else:
@@ -2010,13 +2097,19 @@ async def chegar_chamado(id: int, token: str = Depends(oauth2_scheme), db: Sessi
     virou_em_atendimento = False
 
     if cliente_chegou and barbeiro_chegou and status_normalizado != models.StatusAgendamento.EM_ATENDIMENTO.value:
+        agora_inicio = datetime.utcnow()
+        servico = db.query(models.Servico).filter(models.Servico.id == chamado.servico_id).first() if chamado.servico_id else None
+        duracao_minutos = int(getattr(servico, 'duracao_minutos', None) or 30)
+
         chamado.status = models.StatusAgendamento.EM_ATENDIMENTO.value
+        chamado.data_hora_inicio = agora_inicio
+        chamado.data_hora_fim = agora_inicio + timedelta(minutes=duracao_minutos)
         virou_em_atendimento = True
 
-        barbeiro = db.query(models.Usuario).filter(models.Usuario.id == chamado.barbeiro_id).first() if chamado.barbeiro_id else None
         if barbeiro:
             barbeiro.disponivel = False
             barbeiro.em_atendimento = True
+            barbeiro.ocupado_ate = chamado.data_hora_fim
 
         db.add(models.ChamadoHistorico(
             chamado_id=chamado.id,
@@ -2613,19 +2706,22 @@ def listar_barbeiros_proximos(
         km = 6371 * c
         return km
     
-    # ✅ GUARDIÃO: Apenas barbeiros APROVADOS e DISPONÍVEIS
-    # ✅ INCLUINDO barbeiros presentes em barbearias (podem receber agendamentos)
+    # ✅ GUARDIÃO: Apenas barbeiros aprovados e aptos a receber.
+    # Inclui também quem está na janela final (<=10 min) para liberar o próximo atendimento.
     agora_filtro = datetime.now()
+    limite_liberacao = agora_filtro + timedelta(minutes=10)
     barbeiros = db.query(models.Usuario).filter(
         models.Usuario.tipo == "barbeiro",
         models.Usuario.perfil_aprovado == True,  # Apenas aprovados
-        models.Usuario.disponivel == True,  # Apenas disponíveis (flag manual)
         models.Usuario.latitude.isnot(None),
         models.Usuario.longitude.isnot(None),
-        # ✅ NÃO está ocupado OU já passou do horário de ocupação
         or_(
-            models.Usuario.ocupado_ate.is_(None),
-            models.Usuario.ocupado_ate <= agora_filtro
+            models.Usuario.disponivel == True,
+            and_(
+                models.Usuario.ocupado_ate.isnot(None),
+                models.Usuario.ocupado_ate > agora_filtro,
+                models.Usuario.ocupado_ate <= limite_liberacao
+            )
         )
     ).all()
     
@@ -2634,8 +2730,9 @@ def listar_barbeiros_proximos(
     for b in barbeiros:
         distancia = haversine(longitude, latitude, b.longitude, b.latitude)
         if distancia <= raio_km:
-            # ✅ Calcula disponibilidade REAL: flag do banco AND não está em serviço ativo
-            disponivel_real = b.disponivel and not esta_em_servico_agora(db, b.id)
+            na_janela_liberacao = _esta_na_janela_liberacao_antecipada(b, agora=agora_filtro, janela_min=10)
+            disponivel_real = (b.disponivel and not esta_em_servico_agora(db, b.id)) or na_janela_liberacao
+            online_regiao_real = bool(b.online_regiao) or na_janela_liberacao
             
             # Calcular tempo estimado: velocidade média 40 km/h em zona urbana
             tempo_minutos = int((distancia / 40) * 60)
@@ -2662,8 +2759,9 @@ def listar_barbeiros_proximos(
                 "presente_em_local": b.presente_em_local or False,
                 "barbearia_atual_id": b.barbearia_atual_id,
                 "barbearia_atual_nome": barbearia_nome,
-                "online_regiao": b.online_regiao or False,
-                "pode_receber_chamado_agora": bool(b.presente_em_local and b.barbearia_atual_id)
+                "online_regiao": online_regiao_real,
+                "pode_receber_chamado_agora": bool(b.presente_em_local and b.barbearia_atual_id),
+                "liberacao_antecipada": na_janela_liberacao,
             })
     
     # Ordenar por distância
@@ -2681,8 +2779,9 @@ def listar_todos_barbeiros(db: Session = Depends(get_db)):
     
     resultado = []
     for b in barbeiros:
-        # ✅ Calcula disponibilidade REAL: flag do banco AND não está em serviço ativo
-        disponivel_real = b.disponivel and not esta_em_servico_agora(db, b.id)
+        na_janela_liberacao = _esta_na_janela_liberacao_antecipada(b, janela_min=10)
+        disponivel_real = (b.disponivel and not esta_em_servico_agora(db, b.id)) or na_janela_liberacao
+        online_regiao_real = bool(b.online_regiao) or na_janela_liberacao
         barbearia_nome = None
         if b.barbearia_atual_id:
             barbearia = db.query(models.Barbearia).filter(models.Barbearia.id == b.barbearia_atual_id).first()
@@ -2699,8 +2798,9 @@ def listar_todos_barbeiros(db: Session = Depends(get_db)):
             "presente_em_local": b.presente_em_local or False,
             "barbearia_atual_id": b.barbearia_atual_id,
             "barbearia_atual_nome": barbearia_nome,
-            "online_regiao": b.online_regiao or False,
+            "online_regiao": online_regiao_real,
             "pode_receber_chamado_agora": bool(b.presente_em_local and b.barbearia_atual_id),
+            "liberacao_antecipada": na_janela_liberacao,
             "foto_perfil": b.foto_perfil,
             "latitude": b.latitude,
             "longitude": b.longitude
@@ -2901,8 +3001,15 @@ def listar_meus_pedidos_cliente(token: str = Depends(oauth2_scheme), db: Session
         models.Chamado.cliente_id == user.id
     ).order_by(models.Chamado.criado_em.desc(), models.Chamado.id.desc()).all()
 
+    chamados_ids = [ch.id for ch in chamados]
+    pagamentos_por_chamado = {}
+    if chamados_ids:
+        pagamentos = db.query(models.Pagamento).filter(models.Pagamento.chamado_id.in_(chamados_ids)).all()
+        pagamentos_por_chamado = {pag.chamado_id: pag for pag in pagamentos}
+
     resultado = []
     for chamado in chamados:
+        pagamento = pagamentos_por_chamado.get(chamado.id)
         barbearia = db.query(models.Barbearia).filter(models.Barbearia.id == chamado.barbearia_id).first()
         barbeiro = db.query(models.Usuario).filter(models.Usuario.id == chamado.barbeiro_id).first() if chamado.barbeiro_id else None
         servico = db.query(models.Servico).filter(models.Servico.id == chamado.servico_id).first()
@@ -2965,6 +3072,9 @@ def listar_meus_pedidos_cliente(token: str = Depends(oauth2_scheme), db: Session
             "freelancer_distancia_ate_barbearia_km": freelancer_distancia,
             "freelancer_eta_ate_barbearia_min": freelancer_eta,
             "avaliado": False,
+            "pagamento_id": pagamento.id if pagamento else None,
+            "pagamento_concluido": bool(pagamento and pagamento.pago_em),
+            "pagamento_pago_em": pagamento.pago_em.isoformat() if pagamento and pagamento.pago_em else None,
         })
 
     return resultado
@@ -3244,12 +3354,14 @@ def listar_barbeiros_priorizados_barbearia(
 
     resultado = []
     for barbeiro in barbeiros:
+        na_janela_liberacao = _esta_na_janela_liberacao_antecipada(barbeiro, janela_min=10)
+        online_regiao_real = bool(barbeiro.online_regiao) or na_janela_liberacao
         profissional_da_casa = bool(
             barbeiro.presente_em_local and
             barbeiro.barbearia_atual_id == barbearia_id
         )
 
-        if not profissional_da_casa and not barbeiro.online_regiao:
+        if not profissional_da_casa and not online_regiao_real:
             continue
 
         distancia_km = None
@@ -3262,7 +3374,7 @@ def listar_barbeiros_priorizados_barbearia(
                 if distancia_km is not None and distancia_km > raio_km and not profissional_da_casa:
                     continue
 
-        disponivel_real = bool(barbeiro.disponivel) and not esta_em_servico_agora(db, barbeiro.id)
+        disponivel_real = (bool(barbeiro.disponivel) and not esta_em_servico_agora(db, barbeiro.id)) or na_janela_liberacao
         if not incluir_indisponiveis and not disponivel_real:
             continue
 
@@ -3280,11 +3392,12 @@ def listar_barbeiros_priorizados_barbearia(
             "presente_em_local": bool(barbeiro.presente_em_local),
             "barbearia_atual_id": barbeiro.barbearia_atual_id,
             "barbearia_atual_nome": barbearia.nome if profissional_da_casa else None,
-            "online_regiao": bool(barbeiro.online_regiao),
+            "online_regiao": online_regiao_real,
             "profissional_da_casa": profissional_da_casa,
             "origem": "casa" if profissional_da_casa else "freelancer",
             "prioridade": 1 if profissional_da_casa else 2,
             "pode_receber_chamado_agora": bool(profissional_da_casa),
+            "liberacao_antecipada": na_janela_liberacao,
         })
 
     resultado.sort(key=lambda item: (

@@ -2,9 +2,57 @@
 .profileHeader{display:flex;gap:1rem;align-items:center}
 .profileAvatar{width:64px;height:64px;border-radius:9999px;background:#2a2a2a;display:flex;align-items:center;justify-content:center}
 .avatarInner{font-weight:700;color:#fff}
+.avatarPhoto{width:100%;height:100%;object-fit:cover;border-radius:9999px}
 .profileInfo{display:flex;flex-direction:column}
 .badge{background:#f59e0b;padding:4px 8px;border-radius:999px;color:#000;font-weight:700}
 .label{font-size:12px;color:#9ca3af}
 .input{background:#111827;border:1px solid #374151;padding:8px;border-radius:8px;color:#fff;width:100%}
 .actions{text-align:right}
 .saveBtn{background:#10b981;color:#fff;padding:10px 14px;border-radius:10px}
+.fileBtn{display:inline-flex;align-items:center;gap:6px;margin-top:10px;background:#1f2937;border:1px solid #374151;border-radius:10px;padding:8px 10px;font-size:12px;color:#e5e7eb;cursor:pointer;font-weight:700;width:fit-content}
+.hiddenInput{display:none}
+.previewActions{display:flex;gap:8px;margin-top:8px;flex-wrap:wrap}
+.applyBtn{background:#16a34a;border:1px solid #15803d;color:#fff;border-radius:10px;padding:6px 10px;font-size:12px;font-weight:800}
+.cancelBtn{background:#1f2937;border:1px solid #374151;color:#e4e4e7;border-radius:10px;padding:6px 10px;font-size:12px;font-weight:800}
+.adjustWrap{margin-top:8px}
+.zoomRange{width:100%;margin-top:6px}
+.editorOverlay{position:fixed;inset:0;background:rgba(2,6,23,.78);z-index:1200;display:flex;align-items:center;justify-content:center;padding:16px}
+.editorCard{width:min(680px,100%);max-height:92vh;overflow:auto;background:#0b1220;border:1px solid #334155;border-radius:16px;padding:14px}
+.editorHint{font-size:12px;color:#94a3b8;margin-top:4px;margin-bottom:10px}
+.editorPreviewWrap{width:min(420px,100%);aspect-ratio:1/1;margin:0 auto;border-radius:16px;overflow:hidden;border:1px solid #334155;background:#020617;display:flex;align-items:center;justify-content:center}
+.editorPreview{width:100%;height:100%;object-fit:cover}
+.editorPreview{cursor:grab;touch-action:none;user-select:none;-webkit-user-drag:none}
+.editorPreviewDragging{cursor:grabbing}
+.editorPlaceholder{font-size:12px;color:#94a3b8}
+.statusGrid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+.statusBtn{border:1px solid #3f3f46;background:#111827;color:#e4e4e7;border-radius:10px;padding:8px 10px;font-size:12px;font-weight:800}
+.statusBtnActive{border-color:#f59e0b;background:#27272a;color:#fbbf24}
+.counterRow{display:flex;align-items:center;justify-content:space-between;gap:10px;background:#0b1220;border:1px solid #374151;border-radius:12px;padding:12px}
+.counterLabel{font-size:11px;color:#9ca3af;text-transform:uppercase;letter-spacing:.06em}
+.counterValue{font-size:28px;font-weight:900;color:#f97316;line-height:1.1}
+.counterButtons{display:flex;gap:8px}
+.counterBtn{width:42px;height:42px;border-radius:10px;border:1px solid #374151;background:#1f2937;color:#fff;font-size:22px;font-weight:900}
+.counterMoney{font-size:34px;font-weight:900;color:#22c55e;line-height:1.1}
+.planInfoCard{background:#2c120a;border:1px solid #ea580c;border-radius:12px;padding:10px}
+.sectionHeader{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
+.labelStrong{font-size:12px;color:#d1d5db;font-weight:800;text-transform:uppercase;letter-spacing:.08em}
+.emptyText{font-size:12px;color:#71717a}
+.portfolioGrid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+.portfolioItem{position:relative;border-radius:12px;overflow:hidden;border:1px solid #3f3f46;background:#111827;aspect-ratio:1/1}
+.portfolioImg{width:100%;height:100%;object-fit:cover}
+.removeBtn{position:absolute;top:6px;right:6px;background:rgba(0,0,0,.65);border:1px solid rgba(255,255,255,.2);border-radius:999px;color:#fff;width:24px;height:24px;display:flex;align-items:center;justify-content:center}
+.planGrid{display:grid;grid-template-columns:1fr;gap:10px}
+.planCard{border:1px solid #3f3f46;border-radius:12px;background:#0f172a;padding:12px;text-align:left;transition:all .2s ease;color:#e4e4e7}
+.planCard:hover{border-color:#f59e0b;transform:translateY(-1px)}
+.planCardActive{border-color:#f59e0b;background:#1f2937;box-shadow:0 0 0 1px rgba(245,158,11,.35) inset}
+.planTop{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.planName{font-weight:800;font-size:14px}
+.planTag{font-size:10px;text-transform:uppercase;letter-spacing:.06em;background:#f59e0b;color:#111827;padding:2px 8px;border-radius:999px;font-weight:800}
+.planPrice{font-size:16px;font-weight:900;color:#f9fafb;margin-top:6px}
+.planDesc{font-size:12px;color:#a1a1aa;margin-top:4px}
+
+@media (max-width: 420px){
+	.portfolioGrid{grid-template-columns:repeat(2,minmax(0,1fr))}
+	.counterMoney{font-size:28px}
+	.editorCard{padding:12px}
+}

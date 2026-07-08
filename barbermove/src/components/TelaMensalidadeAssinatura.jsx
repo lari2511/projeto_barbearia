@@ -565,6 +565,22 @@ export default function TelaMensalidadeAssinatura({ token, barbeariaId, API_URL,
           </div>
         </div>
 
+        <div className="rounded-xl border border-zinc-800 bg-zinc-950/70 p-3 mb-3 text-xs text-zinc-300 leading-relaxed">
+          <p className="font-bold text-orange-300 mb-1">Como funciona a cadeira</p>
+          <p className="text-zinc-400">
+            A cadeira 1 é a primeira cadeira paga do plano. Quando você aumenta a quantidade, o sistema adiciona a cadeira 2, 3 e assim por diante com preço progressivo.
+            Se a barbearia contratou só 1 cadeira, apenas a <strong>Cadeira 1</strong> deve ficar ativa no painel.
+          </p>
+        </div>
+
+        <div className="bg-zinc-900/70 border border-zinc-800 rounded-lg p-2 mb-3 text-xs text-zinc-300 leading-relaxed">
+          <p className="font-bold text-orange-300 mb-1">Lógica das cadeiras</p>
+          <p className="text-zinc-400">
+            A cadeira 1 é a primeira vaga paga do plano. Ao aumentar a quantidade, o sistema adiciona a cadeira 2, 3 e assim por diante com preço progressivo.
+            Se a sua barbearia contratou só 1 cadeira, a tela e o painel devem mostrar apenas a <strong>Cadeira 1</strong>.
+          </p>
+        </div>
+
         {/* ECONOMIA */}
         {calculos.economia > 0 && (
           <div className="bg-green-900/20 border border-green-700 rounded p-2 mb-3 text-xs">

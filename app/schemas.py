@@ -1,6 +1,6 @@
 from typing import Optional
 from datetime import datetime
-from pydantic import BaseModel, ConfigDict, EmailStr, field_validator
+from pydantic import BaseModel, ConfigDict, EmailStr, field_validator, Field
 
 
 class UsuarioBase(BaseModel):
@@ -707,6 +707,10 @@ class RelatorioComissoes(BaseModel):
     comissoes_pendentes: float
     comissoes_pagas: float
     comissoes: list[ComissaoResponse]
+    saldo_carteira: float = 0.0
+    limite_negativo: float = -50.0
+    bloqueado_financeiro: bool = False
+    historico_movimentacoes: list[dict] = Field(default_factory=list)
 
 
 # --- Avalia��es ---

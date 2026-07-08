@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import ScreenWrapper from './ScreenWrapper';
 import { getWsBaseUrl } from '../utils/api';
 import { Store, LogOut, CheckCircle, AlertCircle, User, CreditCard, Calendar, Search, Star, TrendingUp, Users, Bell } from 'lucide-react';
@@ -6,7 +6,6 @@ import PaymentSection from './PaymentSection';
 import AbaPadronizadaAvaliacoes from './AbaPadronizadaAvaliacoes';
 import TelaPerfilUsuario from './TelaPerfilUsuario';
 import TelaMensalidadeAssinatura from './TelaMensalidadeAssinatura';
-import ChatRoom from './ChatRoom';
 
 export default function ShopDashboard({ token, logout, notify, API_URL }) {
     const TABS_VALIDAS = ['inicio', 'barbeiros', 'freelancers', 'agenda', 'avaliar', 'assinatura', 'perfil', 'pagamento'];
@@ -33,10 +32,13 @@ export default function ShopDashboard({ token, logout, notify, API_URL }) {
     const [wsConectado, setWsConectado] = useState(false);
     const [_loading, _setLoading] = useState(false);
     const [barbeariaId, setBarbeariaId] = useState(null);
-    const [chatTarget, setChatTarget] = useState(null);
     const [vagasRelampago, setVagasRelampago] = useState([]);
     const [acionandoCadeiraId, setAcionandoCadeiraId] = useState(null);
-    const [cancelandoVagaId, setCancelandoVagaId] = useState(null);
+    const [cadeiraAnunciadaSucessoId, setCadeiraAnunciadaSucessoId] = useState(null);
+    const [anunciandoProximaCadeira, setAnunciandoProximaCadeira] = useState(false);
+    const [proximaCadeiraAnunciada, setProximaCadeiraAnunciada] = useState(false);
+    const anuncioSucessoTimeoutRef = useRef(null);
+    const anuncioProximaTimeoutRef = useRef(null);
 
     useEffect(() => {
         fetch(`${API_URL}/api/v1/documentos/status`, {
@@ -68,6 +70,15 @@ export default function ShopDashboard({ token, logout, notify, API_URL }) {
             localStorage.setItem('barbearia_dashboard_tab', tab);
         }
     }, [tab]);
+
+    useEffect(() => () => {
+        if (anuncioSucessoTimeoutRef.current) {
+            clearTimeout(anuncioSucessoTimeoutRef.current);
+        }
+        if (anuncioProximaTimeoutRef.current) {
+            clearTimeout(anuncioProximaTimeoutRef.current);
+        }
+    }, []);
 
     // Carregar agendamentos da barbearia
     useEffect(() => {
@@ -284,7 +295,7 @@ export default function ShopDashboard({ token, logout, notify, API_URL }) {
     const acionarCadeira = async (cadeiraId) => {
         if (!barbeariaId || !cadeiraId) {
             notify('Barbearia não identificada', 'error');
-            return;
+            return false;
         }
 
         try {
@@ -305,40 +316,41 @@ export default function ShopDashboard({ token, logout, notify, API_URL }) {
             if (res.ok) {
                 const data = await res.json();
                 notify(data.message || 'Cadeira acionada com sucesso', 'success');
+                setCadeiraAnunciadaSucessoId(cadeiraId);
+                if (anuncioSucessoTimeoutRef.current) {
+                    clearTimeout(anuncioSucessoTimeoutRef.current);
+                }
+                anuncioSucessoTimeoutRef.current = setTimeout(() => {
+                    setCadeiraAnunciadaSucessoId((atual) => (atual === cadeiraId ? null : atual));
+                }, 1800);
                 carregarCadeirasBarbearia();
                 carregarFreelancersDisponiveis();
                 carregarVagasRelampago();
+                if (data?.cadeira_id) {
+                    setVagasRelampago((prev) => {
+                        const novaVaga = {
+                            id: data.id || Date.now(),
+                            cadeira_id: data.cadeira_id,
+                            numero: data.numero,
+                            barbearia_nome: userData?.nome || 'Barbearia',
+                            barbearia_endereco: userData?.endereco || '',
+                            status: 'disponivel',
+                        };
+                        const semDuplicata = prev.filter((vaga) => Number(vaga.cadeira_id) !== Number(novaVaga.cadeira_id));
+                        return [novaVaga, ...semDuplicata];
+                    });
+                }
+                return true;
             } else {
                 const error = await res.json().catch(() => ({}));
                 notify(error.detail || 'Erro ao acionar cadeira', 'error');
+                return false;
             }
         } catch (_err) {
             notify('Erro ao conectar com servidor', 'error');
+            return false;
         } finally {
             setAcionandoCadeiraId(null);
-        }
-    };
-
-    const cancelarVagaRelampago = async (vagaId) => {
-        if (!vagaId) return;
-        try {
-            setCancelandoVagaId(vagaId);
-            const res = await fetch(`${API_URL}/api/v1/on-demand/cadeiras-acionadas/${vagaId}/cancelar`, {
-                method: 'POST',
-                headers: {'Authorization': `Bearer ${token}`}
-            });
-
-            const data = await res.json().catch(() => ({}));
-            if (!res.ok) {
-                throw new Error(data?.detail || 'Não foi possível cancelar a vaga relâmpago');
-            }
-
-            notify('Vaga relâmpago cancelada', 'success');
-            carregarVagasRelampago();
-        } catch (err) {
-            notify(err?.message || 'Erro ao cancelar vaga relâmpago', 'error');
-        } finally {
-            setCancelandoVagaId(null);
         }
     };
 
@@ -348,7 +360,24 @@ export default function ShopDashboard({ token, logout, notify, API_URL }) {
             notify('Nenhuma cadeira disponível para acionar', 'info');
             return;
         }
-        await acionarCadeira(primeiraDisponivel.id);
+        setAnunciandoProximaCadeira(true);
+        setProximaCadeiraAnunciada(false);
+        const sucesso = await acionarCadeira(primeiraDisponivel.id);
+        if (sucesso) {
+            setProximaCadeiraAnunciada(true);
+            if (anuncioProximaTimeoutRef.current) {
+                clearTimeout(anuncioProximaTimeoutRef.current);
+            }
+            anuncioProximaTimeoutRef.current = setTimeout(() => {
+                setProximaCadeiraAnunciada(false);
+            }, 1800);
+        }
+        setAnunciandoProximaCadeira(false);
+    };
+
+    const isCadeiraDisponivel = (cadeira) => {
+        const status = String(cadeira?.status || cadeira?.status_atendimento || '').trim().toLowerCase();
+        return status === 'disponivel' || status === 'livre' || status === 'ativo';
     };
 
     const bloquearCadeira = async (cadeiraId) => {
@@ -562,8 +591,16 @@ export default function ShopDashboard({ token, logout, notify, API_URL }) {
 
                         <div className="bg-purple-600/10 border border-purple-600/30 p-5 rounded-2xl mb-6">
                           <div className="flex items-center justify-between mb-4">
-                            <h3 className="text-purple-400 font-bold text-sm flex items-center gap-2">💺 Suas Cadeiras ({cadeirasBarbearia.length})</h3>
-                            <button className="bg-gradient-to-r from-orange-600 to-red-600 text-white px-3 py-1.5 rounded-2xl text-xs font-extrabold flex items-center gap-1 transition-all"><span className="text-lg leading-none">+</span> Nova</button>
+                                                        <div>
+                                                            <h3 className="text-purple-400 font-bold text-sm flex items-center gap-2">💺 Cadeiras ativas do plano ({cadeirasBarbearia.length})</h3>
+                                                            <p className="mt-1 text-[11px] text-zinc-400">A ordem aqui é a ordem paga no plano. Se você tem 1 cadeira, só deve ver a Cadeira 1.</p>
+                                                        </div>
+                                                        <button
+                                                            onClick={() => setTab('assinatura')}
+                                                            className="bg-gradient-to-r from-orange-600 to-red-600 text-white px-3 py-1.5 rounded-2xl text-xs font-extrabold flex items-center gap-1 transition-all"
+                                                        >
+                                                            <span className="text-lg leading-none">+</span> Assinatura
+                                                        </button>
                           </div>
 
                           {loadingCadeirasBarbearia ? (
@@ -577,31 +614,39 @@ export default function ShopDashboard({ token, logout, notify, API_URL }) {
                             </div>
                           ) : (
                             <div className="space-y-2">
-                              {cadeirasBarbearia.map(cadeira => {
-                                const status = String(cadeira.status || '').toLowerCase();
+                                                            {cadeirasBarbearia.map((cadeira, index) => {
+                                                                const status = String(cadeira.status || cadeira.status_atendimento || '').trim().toLowerCase();
+                                                                const disponivel = isCadeiraDisponivel(cadeira);
                                 const statusConfig = {
                                   disponivel: { bg: 'bg-black/40', border: 'border-green-600/30', label: '🟢 Disponível', labelColor: 'text-green-400', labelBg: 'bg-green-600/20' },
                                   ocupada: { bg: 'bg-black/40', border: 'border-blue-600/30', label: '🔵 Ocupada', labelColor: 'text-blue-400', labelBg: 'bg-blue-600/20' },
                                   bloqueada: { bg: 'bg-black/40', border: 'border-red-600/30', label: '🔒 Bloqueada', labelColor: 'text-red-400', labelBg: 'bg-red-600/20' }
                                 };
-                                const config = statusConfig[status] || statusConfig.disponivel;
+                                                                const config = statusConfig[status] || (disponivel ? statusConfig.disponivel : statusConfig.ocupada);
+                                                                const numeroExibido = index + 1;
                                 
                                 return (
                                   <div key={cadeira.id} className={`${config.bg} border ${config.border} p-3 rounded-lg transition-all hover:border-purple-600/50`}>
                                     <div className="flex items-center justify-between">
                                       <div className="flex-1">
-                                        <p className="font-bold text-sm text-white">Cadeira {cadeira.numero}</p>
-                                        <p className={`text-xs mt-1 font-bold ${config.labelColor}`}>{config.label}</p>
+                                                                                <p className="font-bold text-sm text-white">Cadeira {numeroExibido}</p>
+                                                                                <div className="mt-1 flex flex-wrap items-center gap-2">
+                                                                                    <span className={`inline-flex items-center gap-1 rounded-full px-2 py-1 text-[11px] font-extrabold border ${disponivel ? 'bg-green-500/15 text-green-300 border-green-500/30' : config.labelBg + ' ' + config.labelColor + ' border-transparent'}`}>
+                                                                                        {disponivel ? '● Disponível agora' : config.label}
+                                                                                    </span>
+                                                                                </div>
+                                                                                <p className="text-[11px] text-zinc-500 mt-1">Essa é a cadeira paga do plano. O número interno do banco não muda a ordem exibida.</p>
                                       </div>
                                       <div className="flex gap-2">
-                                        {status === 'disponivel' && (
+                                                                                {disponivel && (
                                           <>
                                                                                         <button 
                                                                                             onClick={() => acionarCadeira(cadeira.id)}
                                                                                             disabled={acionandoCadeiraId === cadeira.id}
                                                                                             className="bg-orange-600 hover:bg-orange-700 disabled:bg-orange-800/50 text-white px-3 py-2 rounded-lg text-xs font-bold transition-all"
+                                                                                            title="Usar quando quiser anunciar esta cadeira para barbeiros disponíveis"
                                                                                         >
-                                                                                            {acionandoCadeiraId === cadeira.id ? 'Acionando...' : 'Acionar'}
+                                                                                            {acionandoCadeiraId === cadeira.id ? 'Anunciando...' : cadeiraAnunciadaSucessoId === cadeira.id ? 'Anunciada' : 'Anunciar vaga'}
                                             </button>
                                             <button 
                                               onClick={() => bloquearCadeira(cadeira.id)}
@@ -612,7 +657,7 @@ export default function ShopDashboard({ token, logout, notify, API_URL }) {
                                             </button>
                                           </>
                                         )}
-                                        {status === 'ocupada' && (
+                                                                                {!disponivel && status === 'ocupada' && (
                                           <button 
                                             onClick={() => desbloquearCadeira(cadeira.id)}
                                             className="bg-orange-600 hover:bg-orange-700 text-white px-3 py-2 rounded-lg text-xs font-bold transition-all"
@@ -620,7 +665,7 @@ export default function ShopDashboard({ token, logout, notify, API_URL }) {
                                             Finalizar
                                           </button>
                                         )}
-                                        {status === 'bloqueada' && (
+                                                                                {status === 'bloqueada' && (
                                           <button 
                                             onClick={() => desbloquearCadeira(cadeira.id)}
                                             className="bg-purple-600 hover:bg-purple-700 text-white px-2 py-2 rounded-lg text-sm transition-all"
@@ -634,50 +679,37 @@ export default function ShopDashboard({ token, logout, notify, API_URL }) {
                                   </div>
                                 );
                               })}
-                              <button
+                                                            <button
                                                                 onClick={acionarPrimeiraCadeiraDisponivel}
-                                className="w-full bg-purple-600 hover:bg-purple-700 text-white px-4 py-3 rounded-lg font-bold text-sm mt-3 transition-all"
+                                                                disabled={anunciandoProximaCadeira}
+                                                                className={`w-full px-4 py-3 rounded-lg font-bold text-sm mt-3 transition-all duration-200 inline-flex items-center justify-center gap-2 transform ${proximaCadeiraAnunciada ? 'bg-emerald-600 hover:bg-emerald-600 ring-1 ring-emerald-300/40 shadow-lg shadow-emerald-500/20 scale-[1.02]' : 'bg-purple-600 hover:bg-purple-700 scale-100'} disabled:bg-purple-800/50 text-white`}
                               >
-                                ⚡ Liberar Próxima Vaga Disponível
+                                                                                                                                {anunciandoProximaCadeira ? (
+                                                                                                                                    'Anunciando vaga...'
+                                                                                                                                ) : proximaCadeiraAnunciada ? (
+                                                                                                                                    <>
+                                                                                                                                        <CheckCircle size={16} className="animate-pulse" />
+                                                                                                                                        Vaga anunciada
+                                                                                                                                    </>
+                                                                                                                                ) : (
+                                                                                                                                    '⚡ Anunciar próxima cadeira disponível'
+                                                                                                                                )}
                               </button>
                             </div>
                           )}
 
-                                                    <div className="mt-4 space-y-2">
-                                                        <p className="text-xs font-bold uppercase tracking-[0.14em] text-red-300">Vagas relâmpago recentes</p>
-                                                        {vagasRelampago.length === 0 ? (
-                                                            <div className="bg-zinc-900/80 p-3 rounded-xl border border-zinc-800 text-xs text-zinc-500">
-                                                                Nenhuma vaga relâmpago registrada ainda.
-                                                            </div>
-                                                        ) : (
-                                                            vagasRelampago.slice(0, 5).map((vaga) => {
-                                                                const status = String(vaga.status || '').toLowerCase();
-                                                                const aberta = status === 'disponivel';
-                                                                return (
-                                                                    <div key={vaga.id} className="bg-zinc-900/90 p-3 rounded-xl border border-zinc-800 flex items-center justify-between gap-3">
-                                                                        <div>
-                                                                            <p className="text-sm font-bold text-white">Vaga #{vaga.id} {vaga.cadeira_id ? `• Cadeira ${vaga.cadeira_id}` : ''}</p>
-                                                                            <p className="text-xs text-zinc-400">Status: {status || 'desconhecido'}</p>
-                                                                        </div>
-                                                                        {aberta && (
-                                                                            <button
-                                                                                type="button"
-                                                                                onClick={() => cancelarVagaRelampago(vaga.id)}
-                                                                                disabled={cancelandoVagaId === vaga.id}
-                                                                                className="rounded-lg bg-red-600 hover:bg-red-500 disabled:bg-red-800/50 text-white px-3 py-2 text-xs font-bold"
-                                                                            >
-                                                                                {cancelandoVagaId === vaga.id ? 'Cancelando...' : 'Cancelar'}
-                                                                            </button>
-                                                                        )}
-                                                                    </div>
-                                                                );
-                                                            })
-                                                        )}
+                                                    <div className="mt-4 rounded-xl border border-zinc-800 bg-zinc-950/50 p-3 text-xs text-zinc-300">
+                                                        <p className="font-bold text-orange-300 mb-1">Como funciona</p>
+                                                        <p className="text-zinc-400 leading-relaxed">
+                                                            Você paga pelas cadeiras ativas do plano. Quando uma cadeira está <strong>disponível</strong>, o botão <strong>Anunciar vaga</strong> avisa os barbeiros que aquele posto pode ser usado.
+                                                            Se você tem apenas 1 cadeira contratada, a tela deve mostrar só a <strong>Cadeira 1</strong>.
+                                                        </p>
                                                     </div>
+
                           <div className="bg-zinc-900/50 p-3 rounded-lg mt-4 border border-zinc-800">
                             <p className="text-zinc-400 text-xs mb-2">💡 <strong>Dicas:</strong></p>
                             <ul className="text-zinc-500 text-[10px] space-y-1 ml-4">
-                              <li>• Use <strong>"Acionar"</strong> para notificar barbeiros próximos</li>
+                              <li>• Use <strong>"Anunciar vaga"</strong> quando quiser que barbeiros encontrem sua cadeira disponível</li>
                               <li>• <strong>Bloqueie</strong> cadeiras em manutenção ou reservadas</li>
                               <li>• O sistema libera automaticamente clientes quando faltam 15 min</li>
                             </ul>
@@ -883,17 +915,8 @@ export default function ShopDashboard({ token, logout, notify, API_URL }) {
                                             </div>
                                         </div>
 
-                                        {ag.status === 'confirmado' && (
-                                            <button
-                                                onClick={() => setChatTarget(ag.id)}
-                                                className="w-full bg-zinc-800 hover:bg-zinc-700 text-white rounded text-xs font-bold py-2"
-                                            >
-                                                Chat
-                                            </button>
-                                        )}
-
                                         {ag.status === 'em_atendimento' && (
-                                            <div className="flex gap-2">
+                                            <div>
                                                 <button
                                                     onClick={async () => {
                                                         const res = await fetch(`${API_URL}/api/v1/chamados/${ag.id}/finalizar`, {
@@ -910,12 +933,6 @@ export default function ShopDashboard({ token, logout, notify, API_URL }) {
                                                     className="flex-1 bg-green-600 hover:bg-green-700 text-white rounded text-xs font-bold py-2"
                                                 >
                                                     FINALIZAR_CORTE
-                                                </button>
-                                                <button
-                                                    onClick={() => setChatTarget(ag.id)}
-                                                    className="flex-1 bg-zinc-800 hover:bg-zinc-700 text-white rounded text-xs font-bold py-2"
-                                                >
-                                                    Chat
                                                 </button>
                                             </div>
                                         )}
@@ -988,13 +1005,17 @@ export default function ShopDashboard({ token, logout, notify, API_URL }) {
                 )}
 
                 {tab === 'perfil' && (
-                    <TelaPerfilUsuario
-                        userType="barbearia"
-                        token={token}
-                        onLogout={logout}
-                        onNotify={notify}
-                        mostrarFinanceiroBarbearia={false}
-                    />
+                    <div className="p-2 sm:p-4 pb-24 max-w-3xl mx-auto w-full space-y-4">
+                        <TelaPerfilUsuario
+                            userType="barbearia"
+                            token={token}
+                            API_URL={API_URL}
+                            onLogout={logout}
+                            onNotify={notify}
+                            mostrarFinanceiroBarbearia={false}
+                            mostrarCabecalho={false}
+                        />
+                    </div>
                 )}
 
                 {tab === 'assinatura' && barbeariaId && (
@@ -1011,20 +1032,6 @@ export default function ShopDashboard({ token, logout, notify, API_URL }) {
                 {tab === 'pagamento' && (
                     <div className="p-2 sm:p-4 pb-20 max-w-3xl mx-auto w-full">
                         <PaymentSection userType="barbearia" token={token} onNotify={notify} />
-                    </div>
-                )}
-
-                {chatTarget && (
-                    <div className="fixed left-3 right-3 bottom-20 z-50 mx-auto max-w-[430px]">
-                        <div className="bg-zinc-950 border border-zinc-800 rounded-[1.5rem] p-3 shadow-2xl shadow-black/40">
-                            <div className="flex items-center justify-between mb-2">
-                                <div>
-                                    <p className="font-bold text-sm">Chat do chamado #{chatTarget}</p>
-                                </div>
-                                <button onClick={() => setChatTarget(null)} className="text-xs text-zinc-400">Fechar</button>
-                            </div>
-                            <ChatRoom chamadoId={chatTarget} token={token} API_URL={API_URL} />
-                        </div>
                     </div>
                 )}
             </div>
