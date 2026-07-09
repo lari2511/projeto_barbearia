@@ -4,6 +4,7 @@ import ClientDashboard from './components/ClientDashboard'
 import BarberDashboard from './components/BarberDashboard'
 import ShopDashboard from './components/ShopDashboard'
 import Login from './components/Login'
+import NativeSafeHome from './components/NativeSafeHome'
 import { useApp } from './contexts/AppContext.jsx'
 
 const isNativeApp = typeof window !== 'undefined' && (
@@ -17,7 +18,9 @@ export default function App() {
   const [updateInfo, setUpdateInfo] = React.useState(null)
 
   React.useEffect(() => {
-    if (!isNativeApp) return
+    // Em modo nativo, desabilita checagem de atualizacao em runtime para evitar
+    // comportamentos de navegacao inesperados em WebView.
+    if (isNativeApp) return
 
     const fetchUpdateInfo = async () => {
       try {
@@ -71,6 +74,10 @@ export default function App() {
   }
 
   const renderDashboard = () => {
+    if (isNativeApp) {
+      return <NativeSafeHome userType={userType} API_URL={API_URL} onLogout={logout} />
+    }
+
     if (userType === 'cliente') {
       return <ClientDashboard token={token} logout={logout} API_URL={API_URL} notify={notify} />
     }

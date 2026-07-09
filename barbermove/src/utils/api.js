@@ -65,7 +65,7 @@ export const getApiBaseUrl = () => {
 
   // No app nativo, evitar fallback para localhost quando env não vier.
   if (isNativeApp) {
-    return normalizeUrlHost(PROD_API_FALLBACK, 'https', hostname);
+    return `${PROD_API_FALLBACK}/api/v1`;
   }
 
   if (isPrivateHost(hostname)) {
@@ -99,7 +99,7 @@ export const getWsBaseUrl = () => {
 
   // No app nativo, evitar fallback para websocket local.
   if (isNativeApp) {
-    return normalizeUrlHost(PROD_WS_FALLBACK, 'wss', hostname, '/ws/notificacoes');
+    return PROD_WS_FALLBACK;
   }
 
   if (isPrivateHost(hostname)) {

@@ -24,6 +24,21 @@ const TelaLoginFreelancer = ({ navigation, onLoginSuccess }) => {
 
   const API_URL = getApiBaseUrl();
 
+  const irParaAreaLogada = (payload) => {
+    if (typeof onLoginSuccess === 'function') {
+      onLoginSuccess(payload);
+      return;
+    }
+
+    if (navigation && typeof navigation.replace === 'function') {
+      navigation.replace('DashboardBarbeiro', payload);
+      return;
+    }
+
+    // Evita reload forcado no WebView nativo, que pode fechar o app em alguns aparelhos.
+    console.log('[login] sucesso, aguardando atualizacao de estado da aplicacao');
+  };
+
   /**
    * Registra o device token no backend
    * Esse token permite que o servidor envie notificações push para esse aparelho específico
@@ -63,9 +78,8 @@ const TelaLoginFreelancer = ({ navigation, onLoginSuccess }) => {
       // salva token para app web
       localStorage.setItem('token', jwtToken);
       localStorage.setItem('userType', 'barbeiro');
-      if (onLoginSuccess) onLoginSuccess({ token: jwtToken, userId, email, tipo: data.tipo });
+      irParaAreaLogada({ token: jwtToken, userId, email, tipo: data.tipo });
       console.log('[alert]','Login realizado');
-      window.location.reload();
     } catch (e) {
       console.error(e);
       console.log('[alert]','Erro ao conectar com o servidor');

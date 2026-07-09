@@ -4,6 +4,33 @@ import { getApiBaseUrl } from '../utils/api';
 
 const API_URL = getApiBaseUrl();
 
+const storage = {
+  get(key, fallback = null) {
+    try {
+      const value = localStorage.getItem(key);
+      return value ?? fallback;
+    } catch (_error) {
+      return fallback;
+    }
+  },
+  set(key, value) {
+    try {
+      localStorage.setItem(key, value);
+      return true;
+    } catch (_error) {
+      return false;
+    }
+  },
+  clear() {
+    try {
+      localStorage.clear();
+      return true;
+    } catch (_error) {
+      return false;
+    }
+  },
+};
+
 // Função auxiliar para converter QUALQUER coisa para string legível
 function toReadableString(value) {
   if (value === null || value === undefined) return 'Erro desconhecido';
@@ -48,8 +75,8 @@ export const useApp = () => {
 
 export const AppProvider = ({ children }) => {
   const [user, setUser] = useState(null);
-  const [token, setToken] = useState(localStorage.getItem('token'));
-  const [userType, setUserType] = useState(localStorage.getItem('userType'));
+  const [token, setToken] = useState(storage.get('token'));
+  const [userType, setUserType] = useState(storage.get('userType'));
   const [loading, setLoading] = useState(false);
   const [toast, setToast] = useState(null);
 
@@ -120,9 +147,9 @@ export const AppProvider = ({ children }) => {
         tipo
       );
 
-      localStorage.setItem('token', dataJson.access_token);
-      localStorage.setItem('userType', serverType);
-      localStorage.setItem('userId', dataJson.user_id);
+      storage.set('token', dataJson.access_token);
+      storage.set('userType', serverType);
+      storage.set('userId', dataJson.user_id);
 
       setToken(dataJson.access_token);
       setUserType(serverType);
@@ -133,7 +160,7 @@ export const AppProvider = ({ children }) => {
         email: normalizedEmail,
       });
 
-      await fetchUserData(data.access_token, tipo);
+      await fetchUserData(data.access_token, serverType);
 
       // Garantir que a barbearia existe/vinculada ao usuário (cria se necessário)
       if (tipo === 'barbearia') {
@@ -216,10 +243,10 @@ export const AppProvider = ({ children }) => {
         tipo
       );
 
-      localStorage.setItem('token', dataJson.access_token);
-      localStorage.setItem('userType', serverType);
+      storage.set('token', dataJson.access_token);
+      storage.set('userType', serverType);
       if (userData?.id) {
-        localStorage.setItem('userId', String(userData.id));
+        storage.set('userId', String(userData.id));
       }
 
       setToken(dataJson.access_token);
@@ -251,7 +278,7 @@ export const AppProvider = ({ children }) => {
   };
 
   const logout = () => {
-    localStorage.clear();
+    storage.clear();
     setToken(null);
     setUserType(null);
     setUser(null);
