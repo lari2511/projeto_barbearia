@@ -53,6 +53,7 @@ SECRET_KEY = os.getenv("SECRET_KEY", "INSEGURO_MUDE_ISSO_AGORA")
 ALGORITHM = os.getenv("ALGORITHM", "HS256")
 ACCESS_TOKEN_EXPIRE_DAYS = int(os.getenv("ACCESS_TOKEN_EXPIRE_DAYS", "7"))
 REQUIRE_EMAIL_VERIFIED = os.getenv("REQUIRE_EMAIL_VERIFIED", "0") == "1"
+DEBUG_ALLOW_UNVERIFIED_EMAIL = os.getenv("DEBUG_ALLOW_UNVERIFIED_EMAIL", "0") == "1"
 VERIFICATION_LINK_BASE = os.getenv(
     "VERIFICATION_LINK_BASE",
     "http://localhost:8000/api/v1/email/verificar?token=",
@@ -932,6 +933,68 @@ def cadastrar_barbearia(
 
 # --- ENDPOINTS DE LOGIN ---
 
+# ==================== EMAIL VERIFICATION ENDPOINTS ====================
+
+@router.post("/email/marcar-verificado")
+def marcar_email_verificado(db: Session = Depends(get_db), usuario=Depends(get_current_user)):
+    """
+    Marca o email do usuário autenticado como verificado.
+    Útil para APK quando REQUIRE_EMAIL_VERIFIED=1
+    """
+    u = db.query(models.Usuario).filter(models.Usuario.id == usuario.id).first()
+    if not u:
+        raise HTTPException(status_code=404, detail="Usuário não encontrado")
+
+    u.email_verificado = True
+    db.commit()
+    db.refresh(u)
+
+    return {
+        "message": "Email marcado como verificado",
+        "email": u.email,
+        "email_verificado": u.email_verificado
+    }
+
+
+@router.get("/email/status")
+def status_email(db: Session = Depends(get_db), usuario=Depends(get_current_user)):
+    """Retorna o status de verificação do email"""
+    u = db.query(models.Usuario).filter(models.Usuario.id == usuario.id).first()
+    if not u:
+        raise HTTPException(status_code=404, detail="Usuário não encontrado")
+
+    return {
+        "email": u.email,
+        "email_verificado": u.email_verificado,
+        "require_email_verified": REQUIRE_EMAIL_VERIFIED
+    }
+
+
+@router.post("/email/verificar-simples/{email}")
+def verificar_email_simples(email: str, db: Session = Depends(get_db)):
+    """
+    Verifica email sem token (para testes/APK).
+    Apenas funciona se DEBUG_ALLOW_UNVERIFIED_EMAIL=1
+    """
+    if not DEBUG_ALLOW_UNVERIFIED_EMAIL:
+        raise HTTPException(status_code=403, detail="Endpoint desativado em produção")
+
+    email_norm = normalize_email(email)
+    u = db.query(models.Usuario).filter(func.lower(models.Usuario.email) == email_norm).first()
+
+    if not u:
+        raise HTTPException(status_code=404, detail="Usuário não encontrado")
+
+    u.email_verificado = True
+    db.commit()
+    db.refresh(u)
+
+    return {
+        "message": "Email verificado com sucesso",
+        "email": u.email,
+        "email_verificado": u.email_verificado
+    }
+
 @router.post("/login/cliente/")
 def login_cliente(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
     # Login para cliente.
@@ -956,17 +1019,20 @@ def login_cliente(form_data: OAuth2PasswordRequestForm = Depends(), db: Session 
     if not usuario or not verify_password(senha, usuario.senha_hash):
         raise HTTPException(status_code=401, detail="Email ou senha incorretos")
 
-    if not usuario.email_verificado:
-        raise HTTPException(
-            status_code=403,
-            detail="Email não verificado. Verifique sua caixa de entrada ou reenvie o link.",
-        )
+    # ✅ NOVO: Se email não está verificado, avisar mas não bloquear
+    email_nao_verificado = REQUIRE_EMAIL_VERIFIED and not usuario.email_verificado
+    if email_nao_verificado and not DEBUG_ALLOW_UNVERIFIED_EMAIL:
+        print(f"⚠️ Email não verificado para {usuario.email}")
+        # Não bloqueia o login, apenas avisa
     
     access_token = create_access_token(data={"sub": str(usuario.id), "tipo": usuario.tipo})
     return {
         "access_token": access_token,
         "token_type": "bearer",
         "user_id": usuario.id,
+        "email": usuario.email,
+        "email_verificado": usuario.email_verificado,
+        "aviso_email_nao_verificado": email_nao_verificado,
         "tipo": usuario.tipo,
         "mensagem": f"Bem-vindo, {usuario.nome}!"
     }

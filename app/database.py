@@ -37,6 +37,23 @@ def init_db():
     Base.metadata.create_all(bind=engine)
 
     inspector = inspect(engine)
+
+    # ✅ Verificar e criar coluna email_verificado na tabela usuarios
+    if "usuarios" in inspector.get_table_names():
+        colunas_existentes = {coluna["name"] for coluna in inspector.get_columns("usuarios")}
+
+        # Adicionar email_verificado se não existir
+        if "email_verificado" not in colunas_existentes:
+            with engine.begin() as connection:
+                connection.execute(text("ALTER TABLE usuarios ADD COLUMN email_verificado BOOLEAN DEFAULT 0"))
+                print("✅ Coluna email_verificado criada")
+
+        # Adicionar token_verificacao se não existir
+        if "token_verificacao" not in colunas_existentes:
+            with engine.begin() as connection:
+                connection.execute(text("ALTER TABLE usuarios ADD COLUMN token_verificacao VARCHAR(255)"))
+                print("✅ Coluna token_verificacao criada")
+
     if "chamados" in inspector.get_table_names():
         colunas_existentes = {coluna["name"] for coluna in inspector.get_columns("chamados")}
         colunas_esperadas = {
