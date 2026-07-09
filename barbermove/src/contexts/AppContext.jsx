@@ -86,7 +86,8 @@ export const AppProvider = ({ children }) => {
   const login = async (email, senha, tipo) => {
     setLoading(true);
     try {
-      const body = new URLSearchParams({ username: email, password: senha });
+      const normalizedEmail = String(email || '').trim().toLowerCase();
+      const body = new URLSearchParams({ username: normalizedEmail, password: senha });
       
       const response = await fetch(`${API_URL}/api/v1/login/${tipo}/`, {
         method: 'POST',
@@ -129,7 +130,7 @@ export const AppProvider = ({ children }) => {
       setUser({
         id: dataJson.user_id,
         tipo: serverType,
-        email,
+        email: normalizedEmail,
       });
 
       await fetchUserData(data.access_token, tipo);
@@ -226,11 +227,11 @@ export const AppProvider = ({ children }) => {
       setUser(userData ? { ...userData, tipo: serverType } : { ...payload, tipo: serverType });
 
       if (tipo === 'barbearia') {
-        await fetchUserData(data.access_token, tipo);
+        await fetchUserData(dataJson.access_token, tipo);
       }
 
       notify('✅ Cadastro realizado com sucesso!', 'success');
-      return data;
+      return dataJson;
     } catch (error) {
       let msg = 'Erro desconhecido ao cadastrar';
 

@@ -28,10 +28,6 @@ export default function App() {
   return (
     <div className="min-h-screen w-full bg-[#050507] flex justify-center items-start overflow-x-hidden">
       <div className="relative w-full max-w-[430px] min-h-screen bg-[#0a0a0c] shadow-[0_0_60px_rgba(0,0,0,0.8)] overflow-hidden">
-        <div className="pointer-events-none absolute left-0 right-0 top-3 z-20 flex justify-center">
-          <div className="h-5 w-28 rounded-full border border-white/10 bg-black/90" />
-        </div>
-
         <div className="relative flex flex-col w-full">
           <div className="w-full">
             {token ? renderDashboard() : <Login />}

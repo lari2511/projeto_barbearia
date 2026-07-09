@@ -1,7 +1,8 @@
-import React, { useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import { ArrowLeft, Building2, Hash, Mail, MapPin, Phone, Scissors, Store, User, Lock, Camera, Upload, X } from 'lucide-react'
 import { useApp } from '../contexts/AppContext'
 import { Button, Input } from './Common'
+import { obterLocalizacaoAtual } from '../utils/location'
 
 const userTypes = [
   {
@@ -48,7 +49,7 @@ const emptyPhotos = {
 function buildPayload(tipo, form, photos) {
   const base = {
     nome: form.nome.trim(),
-    email: form.email.trim(),
+    email: form.email.trim().toLowerCase(),
     senha: form.senha,
     telefone: form.telefone.trim(),
   }
@@ -132,33 +133,34 @@ export default function Cadastro({ initialType = 'cliente', onBack, onSuccess })
   }
 
   // Obter localização automática
-  const obterLocalizacao = async () => {
+  const obterLocalizacao = async (silent = false) => {
     setLoadingLocation(true)
+    if (!silent) {
+      setLocalError('')
+    }
+
     try {
-      if (navigator.geolocation) {
-        navigator.geolocation.getCurrentPosition(
-          (position) => {
-            setForm((current) => ({
-              ...current,
-              latitude: position.coords.latitude.toString(),
-              longitude: position.coords.longitude.toString()
-            }))
-            setLoadingLocation(false)
-          },
-          (error) => {
-            setLocalError('Erro ao obter localização: ' + error.message)
-            setLoadingLocation(false)
-          }
-        )
-      } else {
-        setLocalError('Geolocalização não suportada')
-        setLoadingLocation(false)
-      }
+      const position = await obterLocalizacaoAtual()
+      setForm((current) => ({
+        ...current,
+        latitude: String(position.latitude),
+        longitude: String(position.longitude)
+      }))
     } catch (error) {
-      setLocalError('Erro ao obter localização')
+      const msg = 'Permissão de localização negada. Para criar conta, ative a localização do app nas configurações do celular.'
+      if (!silent) {
+        setLocalError(msg)
+      }
+    } finally {
       setLoadingLocation(false)
     }
   }
+
+  useEffect(() => {
+    if ((selectedType === 'barbeiro' || selectedType === 'barbearia') && (!form.latitude || !form.longitude)) {
+      void obterLocalizacao(true)
+    }
+  }, [selectedType])
 
   // Upload de foto de portfólio
   const handlePortfolioPhoto = (event) => {
@@ -225,6 +227,11 @@ export default function Cadastro({ initialType = 'cliente', onBack, onSuccess })
 
     if ((selectedType === 'barbeiro' || selectedType === 'barbearia') && !form.endereco.trim()) {
       setLocalError('Endereço é obrigatório')
+      return
+    }
+
+    if ((selectedType === 'barbeiro' || selectedType === 'barbearia') && (!form.latitude.trim() || !form.longitude.trim())) {
+      setLocalError('Localização é obrigatória para criar conta. Toque em "Usar minha localização" e permita o acesso.')
       return
     }
 
