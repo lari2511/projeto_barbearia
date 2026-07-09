@@ -6,6 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from dotenv import load_dotenv
 import os
+import hashlib
 
 # Carrega variáveis do .env
 load_dotenv()
@@ -223,16 +224,26 @@ def apk_info():
         }
 
     latest = max(apks, key=lambda file_path: file_path.stat().st_mtime)
+    latest_stat = latest.stat()
     latest_endpoint = f"/apk/{latest.name}"
     latest_url = f"{api_url}{latest_endpoint}" if api_url else latest_endpoint
+    download_url = f"{api_url}/downloads/{latest.name}" if api_url else f"/downloads/{latest.name}"
+
+    # Assinatura simples para detectar nova versao no app mesmo com nome fixo (app-release.apk).
+    signature_base = f"{latest.name}:{int(latest_stat.st_mtime)}:{latest_stat.st_size}"
+    latest_signature = hashlib.sha256(signature_base.encode("utf-8")).hexdigest()
 
     return {
         "status": "ok",
         "apk_dir": str(apk_download_dir),
         "downloads_path": "/downloads",
         "latest_filename": latest.name,
+        "latest_size_bytes": latest_stat.st_size,
+        "latest_mtime_epoch": int(latest_stat.st_mtime),
+        "latest_signature": latest_signature,
         "latest_endpoint": latest_endpoint,
         "latest_url": latest_url,
+        "download_url": download_url,
     }
 
 
