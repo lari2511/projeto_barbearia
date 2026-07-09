@@ -942,6 +942,16 @@ def login_cliente(form_data: OAuth2PasswordRequestForm = Depends(), db: Session 
         func.lower(models.Usuario.email) == email,
         models.Usuario.tipo == "cliente"
     ).first()
+
+    if not usuario:
+        usuario_outro_tipo = db.query(models.Usuario).filter(
+            func.lower(models.Usuario.email) == email
+        ).first()
+        if usuario_outro_tipo:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Este email está cadastrado como {usuario_outro_tipo.tipo}. Selecione o perfil correto para entrar.",
+            )
     
     if not usuario or not verify_password(senha, usuario.senha_hash):
         raise HTTPException(status_code=401, detail="Email ou senha incorretos")
@@ -971,6 +981,16 @@ def login_barbeiro(form_data: OAuth2PasswordRequestForm = Depends(), db: Session
         func.lower(models.Usuario.email) == email,
         models.Usuario.tipo == "barbeiro"
     ).first()
+
+    if not usuario:
+        usuario_outro_tipo = db.query(models.Usuario).filter(
+            func.lower(models.Usuario.email) == email
+        ).first()
+        if usuario_outro_tipo:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Este email está cadastrado como {usuario_outro_tipo.tipo}. Selecione o perfil correto para entrar.",
+            )
     
     if not usuario or not verify_password(senha, usuario.senha_hash):
         raise HTTPException(status_code=401, detail="Email ou senha incorretos")
@@ -1010,6 +1030,14 @@ def login_barbearia(form_data: OAuth2PasswordRequestForm = Depends(), db: Sessio
     ).first()
     
     if not usuario:
+        usuario_outro_tipo = db.query(models.Usuario).filter(
+            func.lower(models.Usuario.email) == email
+        ).first()
+        if usuario_outro_tipo:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Este email está cadastrado como {usuario_outro_tipo.tipo}. Selecione o perfil correto para entrar.",
+            )
         print(f"❌ Usuário não encontrado: {email}")
         raise HTTPException(status_code=401, detail="Email ou senha incorretos")
     

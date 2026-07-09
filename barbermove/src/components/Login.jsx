@@ -34,9 +34,10 @@ export default function Login({ onLoginSuccess }) {
         return;
       }
 
-      setErroLogin('Email ou senha incorretos. Verifique e tente novamente.');
+      setErroLogin('Não foi possível entrar. Verifique os dados e tente novamente.');
     } catch (erro) {
-      setErroLogin('Email ou senha incorretos. Verifique e tente novamente.');
+      const mensagem = erro instanceof Error ? erro.message : 'Não foi possível entrar. Tente novamente.';
+      setErroLogin(mensagem);
     }
   };
 

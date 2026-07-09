@@ -166,7 +166,7 @@ export const AppProvider = ({ children }) => {
       }
       
       notify(`❌ ${msg}`, 'error');
-      return false;
+      throw new Error(msg);
     } finally {
       setLoading(false);
     }
