@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { ArrowLeft, Mail, Lock, CheckCircle } from 'lucide-react';
+import { ArrowLeft, Mail, Lock, CheckCircle, Eye, EyeOff } from 'lucide-react';
 import { getApiBaseUrl } from '../utils/api';
 
 const API_URL = getApiBaseUrl();
@@ -16,22 +16,26 @@ export default function EsqueciSenha({ onBack }) {
   const [loading, setLoading] = useState(false);
   const [erro, setErro] = useState('');
   const [msg, setMsg] = useState('');
+  const [mostrarNovaSenha, setMostrarNovaSenha] = useState(false);
+  const [mostrarConfirmarSenha, setMostrarConfirmarSenha] = useState(false);
 
   const enviarEmail = async (e) => {
     e.preventDefault();
     setErro('');
     setLoading(true);
     try {
+      const normalizedEmail = String(email || '').trim().toLowerCase();
       const res = await fetch(`${API_URL}/api/v1/senha/solicitar-reset`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email }),
+        body: JSON.stringify({ email: normalizedEmail }),
       });
       const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || 'Não foi possível enviar as instruções.');
       setMsg(data.mensagem);
       setStep('token');
-    } catch (_) {
-      setErro('Erro de conexão. Tente novamente.');
+    } catch (err) {
+      setErro(err?.message || 'Erro de conexão. Tente novamente.');
     } finally {
       setLoading(false);
     }
@@ -140,13 +144,21 @@ export default function EsqueciSenha({ onBack }) {
               <div className="flex items-center gap-2 bg-zinc-900 border border-zinc-700 rounded-xl px-3 py-2">
                 <Lock size={16} className="text-zinc-500" />
                 <input
-                  type="password"
+                  type={mostrarNovaSenha ? 'text' : 'password'}
                   value={novaSenha}
                   onChange={e => setNovaSenha(e.target.value)}
                   placeholder="Mínimo 6 caracteres"
                   required
                   className="bg-transparent text-white text-sm outline-none flex-1"
                 />
+                <button
+                  type="button"
+                  onClick={() => setMostrarNovaSenha((prev) => !prev)}
+                  className="text-zinc-400 hover:text-white"
+                  aria-label={mostrarNovaSenha ? 'Ocultar senha' : 'Mostrar senha'}
+                >
+                  {mostrarNovaSenha ? <EyeOff size={16} /> : <Eye size={16} />}
+                </button>
               </div>
             </div>
             <div>
@@ -154,13 +166,21 @@ export default function EsqueciSenha({ onBack }) {
               <div className="flex items-center gap-2 bg-zinc-900 border border-zinc-700 rounded-xl px-3 py-2">
                 <Lock size={16} className="text-zinc-500" />
                 <input
-                  type="password"
+                  type={mostrarConfirmarSenha ? 'text' : 'password'}
                   value={confirmar}
                   onChange={e => setConfirmar(e.target.value)}
                   placeholder="Repita a nova senha"
                   required
                   className="bg-transparent text-white text-sm outline-none flex-1"
                 />
+                <button
+                  type="button"
+                  onClick={() => setMostrarConfirmarSenha((prev) => !prev)}
+                  className="text-zinc-400 hover:text-white"
+                  aria-label={mostrarConfirmarSenha ? 'Ocultar senha' : 'Mostrar senha'}
+                >
+                  {mostrarConfirmarSenha ? <EyeOff size={16} /> : <Eye size={16} />}
+                </button>
               </div>
             </div>
             <button

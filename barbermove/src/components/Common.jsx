@@ -1,6 +1,6 @@
 // Componentes reutilizáveis do BarberMove
 import React from 'react'
-import { Star, MapPin, Clock, Award, User, XCircle, AlertTriangle, CheckCircle, Info } from 'lucide-react'
+import { Star, MapPin, Clock, Award, User, XCircle, AlertTriangle, CheckCircle, Info, Eye, EyeOff } from 'lucide-react'
 
 export const Button = ({ children, variant = 'primary', fullWidth, onClick, disabled, icon: Icon, className = '' }) => {
   const variants = {
@@ -24,6 +24,10 @@ export const Button = ({ children, variant = 'primary', fullWidth, onClick, disa
 }
 
 export const Input = ({ label, error, icon: Icon, ...props }) => {
+  const isPasswordInput = props.type === 'password'
+  const [showPassword, setShowPassword] = React.useState(false)
+  const inputType = isPasswordInput ? (showPassword ? 'text' : 'password') : props.type
+
   return (
     <div className="mb-4">
       {label && <label className="mb-1 block text-sm font-medium text-zinc-300">{label}</label>}
@@ -35,8 +39,20 @@ export const Input = ({ label, error, icon: Icon, ...props }) => {
         )}
         <input
           {...props}
-          className={`w-full rounded-xl border bg-black px-4 py-3 text-white outline-none focus:ring-2 focus:ring-orange-500 ${Icon ? 'pl-10' : ''} ${error ? 'border-red-500' : 'border-zinc-700'}`}
+          type={inputType}
+          className={`w-full rounded-xl border bg-black px-4 py-3 text-white outline-none focus:ring-2 focus:ring-orange-500 ${Icon ? 'pl-10' : ''} ${isPasswordInput ? 'pr-12' : ''} ${error ? 'border-red-500' : 'border-zinc-700'}`}
         />
+
+        {isPasswordInput && (
+          <button
+            type="button"
+            onClick={() => setShowPassword((prev) => !prev)}
+            className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-white"
+            aria-label={showPassword ? 'Ocultar senha' : 'Mostrar senha'}
+          >
+            {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+          </button>
+        )}
       </div>
       {error && <p className="mt-1 text-sm text-red-400">{error}</p>}
     </div>

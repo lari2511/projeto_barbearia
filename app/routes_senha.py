@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from sqlalchemy.orm import Session
+from sqlalchemy import func
 from pydantic import BaseModel
 from datetime import datetime, timedelta
 from jose import jwt, JWTError
@@ -14,6 +15,10 @@ router = APIRouter(prefix="/api/v1", tags=["senha"])
 SECRET_KEY = os.getenv("SECRET_KEY", "INSEGURO_MUDE_ISSO_AGORA")
 ALGORITHM = "HS256"
 FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:5173")
+
+
+def normalize_email(value: str) -> str:
+    return (value or "").strip().lower()
 
 
 class SolicitarResetRequest(BaseModel):
@@ -42,7 +47,8 @@ def _verificar_token_reset(token: str) -> str | None:
 
 @router.post("/senha/solicitar-reset")
 def solicitar_reset(dados: SolicitarResetRequest, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
-    usuario = db.query(models.Usuario).filter(models.Usuario.email == dados.email).first()
+    email = normalize_email(dados.email)
+    usuario = db.query(models.Usuario).filter(func.lower(models.Usuario.email) == email).first()
 
     # Sempre retorna 200 para não revelar se email existe
     if not usuario:
@@ -85,7 +91,8 @@ def confirmar_reset(dados: ConfirmarResetRequest, db: Session = Depends(get_db))
     if len(dados.nova_senha) < 6:
         raise HTTPException(status_code=400, detail="A senha deve ter pelo menos 6 caracteres.")
 
-    usuario = db.query(models.Usuario).filter(models.Usuario.email == email).first()
+    email_normalizado = normalize_email(email)
+    usuario = db.query(models.Usuario).filter(func.lower(models.Usuario.email) == email_normalizado).first()
     if not usuario:
         raise HTTPException(status_code=404, detail="Usuário não encontrado.")
 
