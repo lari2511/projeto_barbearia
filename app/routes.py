@@ -36,6 +36,10 @@ def env_bool(key: str, default: bool = False) -> bool:
         return default
     return str(val).strip().lower() in {"1", "true", "yes", "on"}
 
+
+def normalize_email(value: str) -> str:
+    return (value or "").strip().lower()
+
 router = APIRouter()
 
 # Endpoint de teste
@@ -694,7 +698,10 @@ def cadastrar_cliente(
     db: Session = Depends(get_db)
 ):
     # Cadastrar novo cliente; envia e-mail de verificação automaticamente.
-    usuario_existente = db.query(models.Usuario).filter(models.Usuario.email == cliente.email).first()
+    email_normalizado = normalize_email(cliente.email)
+    usuario_existente = db.query(models.Usuario).filter(
+        func.lower(models.Usuario.email) == email_normalizado
+    ).first()
     if usuario_existente:
         raise HTTPException(status_code=400, detail="Email já cadastrado")
     
@@ -710,10 +717,10 @@ def cadastrar_cliente(
             raise HTTPException(status_code=400, detail="Telefone já cadastrado")
     
     # Gerar token de verificação JWT
-    token_verificacao = create_email_verification_token(cliente.email)
+    token_verificacao = create_email_verification_token(email_normalizado)
     
     novo_usuario = models.Usuario(
-        email=cliente.email,
+        email=email_normalizado,
         nome=cliente.nome,
         senha_hash=get_password_hash(cliente.senha),
         telefone=cliente.telefone,
@@ -771,7 +778,10 @@ def cadastrar_barbeiro(
     db: Session = Depends(get_db)
 ):
     # Cadastrar novo barbeiro; envia e-mail de verificação automaticamente.
-    usuario_existente = db.query(models.Usuario).filter(models.Usuario.email == barbeiro.email).first()
+    email_normalizado = normalize_email(barbeiro.email)
+    usuario_existente = db.query(models.Usuario).filter(
+        func.lower(models.Usuario.email) == email_normalizado
+    ).first()
     if usuario_existente:
         raise HTTPException(status_code=400, detail="Email já cadastrado")
     
@@ -787,10 +797,10 @@ def cadastrar_barbeiro(
             raise HTTPException(status_code=400, detail="Telefone já cadastrado")
     
     # Gerar token de verificação JWT
-    token_verificacao = create_email_verification_token(barbeiro.email)
+    token_verificacao = create_email_verification_token(email_normalizado)
     
     novo_usuario = models.Usuario(
-        email=barbeiro.email,
+        email=email_normalizado,
         nome=barbeiro.nome,
         senha_hash=get_password_hash(barbeiro.senha),
         telefone=barbeiro.telefone,
@@ -838,7 +848,10 @@ def cadastrar_barbearia(
     db: Session = Depends(get_db)
 ):
     # Cadastrar nova barbearia e vincular usuário/barbearia.
-    usuario_existente = db.query(models.Usuario).filter(models.Usuario.email == barbearia.email).first()
+    email_normalizado = normalize_email(barbearia.email)
+    usuario_existente = db.query(models.Usuario).filter(
+        func.lower(models.Usuario.email) == email_normalizado
+    ).first()
     if usuario_existente:
         raise HTTPException(status_code=400, detail="Email já cadastrado")
     
@@ -860,10 +873,10 @@ def cadastrar_barbearia(
             raise HTTPException(status_code=400, detail="CNPJ já cadastrado")
 
     # Gerar token de verificação JWT
-    token_verificacao = create_email_verification_token(barbearia.email)
+    token_verificacao = create_email_verification_token(email_normalizado)
     
     novo_usuario = models.Usuario(
-        email=barbearia.email,
+        email=email_normalizado,
         nome=barbearia.nome,
         endereco=barbearia.endereco,
         telefone=barbearia.telefone,
@@ -922,11 +935,11 @@ def cadastrar_barbearia(
 @router.post("/login/cliente/")
 def login_cliente(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
     # Login para cliente.
-    email = form_data.username
+    email = normalize_email(form_data.username)
     senha = form_data.password
     
     usuario = db.query(models.Usuario).filter(
-        models.Usuario.email == email,
+        func.lower(models.Usuario.email) == email,
         models.Usuario.tipo == "cliente"
     ).first()
     
@@ -951,11 +964,11 @@ def login_cliente(form_data: OAuth2PasswordRequestForm = Depends(), db: Session 
 @router.post("/login/barbeiro/")
 def login_barbeiro(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
     # Login para barbeiro.
-    email = form_data.username
+    email = normalize_email(form_data.username)
     senha = form_data.password
     
     usuario = db.query(models.Usuario).filter(
-        models.Usuario.email == email,
+        func.lower(models.Usuario.email) == email,
         models.Usuario.tipo == "barbeiro"
     ).first()
     
@@ -986,13 +999,13 @@ def login_barbeiro(form_data: OAuth2PasswordRequestForm = Depends(), db: Session
 @router.post("/login/barbearia/")
 def login_barbearia(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
     # Login para barbearia.
-    email = form_data.username
+    email = normalize_email(form_data.username)
     senha = form_data.password
     
     print(f"🔍 LOGIN BARBEARIA - Email: {email}")
     
     usuario = db.query(models.Usuario).filter(
-        models.Usuario.email == email,
+        func.lower(models.Usuario.email) == email,
         models.Usuario.tipo == "barbearia"
     ).first()
     
@@ -1032,11 +1045,11 @@ def login_barbearia(form_data: OAuth2PasswordRequestForm = Depends(), db: Sessio
 @router.post("/login/admin/")
 def login_admin(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
     # Login para admin.
-    email = form_data.username
+    email = normalize_email(form_data.username)
     senha = form_data.password
     
     usuario = db.query(models.Usuario).filter(
-        models.Usuario.email == email,
+        func.lower(models.Usuario.email) == email,
         models.Usuario.tipo == "admin"
     ).first()
     
