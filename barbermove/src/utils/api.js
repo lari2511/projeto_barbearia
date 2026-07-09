@@ -3,6 +3,11 @@ const getWindowLocation = () => {
   return window.location;
 };
 
+const PROD_API_FALLBACK = 'https://projetobarbearia-production.up.railway.app';
+const PROD_WS_FALLBACK = 'wss://projetobarbearia-production.up.railway.app/ws/notificacoes';
+
+const isNativeScheme = (protocol) => protocol === 'capacitor:' || protocol === 'ionic:';
+
 const isLocalhostHost = (hostname) =>
   hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1';
 
@@ -39,6 +44,7 @@ export const getApiBaseUrl = () => {
   const location = getWindowLocation();
   const hostname = location?.hostname || 'localhost';
   const protocol = location?.protocol === 'https:' ? 'https' : 'http';
+  const isNativeApp = isNativeScheme(location?.protocol);
 
   if (envUrl) {
     return normalizeUrlHost(envUrl, protocol, hostname);
@@ -56,6 +62,12 @@ export const getApiBaseUrl = () => {
   if (import.meta.env.DEV) {
     return `${protocol}://${hostname}/proxy`;
   }
+
+  // No app nativo, evitar fallback para localhost quando env não vier.
+  if (isNativeApp) {
+    return normalizeUrlHost(PROD_API_FALLBACK, 'https', hostname);
+  }
+
   if (isPrivateHost(hostname)) {
     // If running on a private network host, point to backend port 8000 explicitly
     return `${protocol}://${hostname}:8000`;
@@ -72,6 +84,7 @@ export const getWsBaseUrl = () => {
   const location = getWindowLocation();
   const hostname = location?.hostname || 'localhost';
   const protocol = location?.protocol === 'https:' ? 'wss' : 'ws';
+  const isNativeApp = isNativeScheme(location?.protocol);
 
   if (envUrl) {
     return normalizeUrlHost(envUrl, protocol, hostname, '/ws/notificacoes');
@@ -83,6 +96,12 @@ export const getWsBaseUrl = () => {
   if (import.meta.env.DEV) {
     return `${protocol}://${hostname}/proxy/ws/notificacoes`;
   }
+
+  // No app nativo, evitar fallback para websocket local.
+  if (isNativeApp) {
+    return normalizeUrlHost(PROD_WS_FALLBACK, 'wss', hostname, '/ws/notificacoes');
+  }
+
   if (isPrivateHost(hostname)) {
     return `${protocol}://${hostname}:8000/ws/notificacoes`;
   }

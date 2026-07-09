@@ -24,6 +24,7 @@
  */
 
 import React, { useEffect, useState } from 'react';
+import { getApiBaseUrl } from '../utils/api';
 
 const TelaPedirBarbeiro = ({ navigation }) => {
   const [localizacaoCliente, setLocalizacaoCliente] = useState(null);
@@ -32,9 +33,7 @@ const TelaPedirBarbeiro = ({ navigation }) => {
   const [atualizando, setAtualizando] = useState(false);
   const [solicitacaoEmAndamento, setSolicitacaoEmAndamento] = useState(false);
 
-  const defaultHost = typeof window !== 'undefined' ? window.location.hostname : 'localhost';
-  const defaultProtocol = typeof window !== 'undefined' && window.location.protocol === 'https:' ? 'https' : 'http';
-  const API_URL = import.meta.env.VITE_API_URL || `${defaultProtocol}://${defaultHost}:8000`;
+  const API_URL = getApiBaseUrl();
 
   useEffect(()=>{
     obterLocalizacaoInicial();

@@ -4,6 +4,7 @@
  */
 
 import React, { useEffect, useState, useRef } from 'react';
+import { getApiBaseUrl } from '../utils/api';
 
 const RadarBarbeiro = ({ navigation }) => {
   const [radarOnline, setRadarOnline] = useState(false);
@@ -14,9 +15,7 @@ const RadarBarbeiro = ({ navigation }) => {
   const [tempoUltimaAtualizacao, setTempoUltimaAtualizacao] = useState(null);
   const watchIdRef = useRef(null);
 
-  const defaultHost = typeof window !== 'undefined' ? window.location.hostname : 'localhost';
-  const defaultProtocol = typeof window !== 'undefined' && window.location.protocol === 'https:' ? 'https' : 'http';
-  const API_URL = import.meta.env.VITE_API_URL || `${defaultProtocol}://${defaultHost}:8000`;
+  const API_URL = getApiBaseUrl();
 
   const atualizarStatusRadar = async (isOnline) => {
     const token = localStorage.getItem('token');

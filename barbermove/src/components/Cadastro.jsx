@@ -146,11 +146,13 @@ export default function Cadastro({ initialType = 'cliente', onBack, onSuccess })
         latitude: String(position.latitude),
         longitude: String(position.longitude)
       }))
+      return position
     } catch (error) {
       const msg = 'Permissão de localização negada. Para criar conta, ative a localização do app nas configurações do celular.'
       if (!silent) {
         setLocalError(msg)
       }
+      return null
     } finally {
       setLoadingLocation(false)
     }
@@ -230,9 +232,15 @@ export default function Cadastro({ initialType = 'cliente', onBack, onSuccess })
       return
     }
 
+    let positionFromSubmit = null
     if ((selectedType === 'barbeiro' || selectedType === 'barbearia') && (!form.latitude.trim() || !form.longitude.trim())) {
-      setLocalError('Localização é obrigatória para criar conta. Toque em "Usar minha localização" e permita o acesso.')
-      return
+      // Tenta solicitar permissão/obter GPS no momento do envio para evitar bloqueio silencioso no app nativo.
+      const position = await obterLocalizacao(false)
+      if (!position) {
+        setLocalError('Localização é obrigatória para criar conta. Toque em "Usar minha localização" e permita o acesso.')
+        return
+      }
+      positionFromSubmit = position
     }
 
     if (selectedType === 'barbearia' && (!form.cep.trim() || !form.cnpj.trim())) {
@@ -252,6 +260,10 @@ export default function Cadastro({ initialType = 'cliente', onBack, onSuccess })
     }
 
     const payload = buildPayload(selectedType, form, photos)
+    if (positionFromSubmit) {
+      payload.latitude = Number(positionFromSubmit.latitude)
+      payload.longitude = Number(positionFromSubmit.longitude)
+    }
     const result = await register(selectedType, payload)
 
     if (result && onSuccess) {

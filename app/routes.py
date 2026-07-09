@@ -961,6 +961,18 @@ def login_barbeiro(form_data: OAuth2PasswordRequestForm = Depends(), db: Session
     
     if not usuario or not verify_password(senha, usuario.senha_hash):
         raise HTTPException(status_code=401, detail="Email ou senha incorretos")
+
+    if REQUIRE_EMAIL_VERIFIED and not usuario.email_verificado:
+        raise HTTPException(
+            status_code=403,
+            detail="Email não verificado. Verifique sua caixa de entrada ou reenvie o link.",
+        )
+
+    if not usuario.perfil_aprovado:
+        raise HTTPException(
+            status_code=403,
+            detail="Perfil em análise pela equipe. Aguarde aprovação do administrador.",
+        )
     
     access_token = create_access_token(data={"sub": str(usuario.id), "tipo": usuario.tipo})
     return {
@@ -995,6 +1007,18 @@ def login_barbearia(form_data: OAuth2PasswordRequestForm = Depends(), db: Sessio
     if not senha_ok:
         print(f"❌ Senha incorreta para {email}")
         raise HTTPException(status_code=401, detail="Email ou senha incorretos")
+
+    if REQUIRE_EMAIL_VERIFIED and not usuario.email_verificado:
+        raise HTTPException(
+            status_code=403,
+            detail="Email não verificado. Verifique sua caixa de entrada ou reenvie o link.",
+        )
+
+    if not usuario.perfil_aprovado:
+        raise HTTPException(
+            status_code=403,
+            detail="Perfil em análise pela equipe. Aguarde aprovação do administrador.",
+        )
     
     access_token = create_access_token(data={"sub": str(usuario.id), "tipo": usuario.tipo})
     return {

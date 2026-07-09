@@ -13,6 +13,7 @@
  */
 
 import React, { useState } from 'react';
+import { getApiBaseUrl } from '../utils/api';
 // Versão web: usa classes Tailwind e layout do app
 
 const TelaLoginFreelancer = ({ navigation, onLoginSuccess }) => {
@@ -21,9 +22,7 @@ const TelaLoginFreelancer = ({ navigation, onLoginSuccess }) => {
   const [loading, setLoading] = useState(false);
   const [mostraSenha, setMostraSenha] = useState(false);
 
-  const defaultHost = typeof window !== 'undefined' ? window.location.hostname : 'localhost';
-  const defaultProtocol = typeof window !== 'undefined' && window.location.protocol === 'https:' ? 'https' : 'http';
-  const API_URL = import.meta.env.VITE_API_URL || `${defaultProtocol}://${defaultHost}:8000`;
+  const API_URL = getApiBaseUrl();
 
   /**
    * Registra o device token no backend
