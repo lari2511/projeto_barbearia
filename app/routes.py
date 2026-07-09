@@ -946,7 +946,7 @@ def login_cliente(form_data: OAuth2PasswordRequestForm = Depends(), db: Session 
     if not usuario or not verify_password(senha, usuario.senha_hash):
         raise HTTPException(status_code=401, detail="Email ou senha incorretos")
 
-    if REQUIRE_EMAIL_VERIFIED and not usuario.email_verificado:
+    if not usuario.email_verificado:
         raise HTTPException(
             status_code=403,
             detail="Email não verificado. Verifique sua caixa de entrada ou reenvie o link.",

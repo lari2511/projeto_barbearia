@@ -36,11 +36,27 @@ conf = ConnectionConfig(
 
 fm = FastMail(conf)
 
+
+def _build_verification_link(token_verification: str) -> str:
+    verification_link_base = os.getenv("VERIFICATION_LINK_BASE", "").strip()
+    if verification_link_base:
+        if "{token}" in verification_link_base:
+            return verification_link_base.format(token=token_verification)
+        if verification_link_base.endswith("token="):
+            return f"{verification_link_base}{token_verification}"
+        return f"{verification_link_base.rstrip('/')}/api/v1/email/verificar?token={token_verification}"
+
+    api_url = os.getenv("PUBLIC_API_URL") or os.getenv("API_URL")
+    if not api_url:
+        railway_domain = os.getenv("RAILWAY_PUBLIC_DOMAIN")
+        api_url = f"https://{railway_domain}" if railway_domain else "http://localhost:8000"
+
+    return f"{api_url.rstrip('/')}/api/v1/email/verificar?token={token_verification}"
+
 async def send_verification_email(email_to: EmailStr, token_verification: str, user_name: str = "Usuário"):
     """Envia o e-mail de verificação com logs verbosos para debug."""
-    # Link aponta direto para a API que processa a verificação
-    api_url = os.getenv("API_URL", "http://localhost:8000")
-    verify_link = f"{api_url}/api/v1/email/verificar?token={token_verification}"
+    # Link aponta direto para a API que processa a verificação.
+    verify_link = _build_verification_link(token_verification)
 
     template_body = {
         "link": verify_link,
@@ -67,7 +83,7 @@ async def send_verification_email(email_to: EmailStr, token_verification: str, u
         print(f"Não foi possível enviar o e-mail para {email_to}")
         print(f"Erro: {e}")
         print("------------------------------------\n")
-        raise
+        return False
 
 
 async def send_welcome_email(email_to: EmailStr, user_name: str = "Usuário"):
