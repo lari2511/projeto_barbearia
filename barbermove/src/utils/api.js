@@ -3,8 +3,10 @@ const getWindowLocation = () => {
   return window.location;
 };
 
-const PROD_API_FALLBACK = 'https://projetobarbearia-production.up.railway.app';
-const PROD_WS_FALLBACK = 'wss://projetobarbearia-production.up.railway.app/ws/notificacoes';
+const DEFAULT_NATIVE_API_FALLBACK = 'https://projetobarbearia-production.up.railway.app';
+const DEFAULT_NATIVE_WS_FALLBACK = 'wss://projetobarbearia-production.up.railway.app/ws/notificacoes';
+const NATIVE_API_FALLBACK = import.meta.env.VITE_NATIVE_API_FALLBACK?.trim() || DEFAULT_NATIVE_API_FALLBACK;
+const NATIVE_WS_FALLBACK = import.meta.env.VITE_NATIVE_WS_FALLBACK?.trim() || DEFAULT_NATIVE_WS_FALLBACK;
 
 const isNativeScheme = (protocol) => protocol === 'capacitor:' || protocol === 'ionic:';
 
@@ -56,16 +58,14 @@ export const getApiBaseUrl = () => {
   // - Em produção, se o host for privado, apontamos direto para :8000.
   // - Em produção com host público, usamos a própria origem apenas quando
   //   o app já estiver servido pelo backend correto.
-  const port = location?.port || '';
-  const isViteDevPort = ['5173', '5174', '5175'].includes(port);
-
   if (import.meta.env.DEV) {
     return `${protocol}://${hostname}/proxy`;
   }
 
   // No app nativo, evitar fallback para localhost quando env não vier.
   if (isNativeApp) {
-    return `${PROD_API_FALLBACK}/api/v1`;
+    const normalizedFallback = normalizeUrlHost(NATIVE_API_FALLBACK, protocol, hostname);
+    return normalizedFallback.endsWith('/api/v1') ? normalizedFallback : `${normalizedFallback}/api/v1`;
   }
 
   if (isPrivateHost(hostname)) {
@@ -90,16 +90,13 @@ export const getWsBaseUrl = () => {
     return normalizeUrlHost(envUrl, protocol, hostname, '/ws/notificacoes');
   }
 
-  const port = location?.port || '';
-  const isViteDevPort = ['5173', '5174', '5175'].includes(port);
-
   if (import.meta.env.DEV) {
     return `${protocol}://${hostname}/proxy/ws/notificacoes`;
   }
 
   // No app nativo, evitar fallback para websocket local.
   if (isNativeApp) {
-    return PROD_WS_FALLBACK;
+    return normalizeUrlHost(NATIVE_WS_FALLBACK, protocol, hostname, '/ws/notificacoes');
   }
 
   if (isPrivateHost(hostname)) {

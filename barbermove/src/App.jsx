@@ -13,6 +13,8 @@ const isNativeApp = typeof window !== 'undefined' && (
   window.Capacitor?.isNativePlatform?.() === true
 )
 
+const forceNativeSafeMode = import.meta.env.VITE_NATIVE_SAFE_MODE === '1'
+
 export default function App() {
   const { token, userType, logout, notify, API_URL } = useApp()
   const [updateInfo, setUpdateInfo] = React.useState(null)
@@ -74,7 +76,7 @@ export default function App() {
   }
 
   const renderDashboard = () => {
-    if (isNativeApp) {
+    if (isNativeApp && forceNativeSafeMode) {
       return <NativeSafeHome userType={userType} API_URL={API_URL} onLogout={logout} />
     }
 
