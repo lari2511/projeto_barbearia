@@ -4,7 +4,6 @@ import ClientDashboard from './components/ClientDashboard'
 import BarberDashboard from './components/BarberDashboard'
 import ShopDashboard from './components/ShopDashboard'
 import Login from './components/Login'
-import NativeSafeHome from './components/NativeSafeHome'
 import { useApp } from './contexts/AppContext.jsx'
 
 const isNativeApp = typeof window !== 'undefined' && (
@@ -12,8 +11,6 @@ const isNativeApp = typeof window !== 'undefined' && (
   window.location.protocol === 'ionic:' ||
   window.Capacitor?.isNativePlatform?.() === true
 )
-
-const forceNativeSafeMode = import.meta.env.VITE_NATIVE_SAFE_MODE === '1'
 
 export default function App() {
   const { token, userType, logout, notify, API_URL } = useApp()
@@ -76,10 +73,6 @@ export default function App() {
   }
 
   const renderDashboard = () => {
-    if (isNativeApp && forceNativeSafeMode) {
-      return <NativeSafeHome userType={userType} API_URL={API_URL} onLogout={logout} />
-    }
-
     if (userType === 'cliente') {
       return <ClientDashboard token={token} logout={logout} API_URL={API_URL} notify={notify} />
     }
