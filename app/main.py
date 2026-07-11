@@ -206,6 +206,11 @@ def download_latest_apk():
         str(latest),
         media_type="application/vnd.android.package-archive",
         filename=latest.name,
+        headers={
+            "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+            "Pragma": "no-cache",
+            "Expires": "0",
+        },
     )
 
 
@@ -254,6 +259,11 @@ def download_apk(filename: str):
         str(file_path),
         media_type="application/vnd.android.package-archive",
         filename=file_path.name,
+        headers={
+            "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+            "Pragma": "no-cache",
+            "Expires": "0",
+        },
     )
 
 @app.get("/")
