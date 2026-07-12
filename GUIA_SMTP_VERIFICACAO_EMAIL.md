@@ -134,7 +134,7 @@ O link expira em 24 horas.
 
 **Link no botão:**
 ```
-http://localhost:8000/api/v1/email/verificar?token=eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9...
+https://sua-api.up.railway.app/api/v1/email/verificar?token=eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9...
 ```
 
 ---
@@ -142,7 +142,7 @@ http://localhost:8000/api/v1/email/verificar?token=eyJ0eXAiOiJKV1QiLCJhbGciOiJIU
 ### 3. Cliente Clica no Link (ou Frontend faz a chamada)
 
 ```bash
-GET http://localhost:8000/api/v1/email/verificar?token=eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9...
+GET https://sua-api.up.railway.app/api/v1/email/verificar?token=eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9...
 ```
 
 **Response (200):**
@@ -168,7 +168,7 @@ GET http://localhost:8000/api/v1/email/verificar?token=eyJ0eXAiOiJKV1QiLCJhbGciO
 ### Teste 1: Ver Token sem Enviar Email (Debug)
 
 ```bash
-GET http://localhost:8000/api/v1/email/debug-token/seu.email@example.com
+GET https://sua-api.up.railway.app/api/v1/email/debug-token/seu.email@example.com
 ```
 
 **Response:**
@@ -176,7 +176,7 @@ GET http://localhost:8000/api/v1/email/debug-token/seu.email@example.com
 {
   "email": "seu.email@example.com",
   "token": "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9...",
-  "verification_link": "http://localhost:8000/api/v1/email/verificar?token=eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9...",
+  "verification_link": "https://sua-api.up.railway.app/api/v1/email/verificar?token=eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9...",
   "message": "Clique no link acima para verificar seu email",
   "debug_note": "Este endpoint é apenas para desenvolvimento!",
   "expires_in_hours": 24
@@ -191,7 +191,7 @@ Copie o `verification_link` e abra no navegador para simular clique do cliente.
 
 **1. Registrar cliente:**
 ```bash
-curl -X POST http://localhost:8000/api/v1/clientes/ \
+curl -X POST https://sua-api.up.railway.app/api/v1/clientes/ \
   -H "Content-Type: application/json" \
   -d '{
     "nome": "João Silva",
@@ -213,7 +213,7 @@ curl -X POST http://localhost:8000/api/v1/clientes/ \
 
 **4. Fazer login:**
 ```bash
-POST http://localhost:8000/api/v1/login/cliente/
+POST https://sua-api.up.railway.app/api/v1/login/cliente/
 ```
 
 ```json
@@ -350,7 +350,7 @@ Abra seu terminal onde o servidor está rodando:
 
 ```
 --- [DEBUG E-MAIL] Iniciando envio para: joao@example.com ---
---- [DEBUG E-MAIL] Link de verificação: http://localhost:8000/api/v1/email/verificar?token=... ---
+--- [DEBUG E-MAIL] Link de verificação: https://sua-api.up.railway.app/api/v1/email/verificar?token=... ---
 --- [DEBUG E-MAIL] Sucesso! E-mail enviado para joao@example.com ---
 ```
 

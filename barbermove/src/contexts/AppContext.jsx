@@ -62,6 +62,18 @@ function toReadableString(value) {
   return 'Erro desconhecido';
 }
 
+async function safeReadJson(response) {
+  if (!response) return null;
+  const contentType = response.headers?.get?.('content-type') || '';
+  if (!contentType.includes('application/json')) return null;
+
+  try {
+    return await response.json();
+  } catch (_error) {
+    return null;
+  }
+}
+
 export const AppContext = createContext();
 
 // eslint-disable-next-line react-refresh/only-export-components
@@ -125,7 +137,7 @@ export const AppProvider = ({ children }) => {
       if (!response.ok) {
         let detail = `Erro ${response.status}: Email ou senha incorretos`;
         try {
-          const error = await response.json();
+          const error = await safeReadJson(response);
           detail = toReadableString(error);
         } catch (_) {
           // Não conseguiu parsear erro JSON
@@ -133,7 +145,7 @@ export const AppProvider = ({ children }) => {
         throw new Error(detail);
       }
 
-      const data = await response.json();
+      const data = (await safeReadJson(response)) || {};
 
       const dataJson = data || {};
 
@@ -160,7 +172,7 @@ export const AppProvider = ({ children }) => {
         email: normalizedEmail,
       });
 
-      await fetchUserData(data.access_token, serverType);
+      await fetchUserData(dataJson.access_token, serverType);
 
       // Garantir que a barbearia existe/vinculada ao usuário (cria se necessário)
       if (tipo === 'barbearia') {
@@ -222,7 +234,7 @@ export const AppProvider = ({ children }) => {
       if (!response.ok) {
         let detail = `Erro ${response.status}: não foi possível concluir o cadastro`;
         try {
-          const error = await response.json();
+          const error = await safeReadJson(response);
           detail = toReadableString(error);
         } catch (_) {
           // Não conseguiu ler o detalhe do erro
@@ -230,7 +242,7 @@ export const AppProvider = ({ children }) => {
         throw new Error(detail);
       }
 
-      const dataJson = await response.json();
+      const dataJson = (await safeReadJson(response)) || {};
       const userData = dataJson.usuario || dataJson.user || null;
 
       // Priorizar o tipo/role retornado pelo backend quando disponível
@@ -292,6 +304,31 @@ export const AppProvider = ({ children }) => {
     setTimeout(() => setToast(null), 5000);
   };
 
+  useEffect(() => {
+    const emitirErroGlobal = (mensagem, tipo = 'error') => {
+      const texto = toReadableString(mensagem);
+      if (!texto || texto === 'Erro desconhecido') return;
+      notify(texto, tipo);
+    };
+
+    const onUnhandledRejection = (event) => {
+      emitirErroGlobal(event?.reason?.message || event?.reason || 'Falha assíncrona inesperada', 'error');
+    };
+
+    const onWindowError = (event) => {
+      const detalhe = event?.error?.message || event?.message || 'Erro inesperado na interface';
+      emitirErroGlobal(detalhe, 'error');
+    };
+
+    window.addEventListener('unhandledrejection', onUnhandledRejection);
+    window.addEventListener('error', onWindowError);
+
+    return () => {
+      window.removeEventListener('unhandledrejection', onUnhandledRejection);
+      window.removeEventListener('error', onWindowError);
+    };
+  }, []);
+
   const apiRequest = async (endpoint, options = {}) => {
     const headers = {
       'Content-Type': 'application/json',
@@ -308,8 +345,8 @@ export const AppProvider = ({ children }) => {
     });
 
     if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.detail || 'Erro na requisição');
+      const error = await safeReadJson(response);
+      throw new Error(error?.detail || 'Erro na requisição');
     }
 
     return response.json();

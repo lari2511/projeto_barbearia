@@ -7,7 +7,7 @@ import { Plus, Minus, TrendingUp, AlertCircle, Check, Loader } from 'lucide-reac
 import { gerarQrDataUrl, validarCartaoBasico, salvarMetodoPreferidoCliente } from './checkout/core';
 import { getApiBaseUrl } from '../utils/api';
 
-export default function TelaMensalidadeAssinatura({ token, barbeariaId, API_URL, onNotify }) {
+export default function TelaMensalidadeAssinatura({ token, barbeariaId, API_URL, onNotify, onBack }) {
   const defaultHost = typeof window !== 'undefined' ? window.location.hostname : 'localhost';
   const defaultProtocol = typeof window !== 'undefined' && window.location.protocol === 'https:' ? 'https' : 'http';
   const apiBase = API_URL || import.meta.env.VITE_API_URL?.trim() || getApiBaseUrl();
@@ -497,6 +497,16 @@ export default function TelaMensalidadeAssinatura({ token, barbeariaId, API_URL,
     }
   };
 
+  const voltarParaSelecao = () => {
+    setPixData(null);
+    setProcessandoPagamento(false);
+    setLoading(false);
+    setCopiado(false);
+    setPixQrFallbackSrc('');
+    setPixQrImagemInvalida(false);
+    onBack && onBack();
+  };
+
   const copiarPix = async () => {
     if (!pixData?.pix_copia_cola) return;
     await navigator.clipboard.writeText(pixData.pix_copia_cola);
@@ -508,10 +518,18 @@ export default function TelaMensalidadeAssinatura({ token, barbeariaId, API_URL,
   const pixQrSrc = getPixQrSrc(pixData?.qrcode_base64);
 
   return (
-    <div className="w-full min-h-[100dvh] overflow-visible bg-gradient-to-br from-black via-zinc-950 to-zinc-900">
-      <div className="w-full max-w-xl mx-auto p-2 sm:p-4 md:p-6 pb-20 sm:pb-28">
+    <div className="w-full min-h-[100dvh] overflow-x-hidden bg-gradient-to-br from-black via-zinc-950 to-zinc-900">
+      <div className="w-full max-w-xl mx-auto p-2 sm:p-4 md:p-6 pb-24 sm:pb-32">
         {/* HEADER */}
-        <div className="mb-3 sm:mb-6">
+        <div className="mb-3 sm:mb-6 flex items-start justify-between gap-3">
+          <button
+            type="button"
+            onClick={voltarParaSelecao}
+            className="shrink-0 rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-xs sm:text-sm font-bold text-zinc-200 hover:bg-zinc-800"
+          >
+            Voltar
+          </button>
+          <div className="flex-1 min-w-0">
           <h2 className="text-lg sm:text-2xl md:text-3xl font-bold text-white mb-1 sm:mb-2 flex items-center gap-2">
             <TrendingUp size={20} className="text-orange-500 flex-shrink-0" />
             Seu Plano
@@ -519,6 +537,7 @@ export default function TelaMensalidadeAssinatura({ token, barbeariaId, API_URL,
           <p className="text-xs sm:text-sm text-zinc-300 leading-tight">
             Progressivo por cadeira - maior desconto com mais unidades
           </p>
+          </div>
         </div>
 
       {mixedContentRisk && (
@@ -528,7 +547,7 @@ export default function TelaMensalidadeAssinatura({ token, barbeariaId, API_URL,
       )}
 
       {/* SEÇÃO PRINCIPAL - SIMULADOR */}
-      <div className="bg-zinc-900/50 border border-zinc-800 rounded-lg p-2 sm:p-3 md:p-4 mb-3 sm:mb-4">
+      <div className="bg-zinc-900/50 border border-zinc-800 rounded-lg p-2 sm:p-3 md:p-4 mb-3 sm:mb-4 overflow-hidden">
         <h3 className="text-sm sm:text-base font-bold text-white mb-2 sm:mb-3">Simulador</h3>
 
         {/* CONTROLE DE QUANTIDADE */}
@@ -741,7 +760,7 @@ export default function TelaMensalidadeAssinatura({ token, barbeariaId, API_URL,
       </button>
 
       {pixData && (
-        <div className="bg-zinc-800 border border-zinc-700 rounded p-2 sm:p-3 space-y-2 sm:space-y-3 ring-1 ring-orange-500/60 mb-2 sm:mb-3">
+        <div className="bg-zinc-800 border border-zinc-700 rounded p-2 sm:p-3 space-y-2 sm:space-y-3 ring-1 ring-orange-500/60 mb-2 sm:mb-3 overflow-hidden">
           <p className="text-xs sm:text-sm font-bold text-white">PIX Gerado</p>
           
             {pixQrSrc && !pixQrImagemInvalida && (
@@ -799,6 +818,13 @@ export default function TelaMensalidadeAssinatura({ token, barbeariaId, API_URL,
               'Confirmar Pagamento'
             )}
           </button>
+
+            <button
+              onClick={voltarParaSelecao}
+              className="w-full bg-transparent border border-zinc-600 text-zinc-200 py-1.5 sm:py-2 rounded font-bold text-xs sm:text-sm hover:bg-zinc-700"
+            >
+              Voltar para seleção de cadeiras
+            </button>
         </div>
       )}
 

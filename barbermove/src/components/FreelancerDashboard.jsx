@@ -508,7 +508,7 @@ function GanhosView({ onBack }) {
         </div>
 
         <p className="text-xs text-gray-500 text-center">
-          💡 Comissão de 4% apenas sobre atendimentos via app
+          💡 Comissão de 10% apenas sobre atendimentos via app
         </p>
       </div>
     </div>
@@ -529,18 +529,18 @@ function BottomNav({ active, onChange, type }) {
 
   return (
     <div className="bm-bottom-nav fixed bottom-0 left-0 right-0 shadow-lg">
-      <div className="flex justify-around py-2">
+      <div className="grid grid-cols-5 gap-1 px-2 py-2">
         {items[type].map(item => (
           <button
             key={item.id}
             onClick={() => onChange(item.id)}
             data-active={active === item.id}
-            className={`bm-bottom-nav-btn flex flex-col items-center gap-1 px-4 py-2 ${
+            className={`bm-bottom-nav-btn flex flex-col items-center justify-center gap-1 rounded-xl px-2 py-2 text-center ${
               active === item.id ? 'text-orange-500' : 'text-zinc-500'
             }`}
           >
             <item.icon size={18} />
-            <span>{item.label}</span>
+            <span className="text-[10px] leading-none">{item.label}</span>
           </button>
         ))}
       </div>

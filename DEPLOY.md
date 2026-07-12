@@ -21,7 +21,7 @@
 SECRET_KEY=SuaChaveSecretaForteAqui123456789AbcDefGhIjKl
 
 # URLs permitidas (seu domínio em produção)
-ALLOWED_ORIGINS=https://barbermove.com.br,https://www.barbermove.com.br
+ALLOWED_ORIGINS=https://seu-front.com,https://www.seu-front.com
 
 # Database (PostgreSQL recomendado em produção)
 DATABASE_URL=postgresql://usuario:senha@host:5432/barbermove_db
@@ -31,22 +31,22 @@ SMTP_HOST=smtp.gmail.com
 SMTP_PORT=587
 SMTP_USER=seuemail@gmail.com
 SMTP_PASSWORD=sua_senha_app_16_digitos
-SMTP_FROM=noreply@barbermove.com.br
+SMTP_FROM=noreply@seu-dominio.com
 
 # Verificação
 REQUIRE_EMAIL_VERIFIED=1
-VERIFICATION_LINK_BASE=https://barbermove.com.br/verificar
+VERIFICATION_LINK_BASE=https://sua-api.up.railway.app/api/v1/email/verificar?token=
 
 # URLs
-FRONTEND_URL=https://barbermove.com.br
-API_URL=https://api.barbermove.com.br
+FRONTEND_URL=https://seu-front.com
+API_URL=https://sua-api.up.railway.app
 ```
 
 ### Frontend (.env na pasta barbermove/)
 
 ```bash
-VITE_API_URL=https://api.barbermove.com.br
-VITE_WS_URL=wss://api.barbermove.com.br/ws/notificacoes
+VITE_API_URL=https://sua-api.up.railway.app
+VITE_WS_URL=wss://sua-api.up.railway.app/ws/notificacoes
 VITE_DEV_MODE=false
 ```
 
@@ -82,7 +82,7 @@ heroku login
 heroku create barbermove-api
 heroku addons:create heroku-postgresql:mini
 heroku config:set SECRET_KEY=sua_chave_aqui
-heroku config:set ALLOWED_ORIGINS=https://barbermove.com.br
+heroku config:set ALLOWED_ORIGINS=https://seu-front.com
 # ... configure todas as variáveis
 
 git push heroku main
@@ -111,7 +111,7 @@ sudo apt install supervisor
 # /etc/nginx/sites-available/barbermove
 server {
     listen 80;
-    server_name api.barbermove.com.br;
+    server_name api.seu-dominio.com;
     
     location / {
         proxy_pass http://127.0.0.1:8000;
@@ -122,7 +122,7 @@ server {
 
 # SSL com Let's Encrypt
 sudo apt install certbot python3-certbot-nginx
-sudo certbot --nginx -d api.barbermove.com.br
+sudo certbot --nginx -d api.seu-dominio.com
 ```
 
 ---
@@ -166,7 +166,7 @@ sudo cp -r dist/* /var/www/barbermove/
 # Configure nginx
 server {
     listen 80;
-    server_name barbermove.com.br;
+    server_name seu-front.com;
     root /var/www/barbermove;
     index index.html;
     
@@ -184,8 +184,8 @@ server {
 cd barbermove
 
 # 1. Configure API_URL de produção no .env
-echo "VITE_API_URL=https://api.barbermove.com.br" > .env
-echo "VITE_WS_URL=wss://api.barbermove.com.br/ws/notificacoes" >> .env
+echo "VITE_API_URL=https://sua-api.up.railway.app" > .env
+echo "VITE_WS_URL=wss://sua-api.up.railway.app/ws/notificacoes" >> .env
 
 # 2. Build do frontend
 npm run build

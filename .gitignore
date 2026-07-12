@@ -48,6 +48,7 @@ barbermove/ios/build/
 # Large binaries (keep repo lean)
 *.apk
 !barbermove/app-release.apk
+!APK_PRONTO/BarberMove.apk
 ngrok.exe
 ngrok.zip
 barbermove/node-22.zip

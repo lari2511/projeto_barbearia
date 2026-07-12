@@ -19,14 +19,39 @@ def env_bool(key: str, default: bool = False) -> bool:
     return val.strip().lower() in {"1", "true", "t", "yes", "y", "on"}
 
 
+def _first_env(*keys: str, default: str = "") -> str:
+    for key in keys:
+        value = os.getenv(key)
+        if value:
+            return value.strip()
+    return default
+
+
+def _looks_local_url(value: str) -> bool:
+    lowered = (value or "").strip().lower()
+    return any(token in lowered for token in ("localhost", "127.0.0.1", "0.0.0.0"))
+
+
+def _resolve_public_api_base(default: str = "http://localhost:8000") -> str:
+    api_url = _first_env("PUBLIC_API_URL", "API_URL")
+    if api_url:
+        return api_url.rstrip("/")
+
+    railway_domain = _first_env("RAILWAY_PUBLIC_DOMAIN", "RAILWAY_STATIC_URL")
+    if railway_domain:
+        return f"https://{railway_domain.rstrip('/')}"
+
+    return default
+
+
 # Configuração usando as variáveis do .env (Resend usa STARTTLS na porta 587)
 conf = ConnectionConfig(
-    MAIL_USERNAME=os.getenv("MAIL_USERNAME"),
-    MAIL_PASSWORD=os.getenv("MAIL_PASSWORD"),
-    MAIL_FROM=os.getenv("MAIL_FROM"),
+    MAIL_USERNAME=_first_env("MAIL_USERNAME", "SMTP_USER"),
+    MAIL_PASSWORD=_first_env("MAIL_PASSWORD", "SMTP_PASSWORD"),
+    MAIL_FROM=_first_env("MAIL_FROM", "SMTP_FROM", "MAIL_USERNAME", "SMTP_USER"),
     MAIL_FROM_NAME=os.getenv("MAIL_FROM_NAME", "BarberMove"),
-    MAIL_PORT=int(os.getenv("MAIL_PORT", 587)),
-    MAIL_SERVER=os.getenv("MAIL_SERVER"),
+    MAIL_PORT=int(_first_env("MAIL_PORT", "SMTP_PORT", default="587")),
+    MAIL_SERVER=_first_env("MAIL_SERVER", "SMTP_HOST"),
     MAIL_STARTTLS=env_bool("MAIL_STARTTLS", True),
     MAIL_SSL_TLS=env_bool("MAIL_SSL_TLS", False),
     USE_CREDENTIALS=env_bool("USE_CREDENTIALS", True),
@@ -39,19 +64,16 @@ fm = FastMail(conf)
 
 def _build_verification_link(token_verification: str) -> str:
     verification_link_base = os.getenv("VERIFICATION_LINK_BASE", "").strip()
-    if verification_link_base:
+    public_api_base = _resolve_public_api_base()
+
+    if verification_link_base and not (_looks_local_url(verification_link_base) and public_api_base != "http://localhost:8000"):
         if "{token}" in verification_link_base:
             return verification_link_base.format(token=token_verification)
         if verification_link_base.endswith("token="):
             return f"{verification_link_base}{token_verification}"
         return f"{verification_link_base.rstrip('/')}/api/v1/email/verificar?token={token_verification}"
 
-    api_url = os.getenv("PUBLIC_API_URL") or os.getenv("API_URL")
-    if not api_url:
-        railway_domain = os.getenv("RAILWAY_PUBLIC_DOMAIN")
-        api_url = f"https://{railway_domain}" if railway_domain else "http://localhost:8000"
-
-    return f"{api_url.rstrip('/')}/api/v1/email/verificar?token={token_verification}"
+    return f"{public_api_base.rstrip('/')}/api/v1/email/verificar?token={token_verification}"
 
 async def send_verification_email(email_to: EmailStr, token_verification: str, user_name: str = "Usuário"):
     """Envia o e-mail de verificação com logs verbosos para debug."""
@@ -82,8 +104,32 @@ async def send_verification_email(email_to: EmailStr, token_verification: str, u
         print("\n--- [DEBUG E-MAIL] ERRO CRÍTICO ---")
         print(f"Não foi possível enviar o e-mail para {email_to}")
         print(f"Erro: {e}")
+        print("Tentar fallback SMTP simples...")
         print("------------------------------------\n")
-        return False
+
+        try:
+            from .email_utils import send_email
+
+            html_body = (
+                f"<p>Olá, {user_name}!</p>"
+                f"<p>Confirme seu email para ativar a conta.</p>"
+                f"<p><a href='{verify_link}'>Verificar email</a></p>"
+                f"<p>Ou copie e cole no navegador: {verify_link}</p>"
+            )
+            text_body = (
+                f"Olá, {user_name}!\n"
+                "Confirme seu email para ativar a conta.\n"
+                f"Link: {verify_link}\n"
+            )
+            return send_email(
+                subject="BarberMove - Confirme seu cadastro",
+                to_email=email_to,
+                html_body=html_body,
+                text_body=text_body,
+            )
+        except Exception as fallback_error:  # noqa: BLE001
+            print(f"❌ Fallback SMTP simples também falhou: {fallback_error}")
+            return False
 
 
 async def send_welcome_email(email_to: EmailStr, user_name: str = "Usuário"):
@@ -114,6 +160,22 @@ async def send_welcome_email(email_to: EmailStr, user_name: str = "Usuário"):
         return True
     except Exception as e:
         print(f"❌ Erro ao enviar email de boas-vindas para {email_to}: {str(e)}")
+        try:
+            from .email_utils import send_email
+
+            html_body = (
+                f"<p>Olá, {user_name}!</p>"
+                "<p>Seu cadastro no BarberMove foi concluído.</p>"
+            )
+            text_body = f"Olá, {user_name}! Seu cadastro no BarberMove foi concluído."
+            return send_email(
+                subject="Bem-vindo ao BarberMove!",
+                to_email=email_to,
+                html_body=html_body,
+                text_body=text_body,
+            )
+        except Exception:
+            return False
 
 
 async def send_perfil_awaiting_approval_email(email_to: EmailStr, user_name: str = "Usuário", user_type: str = "barbeiro"):
@@ -148,6 +210,22 @@ async def send_perfil_awaiting_approval_email(email_to: EmailStr, user_name: str
         return True
     except Exception as e:
         print(f"❌ Erro ao enviar email de avaliação para {email_to}: {str(e)}")
+        try:
+            from .email_utils import send_email
+
+            html_body = (
+                f"<p>Olá, {user_name}!</p>"
+                f"<p>Seu perfil de {tipo_label} está em avaliação.</p>"
+            )
+            text_body = f"Olá, {user_name}! Seu perfil de {tipo_label} está em avaliação."
+            return send_email(
+                subject=f"BarberMove - Seu perfil de {tipo_label} está em avaliação",
+                to_email=email_to,
+                html_body=html_body,
+                text_body=text_body,
+            )
+        except Exception:
+            return False
 
 
 async def send_perfil_approved_email(email_to: EmailStr, user_name: str = "Usuário", user_type: str = "barbeiro"):
@@ -183,4 +261,19 @@ async def send_perfil_approved_email(email_to: EmailStr, user_name: str = "Usuá
         return True
     except Exception as e:
         print(f"❌ Erro ao enviar email de aprovação para {email_to}: {str(e)}")
-        return False
+        try:
+            from .email_utils import send_email
+
+            html_body = (
+                f"<p>Olá, {user_name}!</p>"
+                f"<p>Seu perfil de {tipo_label} foi aprovado.</p>"
+            )
+            text_body = f"Olá, {user_name}! Seu perfil de {tipo_label} foi aprovado."
+            return send_email(
+                subject=f"🎉 BarberMove - Seu perfil de {tipo_label} foi aprovado!",
+                to_email=email_to,
+                html_body=html_body,
+                text_body=text_body,
+            )
+        except Exception:
+            return False

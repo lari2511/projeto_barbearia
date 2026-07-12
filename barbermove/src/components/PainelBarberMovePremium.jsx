@@ -831,7 +831,7 @@ export default function PainelBarberMovePremium({ token: tokenProp, logout: logo
               <div className="rounded-2xl border border-zinc-800 bg-zinc-900 p-4 space-y-2 text-sm">
                 <div className="flex justify-between"><span className="text-zinc-400">Atendimentos</span><span className="font-bold">{ganhos?.total_atendimentos||0}</span></div>
                 <div className="flex justify-between"><span className="text-zinc-400">Via app</span><span className="font-bold">{ganhos?.total_atendimentos_app||0}</span></div>
-                <div className="flex justify-between"><span className="text-zinc-400">Taxa app</span><span className="font-bold text-orange-400">4%</span></div>
+                    <div className="flex justify-between"><span className="text-zinc-400">Taxa app</span><span className="font-bold text-orange-400">10%</span></div>
               </div>
 
               {Number(ganhos?.saldo_carteira || 0) > 0 && (
@@ -915,7 +915,7 @@ export default function PainelBarberMovePremium({ token: tokenProp, logout: logo
         </div>
 
         {/* NAVBAR */}
-        <div className="fixed bottom-0 left-0 right-0 mx-auto w-full max-w-[430px] h-[calc(4.4rem+env(safe-area-inset-bottom))] pb-[env(safe-area-inset-bottom)] bg-[#121214] border-t border-zinc-900 flex justify-around items-center z-50">
+        <div className="fixed bottom-0 left-0 right-0 mx-auto w-full max-w-[430px] h-[calc(4.8rem+env(safe-area-inset-bottom))] pb-[env(safe-area-inset-bottom)] bg-[#121214] border-t border-zinc-900 grid grid-cols-5 gap-1 px-2 items-stretch z-50">
           {[
             { id: 'inicio', icon: <Home size={16}/>, label: 'Início' },
             { id: 'chamados', icon: <ClipboardList size={16}/>, label: 'Chamados' },
@@ -926,10 +926,10 @@ export default function PainelBarberMovePremium({ token: tokenProp, logout: logo
             <button
               key={item.id}
               onClick={() => { setTab(item.id); if (item.id === 'carteira') carregarGanhos(); }}
-              className={`flex flex-col items-center justify-center gap-1 flex-1 h-full text-center transition-colors ${tab === item.id ? 'text-orange-500' : 'text-zinc-500 hover:text-zinc-200'}`}
+              className={`flex flex-col items-center justify-center gap-1 h-full text-center rounded-xl transition-colors ${tab === item.id ? 'text-orange-500 bg-orange-500/5' : 'text-zinc-500 hover:text-zinc-200'}`}
             >
               {item.icon}
-              <span className="text-[10px] font-bold">{item.label}</span>
+              <span className="text-[10px] font-bold leading-none">{item.label}</span>
             </button>
           ))}
         </div>

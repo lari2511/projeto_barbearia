@@ -138,7 +138,7 @@ def cadastrar_freelancer(
     db.commit()
     
     return {
-        "message": "Freelancer cadastrado com sucesso! 1 mês grátis, depois 4% de comissão.",
+        "message": "Freelancer cadastrado com sucesso! 1 mês grátis, depois 10% de comissão.",
         "freelancer_id": freelancer.id,
         "trial_ate": (datetime.now() + timedelta(days=30)).isoformat()
     }

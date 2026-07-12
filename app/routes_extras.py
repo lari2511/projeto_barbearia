@@ -344,10 +344,31 @@ async def aceitar_agendamento(agendamento_id: int, db: Session = Depends(get_db)
 # Templates para páginas HTML
 templates = Jinja2Templates(directory="app/templates")
 
+
+def _looks_local_url(value: str) -> bool:
+    lowered = (value or "").strip().lower()
+    return any(token in lowered for token in ("localhost", "127.0.0.1", "0.0.0.0"))
+
+
+def _resolve_public_api_base(default: str = "http://localhost:8000") -> str:
+    api_url = (os.getenv("PUBLIC_API_URL") or os.getenv("API_URL") or "").strip()
+    if api_url:
+        return api_url.rstrip("/")
+
+    railway_domain = (os.getenv("RAILWAY_PUBLIC_DOMAIN") or os.getenv("RAILWAY_STATIC_URL") or "").strip()
+    if railway_domain:
+        return f"https://{railway_domain.rstrip('/')}"
+
+    return default
+
 VERIFICATION_LINK_BASE = os.getenv(
     "VERIFICATION_LINK_BASE",
-    "http://localhost:8000/api/v1/email/verificar?token=",
+    f"{_resolve_public_api_base()}/api/v1/email/verificar?token=",
 )
+if _looks_local_url(VERIFICATION_LINK_BASE):
+    resolved_public_api_base = _resolve_public_api_base()
+    if resolved_public_api_base != "http://localhost:8000":
+        VERIFICATION_LINK_BASE = f"{resolved_public_api_base}/api/v1/email/verificar?token="
 RESET_PASSWORD_LINK_BASE = os.getenv(
     "RESET_PASSWORD_LINK_BASE",
     "http://localhost:5173/resetar-senha?token=",

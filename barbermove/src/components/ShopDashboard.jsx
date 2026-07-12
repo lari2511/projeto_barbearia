@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import ScreenWrapper from './ScreenWrapper';
 import { getWsBaseUrl } from '../utils/api';
 import { Store, LogOut, CheckCircle, AlertCircle, User, CreditCard, Calendar, Search, Star, TrendingUp, Users, Bell } from 'lucide-react';
@@ -9,8 +9,8 @@ import TelaMensalidadeAssinatura from './TelaMensalidadeAssinatura';
 
 export default function ShopDashboard({ token, logout, notify, API_URL }) {
     const TABS_VALIDAS = ['inicio', 'barbeiros', 'freelancers', 'agenda', 'avaliar', 'assinatura', 'perfil', 'pagamento'];
-    const [services, setServices] = useState([{id: 1, nome: "Corte Simples", valor: 30}]);
-    const [newService, setNewService] = useState({nome: '', valor: ''});
+    const [services, setServices] = useState([]);
+    const [newService, setNewService] = useState({ nome: '', valor: '', duracao_minutos: '30', categoria: 'outros', descricao: '' });
     const [user, setUser] = useState(null);
     const [userData, setUserData] = useState(null);
     const [tab, setTab] = useState(() => {
@@ -25,10 +25,6 @@ export default function ShopDashboard({ token, logout, notify, API_URL }) {
     const [cadeirasBarbearia, setCadeirasBarbearia] = useState([]);
     const [loadingCadeirasBarbearia, setLoadingCadeirasBarbearia] = useState(false);
     const [ultimaAtualizacaoFreelancers, setUltimaAtualizacaoFreelancers] = useState(null);
-        const freelancersPresentesNaBarbearia = freelancersPresentes.filter((freelancer) =>
-            freelancer?.presente_em_local &&
-            (!freelancer?.barbearia_atual_id || freelancer.barbearia_atual_id === barbeariaId)
-        );
     const [wsConectado, setWsConectado] = useState(false);
     const [_loading, _setLoading] = useState(false);
     const [barbeariaId, setBarbeariaId] = useState(null);
@@ -39,6 +35,13 @@ export default function ShopDashboard({ token, logout, notify, API_URL }) {
     const [proximaCadeiraAnunciada, setProximaCadeiraAnunciada] = useState(false);
     const anuncioSucessoTimeoutRef = useRef(null);
     const anuncioProximaTimeoutRef = useRef(null);
+    const freelancersPresentesNaBarbearia = useMemo(
+        () => freelancersPresentes.filter((freelancer) =>
+            freelancer?.presente_em_local &&
+            (!freelancer?.barbearia_atual_id || Number(freelancer.barbearia_atual_id) === Number(barbeariaId))
+        ),
+        [freelancersPresentes, barbeariaId]
+    );
 
     useEffect(() => {
         fetch(`${API_URL}/api/v1/documentos/status`, {
@@ -105,6 +108,32 @@ export default function ShopDashboard({ token, logout, notify, API_URL }) {
         const interval = setInterval(carregarAgendamentos, 10000);
         return () => clearInterval(interval);
     }, [barbeariaId, API_URL, token]);
+
+    const carregarServicosBarbearia = useCallback(async () => {
+        if (!barbeariaId) return;
+
+        try {
+            const res = await fetch(`${API_URL}/api/v1/barbearias/${barbeariaId}/servicos`, {
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+
+            if (!res.ok) {
+                setServices([]);
+                return;
+            }
+
+            const data = await res.json();
+            const lista = Array.isArray(data?.servicos) ? data.servicos : [];
+            setServices(lista);
+        } catch (_err) {
+            setServices([]);
+        }
+    }, [API_URL, barbeariaId, token]);
+
+    useEffect(() => {
+        if (!barbeariaId) return;
+        carregarServicosBarbearia();
+    }, [barbeariaId, carregarServicosBarbearia]);
 
     // Alterar status do freelancer (controle duplo)
     const alterarStatusFreelancer = async (freelancerId, novoStatus, barbeariaIdAlvo = null) => {
@@ -494,15 +523,45 @@ export default function ShopDashboard({ token, logout, notify, API_URL }) {
         };
     }, [API_URL, barbeariaId, tab, carregarFreelancersDisponiveis, carregarFreelancersPresentes, carregarCadeirasBarbearia, carregarVagasRelampago]);
 
-    const addService = (e) => {
+    const addService = async (e) => {
         e.preventDefault();
         if (!newService.nome || !newService.valor) {
             notify("Preencha nome e valor", "error");
             return;
         }
-        setServices([...services, {id: Date.now(), nome: newService.nome, valor: parseFloat(newService.valor)}]);
-        setNewService({nome: '', valor: ''});
-        notify("Serviço adicionado!", "success");
+
+        if (!barbeariaId) {
+            notify("Barbearia não identificada", "error");
+            return;
+        }
+
+        try {
+            const res = await fetch(`${API_URL}/api/v1/barbearias/${barbeariaId}/servicos`, {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    nome: newService.nome.trim(),
+                    categoria: newService.categoria || 'outros',
+                    descricao: newService.descricao?.trim() || newService.nome.trim(),
+                    valor: Number(newService.valor),
+                    duracao_minutos: Number(newService.duracao_minutos) || 30,
+                })
+            });
+
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) {
+                throw new Error(data.detail || 'Não foi possível salvar o serviço');
+            }
+
+            setNewService({ nome: '', valor: '', duracao_minutos: '30', categoria: 'outros', descricao: '' });
+            await carregarServicosBarbearia();
+            notify(data.mensagem || 'Serviço adicionado!', 'success');
+        } catch (err) {
+            notify(err.message || 'Erro ao salvar serviço', 'error');
+        }
     };
 
     return (
@@ -739,8 +798,8 @@ export default function ShopDashboard({ token, logout, notify, API_URL }) {
                                   className="bg-black rounded-lg p-3 border border-zinc-800 text-sm outline-none focus:border-purple-500 text-white" 
                                   type="number" 
                                   placeholder="Duração (min)" 
-                                  value={newService.duracao_minutos} 
-                                  onChange={e => setNewService({...newService, duracao_minutos: e.target.value})} 
+                                                                value={newService.duracao_minutos} 
+                                                                onChange={e => setNewService({...newService, duracao_minutos: e.target.value})} 
                                   required
                                 />
                               </div>
@@ -753,7 +812,7 @@ export default function ShopDashboard({ token, logout, notify, API_URL }) {
                                       <span className="text-sm font-medium text-white">{s.nome}</span>
                                       <div className="text-right flex gap-3">
                                         <span className="text-green-400 font-bold text-sm">R$ {parseFloat(s.valor).toFixed(2)}</span>
-                                        <span className="text-purple-400 font-bold text-sm">{s.duracao_minutos || 30} min</span>
+                                                                                <span className="text-purple-400 font-bold text-sm">{Number(s.duracao_minutos) || 30} min</span>
                                       </div>
                                     </div>
                                   ))
@@ -1036,14 +1095,14 @@ export default function ShopDashboard({ token, logout, notify, API_URL }) {
                 )}
             </div>
 
-            <div className="bm-bottom-nav sticky bottom-0 left-0 w-full h-[calc(4rem+env(safe-area-inset-bottom))] pb-[env(safe-area-inset-bottom)] flex justify-between items-center z-40 overflow-x-auto">
-                <button data-active={tab === 'inicio'} onClick={() => setTab('inicio')} className={`bm-bottom-nav-btn flex flex-col items-center justify-center gap-0.5 h-full flex-1 text-center min-w-max ${tab === 'inicio' ? 'text-orange-500 bg-orange-500/5' : 'text-zinc-400 hover:text-zinc-200'}`}><span className="text-sm">🏠</span><span>Início</span></button>
-                <button data-active={tab === 'barbeiros'} onClick={() => setTab('barbeiros')} className={`bm-bottom-nav-btn flex flex-col items-center justify-center gap-0.5 h-full flex-1 text-center min-w-max ${tab === 'barbeiros' ? 'text-orange-500 bg-orange-500/5' : 'text-zinc-400 hover:text-zinc-200'}`}><Store size={14} /><span>Loja</span></button>
-                <button data-active={tab === 'freelancers'} onClick={() => setTab('freelancers')} className={`bm-bottom-nav-btn flex flex-col items-center justify-center gap-0.5 h-full flex-1 text-center min-w-max ${tab === 'freelancers' ? 'text-orange-500 bg-orange-500/5' : 'text-zinc-400 hover:text-zinc-200'}`}><Users size={14} /><span>Freelancers</span></button>
-                <button data-active={tab === 'agenda'} onClick={() => setTab('agenda')} className={`bm-bottom-nav-btn flex flex-col items-center justify-center gap-0.5 h-full flex-1 text-center min-w-max ${tab === 'agenda' ? 'text-orange-500 bg-orange-500/5' : 'text-zinc-400 hover:text-zinc-200'}`}><Calendar size={14} /><span>Chamadas</span></button>
-                <button data-active={tab === 'avaliar'} onClick={() => setTab('avaliar')} className={`bm-bottom-nav-btn flex flex-col items-center justify-center gap-0.5 h-full flex-1 text-center min-w-max ${tab === 'avaliar' ? 'text-orange-500 bg-orange-500/5' : 'text-zinc-400 hover:text-zinc-200'}`}><Star size={14} /><span>Avaliar</span></button>
-                <button data-active={tab === 'perfil'} onClick={() => setTab('perfil')} className={`bm-bottom-nav-btn flex flex-col items-center justify-center gap-0.5 h-full flex-1 text-center min-w-max ${tab === 'perfil' ? 'text-orange-500 bg-orange-500/5' : 'text-zinc-400 hover:text-zinc-200'}`}><User size={14} /><span>Perfil</span></button>
-                <button data-active={tab === 'pagamento'} onClick={() => setTab('pagamento')} className={`bm-bottom-nav-btn flex flex-col items-center justify-center gap-0.5 h-full flex-1 text-center min-w-max ${tab === 'pagamento' ? 'text-orange-500 bg-orange-500/5' : 'text-zinc-400 hover:text-zinc-200'}`}><CreditCard size={14} /><span>Carteira</span></button>
+            <div className="bm-bottom-nav sticky bottom-0 left-0 w-full h-[calc(5.1rem+env(safe-area-inset-bottom))] pb-[env(safe-area-inset-bottom)] grid grid-cols-4 sm:grid-cols-7 gap-1 items-stretch z-40 px-2 sm:px-3">
+                <button data-active={tab === 'inicio'} onClick={() => setTab('inicio')} className={`bm-bottom-nav-btn flex flex-col items-center justify-center gap-0.5 h-full text-center rounded-xl ${tab === 'inicio' ? 'text-orange-500 bg-orange-500/5' : 'text-zinc-400 hover:text-zinc-200'}`}><span className="text-sm">🏠</span><span className="text-[10px] leading-none">Início</span></button>
+                <button data-active={tab === 'barbeiros'} onClick={() => setTab('barbeiros')} className={`bm-bottom-nav-btn flex flex-col items-center justify-center gap-0.5 h-full text-center rounded-xl ${tab === 'barbeiros' ? 'text-orange-500 bg-orange-500/5' : 'text-zinc-400 hover:text-zinc-200'}`}><Store size={14} /><span className="text-[10px] leading-none">Loja</span></button>
+                <button data-active={tab === 'freelancers'} onClick={() => setTab('freelancers')} className={`bm-bottom-nav-btn flex flex-col items-center justify-center gap-0.5 h-full text-center rounded-xl ${tab === 'freelancers' ? 'text-orange-500 bg-orange-500/5' : 'text-zinc-400 hover:text-zinc-200'}`}><Users size={14} /><span className="text-[10px] leading-none">Freelancers</span></button>
+                <button data-active={tab === 'agenda'} onClick={() => setTab('agenda')} className={`bm-bottom-nav-btn flex flex-col items-center justify-center gap-0.5 h-full text-center rounded-xl ${tab === 'agenda' ? 'text-orange-500 bg-orange-500/5' : 'text-zinc-400 hover:text-zinc-200'}`}><Calendar size={14} /><span className="text-[10px] leading-none">Chamadas</span></button>
+                <button data-active={tab === 'avaliar'} onClick={() => setTab('avaliar')} className={`bm-bottom-nav-btn flex flex-col items-center justify-center gap-0.5 h-full text-center rounded-xl ${tab === 'avaliar' ? 'text-orange-500 bg-orange-500/5' : 'text-zinc-400 hover:text-zinc-200'}`}><Star size={14} /><span className="text-[10px] leading-none">Avaliar</span></button>
+                <button data-active={tab === 'perfil'} onClick={() => setTab('perfil')} className={`bm-bottom-nav-btn flex flex-col items-center justify-center gap-0.5 h-full text-center rounded-xl ${tab === 'perfil' ? 'text-orange-500 bg-orange-500/5' : 'text-zinc-400 hover:text-zinc-200'}`}><User size={14} /><span className="text-[10px] leading-none">Perfil</span></button>
+                <button data-active={tab === 'pagamento'} onClick={() => setTab('pagamento')} className={`bm-bottom-nav-btn flex flex-col items-center justify-center gap-0.5 h-full text-center rounded-xl ${tab === 'pagamento' ? 'text-orange-500 bg-orange-500/5' : 'text-zinc-400 hover:text-zinc-200'}`}><CreditCard size={14} /><span className="text-[10px] leading-none">Carteira</span></button>
             </div>
             </div>
         </div>

@@ -1,4 +1,4 @@
 import React from 'react';
 export default function ScreenWrapper({ children }) {
-  return <div className="p-4 max-w-4xl mx-auto">{children}</div>;
+  return <div className="mx-auto w-full max-w-4xl px-3 py-4 pb-[calc(5.5rem+env(safe-area-inset-bottom))] sm:px-4 sm:py-6">{children}</div>;
 }

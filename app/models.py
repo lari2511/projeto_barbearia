@@ -516,14 +516,14 @@ class Assinatura(Base):
 
 
 class Comissao(Base):
-    """Comissões do freelancer (4% sobre atendimentos via app)"""
+    """Comissões do freelancer (10% sobre atendimentos via app)"""
     __tablename__ = "comissoes"
     
     id = Column(Integer, primary_key=True, index=True)
     freelancer_id = Column(Integer, ForeignKey("freelancers.id"))
     chamado_id = Column(Integer, ForeignKey("chamados.id"))
     valor_servico = Column(Float, nullable=False)
-    comissao_percentual = Column(Float, default=4.0)  # 4%
+    comissao_percentual = Column(Float, default=10.0)  # 10%
     valor_comissao = Column(Float, nullable=False)
     status = Column(String, default="pendente")  # pendente, pago
     pago_em = Column(DateTime, nullable=True)

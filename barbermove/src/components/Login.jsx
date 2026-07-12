@@ -63,6 +63,13 @@ export default function Login({ onLoginSuccess }) {
       icon: Store,
       color: 'purple',
     },
+    {
+      type: 'admin',
+      title: 'Sou Admin',
+      description: 'Aprovações, gestão e monitoramento',
+      icon: User,
+      color: 'orange',
+    },
   ];
 
   if (step === 'escolha') {
@@ -87,6 +94,7 @@ export default function Login({ onLoginSuccess }) {
                 blue: { borderColor: '#7dd3fc', backgroundColor: '#0ea5e9', color: '#fff' },
                 green: { borderColor: '#86efac', backgroundColor: '#22c55e', color: '#fff' },
                 purple: { borderColor: '#fb923c', backgroundColor: '#f97316', color: '#fff' },
+                orange: { borderColor: '#fdba74', backgroundColor: '#ea580c', color: '#fff' },
               };
 
               return (
