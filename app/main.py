@@ -232,7 +232,8 @@ def apk_info():
     latest_stat = latest.stat()
     latest_endpoint = f"/apk/{latest.name}"
     latest_url = f"{api_url}{latest_endpoint}" if api_url else latest_endpoint
-    download_url = f"{api_url}/downloads/{latest.name}" if api_url else f"/downloads/{latest.name}"
+    static_download_url = f"{api_url}/downloads/{latest.name}" if api_url else f"/downloads/{latest.name}"
+    download_url = latest_url
 
     # Assinatura simples para detectar nova versao no app mesmo com nome fixo (app-release.apk).
     signature_base = f"{latest.name}:{int(latest_stat.st_mtime)}:{latest_stat.st_size}"
@@ -249,6 +250,7 @@ def apk_info():
         "latest_endpoint": latest_endpoint,
         "latest_url": latest_url,
         "download_url": download_url,
+        "static_download_url": static_download_url,
     }
 
 
