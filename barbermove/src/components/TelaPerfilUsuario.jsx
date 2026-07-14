@@ -215,6 +215,18 @@ function getPixQrSrcPerfil(qrcodeBase64) {
   return `data:${mime};base64,${conteudoLimpo}`;
 }
 
+async function safeReadJson(response, fallback = null) {
+  if (!response) return fallback;
+  const contentType = response.headers?.get?.('content-type') || '';
+  if (!contentType.includes('application/json')) return fallback;
+
+  try {
+    return await response.json();
+  } catch (_err) {
+    return fallback;
+  }
+}
+
 async function cropSquareImage(file, options = {}) {
   const { outSize = 720, quality = 0.88, zoom = 1, panX = 0, panY = 0 } = options;
 
@@ -371,7 +383,7 @@ export function TelaPerfilUsuario({
         headers: { Authorization: `Bearer ${token}` },
       });
       if (res.ok) {
-        const data = await res.json();
+        const data = await safeReadJson(res, {});
         setUserId(data?.id || null);
         setNome(data?.nome || 'Usuario');
         setEmail(data?.email || '');
@@ -404,7 +416,7 @@ export function TelaPerfilUsuario({
           headers: { Authorization: `Bearer ${token}` },
         });
         if (resPortfolio.ok) {
-          const lista = await resPortfolio.json();
+          const lista = await safeReadJson(resPortfolio, []);
           setPortfolioFotos(Array.isArray(lista) ? lista : []);
         }
       } catch (_e) {
@@ -416,7 +428,7 @@ export function TelaPerfilUsuario({
           headers: { Authorization: `Bearer ${token}` },
         });
         if (resBarbearias.ok) {
-          const data = await resBarbearias.json();
+          const data = await safeReadJson(resBarbearias, {});
           const lista = Array.isArray(data?.barbearias) ? data.barbearias : [];
           setBarbeariasDisponiveis(lista);
         }
@@ -431,7 +443,7 @@ export function TelaPerfilUsuario({
           headers: { Authorization: `Bearer ${token}` },
         });
         if (barbeariaRes.ok) {
-          const barbearia = await barbeariaRes.json();
+          const barbearia = await safeReadJson(barbeariaRes, {});
           const id = Number(barbearia?.id || 0);
           if (id) {
             setBarbeariaId(id);
@@ -439,7 +451,7 @@ export function TelaPerfilUsuario({
               headers: { Authorization: `Bearer ${token}` },
             });
             if (assinaturaRes.ok) {
-              const assinatura = await assinaturaRes.json();
+              const assinatura = await safeReadJson(assinaturaRes, {});
               const qtd = Number(assinatura?.quantidade_cadeiras || 1);
               setCadeirasPlano(Math.max(1, Math.min(50, qtd)));
               setCadeirasPlanoSalvas(Math.max(1, Math.min(50, qtd)));

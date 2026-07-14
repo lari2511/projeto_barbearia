@@ -166,6 +166,18 @@ const confirmarAcaoChamada = (mensagem) => {
     }
 };
 
+async function safeReadJson(response, fallback = null) {
+    if (!response) return fallback;
+    const contentType = response.headers?.get?.('content-type') || '';
+    if (!contentType.includes('application/json')) return fallback;
+
+    try {
+        return await response.json();
+    } catch (_err) {
+        return fallback;
+    }
+}
+
 export default function ClientDashboard({ token, logout, API_URL, notify, onChamadoAceito }) {
     const NGROK_TEST_OVERRIDE = typeof window !== 'undefined' && String(window.location.hostname || '').includes('ngrok-free.dev');
     const TEST_GPS_OVERRIDE_ATIVO = DEV_GPS_OVERRIDE || NGROK_TEST_OVERRIDE;
@@ -404,7 +416,7 @@ export default function ClientDashboard({ token, logout, API_URL, notify, onCham
             if (!res.ok) {
                 throw new Error(`HTTP ${res.status}`);
             }
-            const data = await res.json();
+            const data = await safeReadJson(res, []);
             const listaBarbearias = Array.isArray(data)
                 ? data
                 : Array.isArray(data?.barbearias)
@@ -422,14 +434,22 @@ export default function ClientDashboard({ token, logout, API_URL, notify, onCham
 
     const carregarMeusPedidos = useCallback(() => {
         fetch(`${API_URL}/api/v1/cliente/meus_pedidos`, { headers: {'Authorization': `Bearer ${token}`} })
-            .then(r => r.json())
+            .then(async (response) => {
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+                return safeReadJson(response, []);
+            })
             .then(data => {
                 const pedidos = Array.isArray(data) ? data : [];
                 setMyOrders(pedidos);
                 const pedidoAtivo = pedidos.find((pedido) => !['concluido', 'concluído', 'cancelado'].includes((pedido.status || '').toLowerCase()));
                 setActiveChamado(pedidoAtivo || null);
             })
-            .catch(() => setMyOrders([]));
+            .catch(() => {
+                setMyOrders([]);
+                setActiveChamado(null);
+            });
     }, [API_URL, token]);
 
     useEffect(() => {
@@ -440,8 +460,15 @@ export default function ClientDashboard({ token, logout, API_URL, notify, onCham
         fetch(`${API_URL}/api/v1/usuarios/perfil-completo`, {
             headers: {'Authorization': `Bearer ${token}`}
         })
-            .then(r => r.json())
-            .then(setUserData)
+            .then(async (response) => {
+                if (!response.ok) return null;
+                return safeReadJson(response, null);
+            })
+            .then((data) => {
+                if (data && typeof data === 'object') {
+                    setUserData(data);
+                }
+            })
             .catch(() => {});
             }, [API_URL, loadDefaultBarbearias, token]);
 
