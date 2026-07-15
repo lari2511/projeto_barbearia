@@ -8,6 +8,41 @@ const DEFAULT_HOST = typeof window !== 'undefined' ? window.location.hostname : 
 const DEFAULT_PROTOCOL = typeof window !== 'undefined' && window.location.protocol === 'https:' ? 'https' : 'http';
 const API_URL = import.meta.env.VITE_API_URL?.trim() || getApiBaseUrl();
 
+const readStorageValue = (key) => {
+  if (typeof window === 'undefined' || !window.localStorage) return null;
+  try {
+    return window.localStorage.getItem(key);
+  } catch (err) {
+    if (import.meta.env.DEV) {
+      console.error('[profile-card] falha ao ler localStorage:', key, err);
+    }
+    return null;
+  }
+};
+
+const normalizePortfolioFotos = (value) => {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item) => {
+      if (typeof item === 'string') return item;
+      if (item && typeof item.url === 'string') return item.url;
+      return '';
+    })
+    .filter(Boolean);
+};
+
+const normalizeAvaliacoes = (value) => {
+  if (!value || typeof value !== 'object') {
+    return { media: 0, total: 0, ultimas: [] };
+  }
+
+  return {
+    media: Number(value.media) || 0,
+    total: Number(value.total) || 0,
+    ultimas: Array.isArray(value.ultimas) ? value.ultimas : [],
+  };
+};
+
 /**
  * Componente de Perfil Aprimorado com Design Melhorado
  * Exibe avaliações, estatísticas e informações principais
@@ -36,6 +71,11 @@ export default function ProfileCard({ usuarioId, userType, token, isOwnProfile: 
     }
   };
 
+  const profilePortfolioFotos = normalizePortfolioFotos(profile?.portfolio_fotos);
+  const fotosPortfolioExibicao = profilePortfolioFotos.length > 0 ? profilePortfolioFotos : portfolioFotos;
+  const avaliacoesNormalizadas = normalizeAvaliacoes(avaliacoes);
+  const avaliacoesUltimas = avaliacoesNormalizadas.ultimas;
+
   const carregarPerfil = useCallback(async () => {
     try {
       setLoading(true);
@@ -51,6 +91,9 @@ export default function ProfileCard({ usuarioId, userType, token, isOwnProfile: 
       }
 
       const data = await res.json();
+      if (!data || typeof data !== 'object' || Array.isArray(data)) {
+        throw new Error('Payload de perfil invalido');
+      }
       setProfile(data);
 
       // Buscar média de avaliações
@@ -60,13 +103,11 @@ export default function ProfileCard({ usuarioId, userType, token, isOwnProfile: 
 
       if (mediaRes.ok) {
         const mediaData = await mediaRes.json();
-        setAvaliacoes(mediaData);
+        setAvaliacoes(normalizeAvaliacoes(mediaData));
       }
 
       // Buscar fotos do portfólio (já vem em portfolio_fotos no profile)
-      if (data.portfolio_fotos && Array.isArray(data.portfolio_fotos)) {
-        setPortfolioFotos(data.portfolio_fotos);
-      }
+      setPortfolioFotos(normalizePortfolioFotos(data.portfolio_fotos));
 
       if (userType === 'barbearia') {
         setCarregandoBarbearia(true);
@@ -117,12 +158,14 @@ export default function ProfileCard({ usuarioId, userType, token, isOwnProfile: 
   }, [token, usuarioId]);
 
   useEffect(() => {
+    let ativo = true;
+
     carregarPerfil();
     // verificar se há chamado ativo entre usuário atual e este perfil
     const verificarChatExistente = async () => {
       try {
-        const currentUserId = Number(localStorage.getItem('userId') || 0);
-        const currentUserType = localStorage.getItem('userType');
+        const currentUserId = Number(readStorageValue('userId') || 0);
+        const currentUserType = readStorageValue('userType');
         if (!token || !currentUserId || !currentUserType) return;
 
         if (currentUserType === 'cliente') {
@@ -132,7 +175,7 @@ export default function ProfileCard({ usuarioId, userType, token, isOwnProfile: 
           if (!res.ok) return;
           const pedidos = await res.json();
           const encontrado = (Array.isArray(pedidos) ? pedidos : []).find(p => Number(p.barbeiro_id) === Number(usuarioId) && ['confirmado','em_atendimento'].includes((p.status||'').toLowerCase()));
-          if (encontrado) setChatChamadoId(encontrado.id);
+          if (ativo && encontrado) setChatChamadoId(encontrado.id);
         } else if (currentUserType === 'barbeiro') {
           const res = await fetch(`${API_URL}/api/v1/barbeiro/agendamentos/meus`, {
             headers: { 'Authorization': `Bearer ${token}` }
@@ -140,7 +183,7 @@ export default function ProfileCard({ usuarioId, userType, token, isOwnProfile: 
           if (!res.ok) return;
           const ags = await res.json();
           const encontrado = (Array.isArray(ags) ? ags : []).find(a => Number(a.cliente_id) === Number(usuarioId) && ['confirmado','em_atendimento'].includes((a.status||'').toLowerCase()));
-          if (encontrado) setChatChamadoId(encontrado.id);
+          if (ativo && encontrado) setChatChamadoId(encontrado.id);
         }
       } catch (_err) {
         // ignore
@@ -148,7 +191,10 @@ export default function ProfileCard({ usuarioId, userType, token, isOwnProfile: 
     };
 
     verificarChatExistente();
-  }, [carregarPerfil]);
+    return () => {
+      ativo = false;
+    };
+  }, [carregarPerfil, token, usuarioId]);
 
   if (loading) {
     return (
@@ -173,8 +219,8 @@ export default function ProfileCard({ usuarioId, userType, token, isOwnProfile: 
   }
 
   // Calcular média de avaliações
-  const mediaAvaliacoes = avaliacoes?.media || 0;
-  const totalAvaliacoes = avaliacoes?.total || 0;
+  const mediaAvaliacoes = avaliacoesNormalizadas.media;
+  const totalAvaliacoes = avaliacoesNormalizadas.total;
   const statusDisponibilidade =
     profile?.presente_em_local && profile?.barbearia_atual_nome
       ? `Disponível em ${profile.barbearia_atual_nome}`
@@ -413,11 +459,11 @@ export default function ProfileCard({ usuarioId, userType, token, isOwnProfile: 
       )}
 
       {/* Portfólio (se houver fotos) */}
-      {(profile.portfolio_fotos && profile.portfolio_fotos.length > 0) || portfolioFotos.length > 0 ? (
+      {fotosPortfolioExibicao.length > 0 ? (
         <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6">
           <h3 className="text-lg font-bold text-white mb-4">Portfólio</h3>
           <div className="grid grid-cols-3 gap-3">
-            {(profile.portfolio_fotos && profile.portfolio_fotos.length > 0 ? profile.portfolio_fotos : portfolioFotos).map((foto, idx) => (
+            {fotosPortfolioExibicao.map((foto, idx) => (
               <div 
                 key={idx} 
                 className="aspect-square rounded-lg overflow-hidden border border-zinc-800 cursor-pointer group"
@@ -435,11 +481,11 @@ export default function ProfileCard({ usuarioId, userType, token, isOwnProfile: 
       ) : null}
 
       {/* Últimas Avaliações */}
-      {avaliacoes?.ultimas && avaliacoes.ultimas.length > 0 && (
+      {avaliacoesUltimas.length > 0 && (
         <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6">
           <h3 className="text-lg font-bold text-white mb-4">Últimas Avaliações</h3>
           <div className="space-y-3">
-            {avaliacoes.ultimas.map((aval, idx) => (
+            {avaliacoesUltimas.map((aval, idx) => (
               <div key={idx} className="bg-black/50 p-4 rounded-lg border border-zinc-800/50">
                 <div className="flex justify-between items-start mb-2">
                   <div>
