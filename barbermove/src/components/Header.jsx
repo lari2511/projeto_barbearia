@@ -14,6 +14,7 @@ export default function Header({ title, subtitle, actionButton, onNotify }) {
 
       <div className="flex items-center gap-3">
         <button
+          type="button"
           onClick={onNotify}
           className="bm-notif-btn relative flex items-center justify-center"
           aria-label="Notificações"
@@ -23,7 +24,7 @@ export default function Header({ title, subtitle, actionButton, onNotify }) {
         </button>
 
         {actionButton && (
-          <button onClick={actionButton.onClick} className="bm-accent-btn flex items-center gap-2">
+          <button type="button" onClick={actionButton.onClick} className="bm-accent-btn flex items-center gap-2">
             {actionButton.icon}
             <span>{actionButton.label}</span>
           </button>

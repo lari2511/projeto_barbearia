@@ -1332,7 +1332,7 @@ export function TelaPerfilUsuario({
 
       <AppCard>
         <div className={styles.actions}>
-          <button onClick={salvar} className={styles.saveBtn} disabled={saving}>
+          <button type="button" onClick={salvar} className={styles.saveBtn} disabled={saving}>
             {saving ? (
               <span className="inline-flex items-center gap-2">
                 <Loader size={14} className="animate-spin" />
