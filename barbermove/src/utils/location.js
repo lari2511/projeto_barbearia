@@ -3,6 +3,11 @@ import { Geolocation } from '@capacitor/geolocation';
 const DIAGNOSTIC_ENDPOINT = `${import.meta.env.VITE_API_URL?.trim() || ''}/api/v1/notificacoes/frontend-diagnostic`;
 let lastDiagnosticKey = '';
 let lastDiagnosticAt = 0;
+const isNativeApp = typeof window !== 'undefined' && (
+  window.location.protocol === 'capacitor:' ||
+  window.location.protocol === 'ionic:' ||
+  window.Capacitor?.isNativePlatform?.() === true
+);
 
 const enviarDiagnostico = async ({ contexto, etapa, mensagem = '', extra = null }) => {
   const key = `${contexto}|${etapa}|${mensagem}`;
@@ -76,6 +81,24 @@ const obterLocalizacaoPeloNavegador = () => new Promise((resolve, reject) => {
 });
 
 export const obterLocalizacaoAtual = async () => {
+  if (isNativeApp) {
+    void enviarDiagnostico({
+      contexto: 'location.strategy',
+      etapa: 'native-browser-first',
+      mensagem: 'App nativo usando navigator.geolocation antes do plugin Capacitor',
+    });
+
+    try {
+      return await obterLocalizacaoPeloNavegador();
+    } catch (browserErr) {
+      void enviarDiagnostico({
+        contexto: 'location.strategy',
+        etapa: 'native-browser-fallback-capacitor',
+        mensagem: browserErr?.message || 'Falha no geolocation do navegador; tentando Capacitor',
+      });
+    }
+  }
+
   try {
     void enviarDiagnostico({ contexto: 'location.capacitor', etapa: 'request-permission:start', mensagem: 'Solicitando permissão' });
     const permissao = await Geolocation.requestPermissions();
