@@ -27,6 +27,13 @@ const isNativeApp = typeof window !== 'undefined' && (
 
 export default function App() {
   const { token, userType, logout, notify, API_URL } = useApp()
+  const apiRootForApk = React.useMemo(() => {
+    const rawBase = String(API_URL || '').replace(/\/$/, '')
+    if (rawBase.endsWith('/api/v1')) {
+      return rawBase.slice(0, -7)
+    }
+    return rawBase
+  }, [API_URL])
   const [updateInfo, setUpdateInfo] = React.useState(null)
   const [updateDismissed, setUpdateDismissed] = React.useState(false)
   const wsRef = React.useRef(null)
@@ -169,7 +176,9 @@ export default function App() {
 
   const fetchUpdateInfo = React.useCallback(async () => {
     try {
-      const res = await fetch(`${API_URL}/apk/info`, { cache: 'no-store' })
+      if (!apiRootForApk) return
+
+      const res = await fetch(`${apiRootForApk}/apk/info`, { cache: 'no-store' })
       if (!res.ok) return
 
       const data = await res.json()
@@ -192,18 +201,18 @@ export default function App() {
       setUpdateInfo({
         signature,
         filename: data.latest_filename,
-        downloadUrl: data.download_url || data.latest_url || `${API_URL}/downloads/${data.latest_filename}`,
+        downloadUrl: data.download_url || data.latest_url || `${apiRootForApk}/downloads/${data.latest_filename}`,
         isNative: isNativeApp,
       })
       setUpdateDismissed(false)
       notifyNativeUpdate({
         signature,
-        downloadUrl: data.download_url || data.latest_url || `${API_URL}/downloads/${data.latest_filename}`,
+        downloadUrl: data.download_url || data.latest_url || `${apiRootForApk}/downloads/${data.latest_filename}`,
       })
     } catch (_err) {
       // Silencioso para nao quebrar a UX caso a API esteja indisponivel.
     }
-  }, [API_URL, notifyNativeUpdate])
+  }, [apiRootForApk, notifyNativeUpdate])
 
   React.useEffect(() => {
     fetchUpdateInfo()
