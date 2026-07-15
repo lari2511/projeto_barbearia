@@ -311,9 +311,18 @@ export function TelaPerfilUsuario({
   API_URL,
   aoSalvar,
   onLogout,
-  onNotify,
+  onNotify: onNotifyProp,
   mostrarCabecalho = true,
 }) {
+  const onNotify = useCallback((mensagem, tipo = 'info') => {
+    if (typeof onNotifyProp !== 'function') return;
+    try {
+      onNotifyProp(mensagem, tipo);
+    } catch (err) {
+      console.error('[perfil-cliente] falha ao notificar UI:', err);
+    }
+  }, [onNotifyProp]);
+
   const apiBase = useMemo(() => (API_URL || getApiBaseUrl() || '').replace(/\/$/, ''), [API_URL]);
   const perfilTipo = useMemo(() => {
     const tipoBruto = String(userType || usuario?.tipo || 'cliente').toLowerCase();
@@ -465,8 +474,25 @@ export function TelaPerfilUsuario({
   }, [apiBase, token, perfilTipo]);
 
   useEffect(() => {
-    carregarPerfil();
-  }, [carregarPerfil]);
+    let ativo = true;
+
+    const carregarComSeguranca = async () => {
+      try {
+        await carregarPerfil();
+      } catch (err) {
+        console.error('[perfil-cliente] erro na inicializacao do perfil:', err);
+        if (ativo) {
+          onNotify('Nao foi possivel carregar seu perfil agora', 'error');
+        }
+      }
+    };
+
+    carregarComSeguranca();
+
+    return () => {
+      ativo = false;
+    };
+  }, [carregarPerfil, onNotify]);
 
   useEffect(() => {
     let ativo = true;

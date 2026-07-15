@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { LogOut, Search, MapPin, Star, Calendar, ArrowRight, CheckCircle, User, CreditCard, MessageSquare, DollarSign, QrCode, X } from 'lucide-react';
 import TelaPagamento from './TelaPagamento';
 import TelaPerfilUsuario from './TelaPerfilUsuario';
@@ -11,8 +11,6 @@ import TelaRotasAtivos from './TelaRotasAtivos';
 import MapaBarbeiros from './MapaBarbeiros';
 import { obterLocalizacaoAtual, obterPosicaoAltaPrecisa } from '../utils/location';
 import { getApiBaseUrl, getWsBaseUrl } from '../utils/api';
-
-const API_URL = getApiBaseUrl();
 const getShopImage = (id) => `https://images.unsplash.com/photo-${id % 2 === 0 ? '1521590832874-552721032d00' : '1503951914290-d20607416905'}?auto=format&fit=crop&w=800&q=80`;
 const BARBEIROS_CACHE_KEY = 'barbermove.client.barbeiros_cache';
 const GPS_PREFERENCE_KEY = 'barbermove.client.gps_preference';
@@ -178,14 +176,48 @@ async function safeReadJson(response, fallback = null) {
     }
 }
 
-export default function ClientDashboard({ token, logout, API_URL, notify, onChamadoAceito }) {
+export default function ClientDashboard({ token, logout, API_URL: apiUrlProp, notify, onChamadoAceito }) {
+    const API_URL = useMemo(() => {
+        const rawBase = String(apiUrlProp || getApiBaseUrl() || '').replace(/\/$/, '');
+        if (rawBase.endsWith('/api/v1')) {
+            return rawBase.slice(0, -7);
+        }
+        return rawBase;
+    }, [apiUrlProp]);
+
+    const notifySafe = useCallback((mensagem, tipo = 'info') => {
+        if (typeof notify !== 'function') return;
+        try {
+            notify(mensagem, tipo);
+        } catch (err) {
+            console.error('[client-dashboard] falha ao notificar UI:', err);
+        }
+    }, [notify]);
+
+    const lerTabSalva = useCallback(() => {
+        if (typeof window === 'undefined') return 'inicio';
+        try {
+            return window.localStorage.getItem('cliente_dashboard_tab') || 'inicio';
+        } catch (_err) {
+            return 'inicio';
+        }
+    }, []);
+
+    const salvarTabAtual = useCallback((proximaTab) => {
+        if (typeof window === 'undefined') return;
+        try {
+            window.localStorage.setItem('cliente_dashboard_tab', proximaTab);
+        } catch (_err) {
+            // Persistencia de aba e opcional.
+        }
+    }, []);
+
     const NGROK_TEST_OVERRIDE = typeof window !== 'undefined' && String(window.location.hostname || '').includes('ngrok-free.dev');
     const TEST_GPS_OVERRIDE_ATIVO = DEV_GPS_OVERRIDE || NGROK_TEST_OVERRIDE;
     const TABS_VALIDAS = ['inicio', 'buscar', 'agenda', 'avaliar', 'perfil', 'pagamento'];
     const [shops, setShops] = useState([]); // Agora são BARBEIROS
     const [tab, setTab] = useState(() => {
-        if (typeof window === 'undefined') return 'buscar';
-        const tabSalva = localStorage.getItem('cliente_dashboard_tab') || 'inicio';
+        const tabSalva = lerTabSalva();
         return TABS_VALIDAS.includes(tabSalva) ? tabSalva : 'inicio';
     }); // 'buscar' | 'agenda' | 'avaliar' | 'perfil' | 'pagamento' 
     const [selectedBarber, setSelectedBarber] = useState(null); // Barbeiro selecionado
@@ -209,6 +241,7 @@ export default function ClientDashboard({ token, logout, API_URL, notify, onCham
     const [gpsConsentOpen, setGpsConsentOpen] = useState(false);
     const [gpsPreference, setGpsPreference] = useState('always');
     const [vagasRelampago, setVagasRelampago] = useState([]);
+    const isPerfilTab = tab === 'perfil';
 
     const isConcluido = (status = '') => (status || '').toString().toLowerCase().includes('conclu');
     const isPagamentoConcluido = (order = {}) => {
@@ -317,7 +350,7 @@ export default function ClientDashboard({ token, logout, API_URL, notify, onCham
                 throw new Error(data.detail || 'Não foi possível cancelar o chamado');
             }
 
-            notify(
+            notifySafe(
                 data.valor_taxa_cancelamento > 0
                     ? `Chamado cancelado. Taxa de R$ ${Number(data.valor_taxa_cancelamento).toFixed(2)} aplicada.`
                     : 'Chamado cancelado sem taxa.',
@@ -327,7 +360,7 @@ export default function ClientDashboard({ token, logout, API_URL, notify, onCham
             setActiveChamado(null);
             carregarMeusPedidos();
         } catch (err) {
-            notify(err.message || 'Falha ao cancelar o chamado', 'error');
+            notifySafe(err.message || 'Falha ao cancelar o chamado', 'error');
         } finally {
             setCancelandoChamado(false);
         }
@@ -349,19 +382,19 @@ export default function ClientDashboard({ token, logout, API_URL, notify, onCham
             salvarBarbeirosCache(lista);
 
             if (lista.length === 0 && mostrarErro) {
-                notify('Nenhum barbeiro encontrado no servidor', 'info');
+                notifySafe('Nenhum barbeiro encontrado no servidor', 'info');
             }
         } catch (err) {
             const cache = lerBarbeirosCache();
             if (cache.length > 0) {
                 setShops(cache);
-                notify('Mostrando barbeiros salvos em cache', 'warning');
+                notifySafe('Mostrando barbeiros salvos em cache', 'warning');
                 return;
             }
 
             setShops([]);
             if (mostrarErro) {
-                notify(`Erro ao carregar barbeiros: ${err?.message || 'falha de conexão'}`, 'error');
+                notifySafe(`Erro ao carregar barbeiros: ${err?.message || 'falha de conexão'}`, 'error');
             }
         }
     }, [API_URL, notify]);
@@ -390,20 +423,20 @@ export default function ClientDashboard({ token, logout, API_URL, notify, onCham
                 salvarBarbeirosCache(lista);
 
                 if (lista.length === 0 && mostrarErro) {
-                    notify(`Nenhum barbeiro encontrado até ${raio_km}km`, 'info');
+                    notifySafe(`Nenhum barbeiro encontrado até ${raio_km}km`, 'info');
                     await loadDefaultShops({ mostrarErro: false });
                 }
             } catch (err) {
                 const cache = lerBarbeirosCache();
                 if (cache.length > 0) {
                     setShops(cache);
-                    notify('Mostrando barbeiros salvos em cache', 'warning');
+                    notifySafe('Mostrando barbeiros salvos em cache', 'warning');
                     return;
                 }
 
                 setShops([]);
                 if (mostrarErro) {
-                    notify(`Erro ao carregar barbeiros por localização: ${err?.message || 'falha de conexão'}`, 'error');
+                    notifySafe(`Erro ao carregar barbeiros por localização: ${err?.message || 'falha de conexão'}`, 'error');
                 }
             }
         }, [API_URL, notify]);
@@ -424,11 +457,11 @@ export default function ClientDashboard({ token, logout, API_URL, notify, onCham
                     : [];
             setBarbearias(listaBarbearias);
             if (listaBarbearias.length === 0 && mostrarErro) {
-                notify('Nenhuma barbearia encontrada no servidor', 'info');
+                notifySafe('Nenhuma barbearia encontrada no servidor', 'info');
             }
         } catch (err) {
             setBarbearias([]);
-            if (mostrarErro) notify(`Erro ao carregar barbearias: ${err?.message || 'falha de conexão'}`, 'error');
+            if (mostrarErro) notifySafe(`Erro ao carregar barbearias: ${err?.message || 'falha de conexão'}`, 'error');
         }
     }, [API_URL, notify, token]);
 
@@ -474,9 +507,9 @@ export default function ClientDashboard({ token, logout, API_URL, notify, onCham
 
     useEffect(() => {
         if (typeof window !== 'undefined') {
-            localStorage.setItem('cliente_dashboard_tab', tab);
+            salvarTabAtual(tab);
         }
-    }, [tab]);
+    }, [tab, salvarTabAtual]);
 
     // Carregamento e atualização periódica dos pedidos são tratados
     // em outro useEffect mais abaixo para evitar múltiplos timers.
@@ -495,21 +528,23 @@ export default function ClientDashboard({ token, logout, API_URL, notify, onCham
 
         if (prev && !activeChamado) {
             // Chamado desapareceu da lista (pode ter sido cancelado ou concluído)
-            notify('Seu chamado foi cancelado ou finalizado por outra parte.', 'info');
+            notifySafe('Seu chamado foi cancelado ou finalizado por outra parte.', 'info');
         } else if (prev && activeChamado && prev.status !== (activeChamado.status || '')) {
             const novoStatus = (activeChamado.status || '').toLowerCase();
             if (novoStatus === 'cancelado') {
-                notify('Seu chamado foi cancelado.', 'warning');
+                notifySafe('Seu chamado foi cancelado.', 'warning');
             } else if (novoStatus === 'concluido' || novoStatus === 'concluído') {
-                notify('Seu chamado foi concluído.', 'success');
+                notifySafe('Seu chamado foi concluído.', 'success');
             }
         }
 
         prevChamadoRef.current = activeChamado;
-    }, [activeChamado, notify]);
+    }, [activeChamado, notifySafe]);
 
     // ✅ Timer: atualizar a cada segundo para mostrar tempo restante de cancelamento grátis
     useEffect(() => {
+        if (isPerfilTab) return;
+
         if (!isChamadoVisivel(activeChamado) || !activeChamado?.horario_match) {
             return;
         }
@@ -519,7 +554,7 @@ export default function ClientDashboard({ token, logout, API_URL, notify, onCham
         }, 1000);
 
         return () => clearInterval(intervalo);
-    }, [activeChamado?.id, activeChamado?.horario_match, isChamadoVisivel(activeChamado)]);
+    }, [activeChamado?.id, activeChamado?.horario_match, isChamadoVisivel(activeChamado), isPerfilTab]);
 
     const requestUserLocation = () => {
         setLoadingLocation(true);
@@ -532,7 +567,7 @@ export default function ClientDashboard({ token, logout, API_URL, notify, onCham
                 const msg = error && error.message === 'Permissão de localização negada'
                     ? 'Permissão de localização negada. Ative nas configurações do celular.'
                     : 'Nao foi possivel obter sua localizacao. Ative o GPS para continuar.';
-                notify(msg, 'error');
+                notifySafe(msg, 'error');
                 loadDefaultShops({ mostrarErro: false });
             })
             .finally(() => {
@@ -569,10 +604,10 @@ export default function ClientDashboard({ token, logout, API_URL, notify, onCham
                 setShops(lista);
                 salvarBarbeirosCache(lista);
                 if (lista.length === 0) {
-                    notify("Nenhum barbeiro encontrado próximo a você (raio 10km)", "info");
+                    notifySafe("Nenhum barbeiro encontrado próximo a você (raio 10km)", "info");
                     await loadDefaultShops({ mostrarErro: false });
                 } else {
-                    notify(`${lista.length} barbeiro(s) encontrado(s) próximo a você!`, "success");
+                    notifySafe(`${lista.length} barbeiro(s) encontrado(s) próximo a você!`, "success");
                 }
             } else {
                 const fallbackUrl = new URL(`${API_URL}/api/v1/freelancer/proximos`);
@@ -640,13 +675,13 @@ export default function ClientDashboard({ token, logout, API_URL, notify, onCham
                 throw new Error(data?.detail || 'Não foi possível reservar a vaga relâmpago');
             }
 
-            notify('Vaga relâmpago reservada com sucesso! Você tem 10 minutos para chegar.', 'success');
+            notifySafe('Vaga relâmpago reservada com sucesso! Você tem 10 minutos para chegar.', 'success');
             setVagasRelampago((prev) => prev.filter((item) => Number(item.id) !== Number(vaga.id)));
             setTab('agenda');
         } catch (err) {
-            notify(err?.message || 'Erro ao reservar vaga relâmpago', 'error');
+            notifySafe(err?.message || 'Erro ao reservar vaga relâmpago', 'error');
         }
-    }, [API_URL, token, notify]);
+    }, [API_URL, token, notifySafe]);
 
     useEffect(() => {
         if (tab !== 'buscar') return;
@@ -706,15 +741,19 @@ export default function ClientDashboard({ token, logout, API_URL, notify, onCham
     }, [token]);
 
     useEffect(() => {
+        if (isPerfilTab) return;
+
         requestUserLocation();
         const interval = window.setInterval(() => {
             requestUserLocation();
         }, 15000);
         return () => window.clearInterval(interval);
-    }, [gpsPreference]);
+    }, [gpsPreference, isPerfilTab]);
 
     // Escuta eventos de mudança de status de barbeiro (ex.: sair da barbearia)
     useEffect(() => {
+        if (isPerfilTab) return;
+
         const handler = () => {
             // Recarrega a lista atual de barbeiros para refletir mudanças de presença
             if (gpsPreference === 'always' || gpsPreference === 'session') {
@@ -735,7 +774,7 @@ export default function ClientDashboard({ token, logout, API_URL, notify, onCham
         return () => {
             try { window.removeEventListener('barberStatusChanged', handler); } catch (_e) {}
         };
-    }, [gpsPreference, userLocation, requestUserLocation, loadDefaultShops]);
+    }, [gpsPreference, userLocation, requestUserLocation, loadDefaultShops, isPerfilTab]);
 
     const aplicarPreferenciaGps = (preferencia) => {
         setGpsPreference(preferencia);
@@ -812,7 +851,7 @@ export default function ClientDashboard({ token, logout, API_URL, notify, onCham
 
                     if (filtradasPorRaio.length > 0) {
                         data = filtradasPorRaio;
-                        notify(`${filtradasPorRaio.length} barbearia(s) próxima(s) encontrada(s)!`, "success");
+                        notifySafe(`${filtradasPorRaio.length} barbearia(s) próxima(s) encontrada(s)!`, "success");
                     } else {
                         data = barbeariasDoBarbeiro;
                     }
@@ -867,7 +906,7 @@ export default function ClientDashboard({ token, logout, API_URL, notify, onCham
                 setShops(lista);
                 const totalCasa = lista.filter((item) => item?.profissional_da_casa).length;
                 if (totalCasa > 0) {
-                    notify(`${totalCasa} profissional(is) da casa no topo da lista`, 'success');
+                    notifySafe(`${totalCasa} profissional(is) da casa no topo da lista`, 'success');
                 }
             } else {
                 await loadDefaultShops({ mostrarErro: false });
@@ -1042,7 +1081,7 @@ export default function ClientDashboard({ token, logout, API_URL, notify, onCham
             // atualizar estado para refletir na UI (evita usar coords de perfil antigo)
             setUserLocation(localizacao);
         } catch (_err) {
-            notify('Não foi possível obter localização precisa. Ative o GPS e tente novamente.', 'error');
+            notifySafe('Não foi possível obter localização precisa. Ative o GPS e tente novamente.', 'error');
             return;
         } finally {
             setLoadingLocation(false);
@@ -1067,7 +1106,7 @@ export default function ClientDashboard({ token, logout, API_URL, notify, onCham
         // Exigir que ambos (cliente e barbeiro) estejam a ≤ 10 minutos, salvo override de dev ou presença imediata
         const podeChamarAgoraAtual = (clienteDentroDoLimiteAtual && barbeiroDentroDoLimiteAtual) || imediatoPorPresenca || TEST_GPS_OVERRIDE_ATIVO;
         if (!podeChamarAgoraAtual) {
-            notify('Tanto o cliente quanto o barbeiro devem estar a no máximo 10 minutos da barbearia para chamar agora.', 'error');
+            notifySafe('Tanto o cliente quanto o barbeiro devem estar a no máximo 10 minutos da barbearia para chamar agora.', 'error');
             return;
         }
 
@@ -1102,12 +1141,12 @@ export default function ClientDashboard({ token, logout, API_URL, notify, onCham
             if (created && created.id) {
                 setActiveChamado(created);
             }
-            notify(`🚀 Chamado enviado! ${selectedBarber.nome} vai receber agora!`, "success");
+            notifySafe(`🚀 Chamado enviado! ${selectedBarber.nome} vai receber agora!`, "success");
             voltarParaBarbeiros();
             setTab('agenda');
             carregarMeusPedidos();
         } catch (err) {
-            notify(err.message || "Erro ao chamar. Tente novamente.", "error");
+            notifySafe(err.message || "Erro ao chamar. Tente novamente.", "error");
         }
     };
 
@@ -1119,7 +1158,7 @@ export default function ClientDashboard({ token, logout, API_URL, notify, onCham
             localizacao = await obterPosicaoAltaPrecisa();
             setUserLocation(localizacao);
         } catch (_err) {
-            notify('Não foi possível obter localização precisa. Ative o GPS e tente novamente.', 'error');
+            notifySafe('Não foi possível obter localização precisa. Ative o GPS e tente novamente.', 'error');
             return;
         } finally {
             setLoadingLocation(false);
@@ -1145,11 +1184,11 @@ export default function ClientDashboard({ token, logout, API_URL, notify, onCham
 
 
         if (!podeChamarAgoraMulti) {
-                notify('Você precisa estar a no máximo 10 minutos da barbearia para chamar agora.', 'error');
+                notifySafe('Você precisa estar a no máximo 10 minutos da barbearia para chamar agora.', 'error');
                 return;
             }
         if (selectedServices.length === 0) {
-            notify('Selecione pelo menos um serviço', 'error');
+            notifySafe('Selecione pelo menos um serviço', 'error');
             return;
         }
 
@@ -1162,7 +1201,7 @@ export default function ClientDashboard({ token, logout, API_URL, notify, onCham
             const baseTime = new Date();
                 
             if (Number.isNaN(baseTime.getTime())) {
-                notify('Data e horario invalidos', 'error');
+                notifySafe('Data e horario invalidos', 'error');
                 return;
             }
 
@@ -1191,7 +1230,7 @@ export default function ClientDashboard({ token, logout, API_URL, notify, onCham
                     throw new Error(errData.detail || `Falha ao criar chamado para ${service.nome}`);
                 }
             }
-            notify(`🚀 Chamados enviados! ${selectedBarber.nome} vai receber agora!`, "success");
+            notifySafe(`🚀 Chamados enviados! ${selectedBarber.nome} vai receber agora!`, "success");
             // se backend retornou um objeto com id do primeiro chamado, sincroniza
             try {
                 const recent = await fetch(`${API_URL}/api/v1/cliente/meus_pedidos`, { headers: {'Authorization': `Bearer ${token}`} });
@@ -1207,7 +1246,7 @@ export default function ClientDashboard({ token, logout, API_URL, notify, onCham
             setTab('agenda');
             carregarMeusPedidos();
         } catch (err) {
-            notify(err.message || "Erro ao chamar. Tente novamente.", "error");
+            notifySafe(err.message || "Erro ao chamar. Tente novamente.", "error");
         }
     };
 
@@ -1228,7 +1267,7 @@ export default function ClientDashboard({ token, logout, API_URL, notify, onCham
         </div>
 
         {/* Painel de rastreamento/chat ativo (quando há um chamado imediato) */}
-        {isChamadoVisivel(activeChamado) && (
+        {!isPerfilTab && isChamadoVisivel(activeChamado) && (
             <div className="px-3 pt-2">
                 <div className="dashboard-card space-y-4 p-4">
                     <div className="flex items-start justify-between gap-3">
@@ -1858,7 +1897,7 @@ export default function ClientDashboard({ token, logout, API_URL, notify, onCham
             {/* ABA: PERFIL */}
             {tab === 'perfil' && (
                 <div className="p-2 sm:p-4 pb-20 max-w-3xl mx-auto w-full">
-                    <TelaPerfilUsuario userType="cliente" token={token} API_URL={API_URL} onLogout={logout} onNotify={notify} />
+                    <TelaPerfilUsuario userType="cliente" token={token} API_URL={API_URL} onLogout={logout} onNotify={notifySafe} />
                 </div>
             )}
 
@@ -1927,9 +1966,9 @@ export default function ClientDashboard({ token, logout, API_URL, notify, onCham
                         valor={chamadoParaPagar.valor}
                         onPago={(resultadoPagamento) => {
                             if (resultadoPagamento?.aguarda_confirmacao_barbeiro) {
-                                notify('Dinheiro registrado. Aguarde o barbeiro confirmar o recebimento.', 'warning');
+                                notifySafe('Dinheiro registrado. Aguarde o barbeiro confirmar o recebimento.', 'warning');
                             } else {
-                                notify('Pagamento confirmado!', 'success');
+                                notifySafe('Pagamento confirmado!', 'success');
                             }
                             setChamadoParaPagar(null);
                             carregarMeusPedidos();
@@ -1967,7 +2006,7 @@ export default function ClientDashboard({ token, logout, API_URL, notify, onCham
         )}
 
         {/* Mostrar rotas quando chamado está confirmado */}
-                {activeChamado && ['aceito', 'confirmado', 'em_atendimento'].includes((activeChamado.status || '').toLowerCase()) && (
+                {!isPerfilTab && activeChamado && ['aceito', 'confirmado', 'em_atendimento'].includes((activeChamado.status || '').toLowerCase()) && (
           <TelaRotasAtivos
             chamado={activeChamado}
             userType="cliente"
