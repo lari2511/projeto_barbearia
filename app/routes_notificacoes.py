@@ -3,6 +3,8 @@ Rotas para gerenciar notificações push
 Sistema de notificações em tempo real para barbeiros quando há novos chamados
 """
 
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
 from sqlalchemy.orm import Session
 from datetime import datetime
@@ -14,6 +16,7 @@ from app.models import Usuario, Chamado, Notificacao
 from app.routes import get_current_user
 
 router = APIRouter(prefix="/api/v1/notificacoes", tags=["Notificações"])
+logger = logging.getLogger(__name__)
 
 # ============================================================================
 # SCHEMAS
@@ -36,6 +39,17 @@ class CriarNotificacaoRequest(BaseModel):
     mensagem: str
     tipo: str
     referencia_id: Optional[int] = None  # chamado_id, agendamento_id, etc
+
+
+class FrontendCrashReportRequest(BaseModel):
+    origem: str = "frontend"
+    contexto: Optional[str] = None
+    mensagem: str
+    stack: Optional[str] = None
+    url: Optional[str] = None
+    user_agent: Optional[str] = None
+    user_type: Optional[str] = None
+    extra: Optional[dict] = None
 
 # ============================================================================
 # ENDPOINTS
@@ -123,6 +137,26 @@ def contar_nao_lidas(
     ).count()
     
     return {"nao_lidas": count}
+
+
+@router.post("/frontend-crash", status_code=202)
+def registrar_crash_frontend(
+    payload: FrontendCrashReportRequest,
+    usuario = Depends(get_current_user),
+):
+    """Registra erros críticos do frontend no log do servidor para diagnóstico remoto."""
+    logger.error(
+        "[frontend-crash] usuario_id=%s user_type=%s contexto=%s url=%s mensagem=%s stack=%s extra=%s user_agent=%s",
+        getattr(usuario, "id", None),
+        payload.user_type or getattr(usuario, "tipo", None),
+        payload.contexto,
+        payload.url,
+        payload.mensagem,
+        payload.stack,
+        payload.extra,
+        payload.user_agent,
+    )
+    return {"status": "queued"}
 
 # ============================================================================
 # FUNÇÕES AUXILIARES PARA CRIAR NOTIFICAÇÕES

@@ -3,6 +3,7 @@ import React, { createContext, useContext, useState, useEffect, useCallback } fr
 import { getApiBaseUrl } from '../utils/api';
 
 const API_URL = getApiBaseUrl();
+const FRONTEND_CRASH_ENDPOINT = `${API_URL}/api/v1/notificacoes/frontend-crash`;
 
 const storage = {
   get(key, fallback = null) {
@@ -91,6 +92,42 @@ export const AppProvider = ({ children }) => {
   const [userType, setUserType] = useState(storage.get('userType'));
   const [loading, setLoading] = useState(false);
   const [toast, setToast] = useState(null);
+  const crashReportRef = React.useRef({ lastKey: '', lastSentAt: 0 });
+
+  const reportFrontendCrash = useCallback(async (payload) => {
+    const message = toReadableString(payload?.mensagem || payload?.message || 'Erro desconhecido');
+    if (!message || message === 'Erro desconhecido') return;
+
+    const now = Date.now();
+    const key = `${payload?.contexto || 'global'}|${message}`;
+    if (crashReportRef.current.lastKey === key && (now - crashReportRef.current.lastSentAt) < 5000) {
+      return;
+    }
+
+    crashReportRef.current = { lastKey: key, lastSentAt: now };
+
+    try {
+      await fetch(FRONTEND_CRASH_ENDPOINT, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({
+          origem: 'frontend',
+          contexto: payload?.contexto || 'global',
+          mensagem: message,
+          stack: payload?.stack || null,
+          url: typeof window !== 'undefined' ? window.location.href : null,
+          user_agent: typeof navigator !== 'undefined' ? navigator.userAgent : null,
+          user_type: userType || null,
+          extra: payload?.extra || null,
+        }),
+      });
+    } catch (_error) {
+      // Silencioso: não deve gerar cascata de erro ao reportar o próprio crash.
+    }
+  }, [token, userType]);
 
   const fetchUserData = useCallback(async (overrideToken = token, overrideType = userType) => {
     if (!overrideToken || !overrideType) {
@@ -312,11 +349,30 @@ export const AppProvider = ({ children }) => {
     };
 
     const onUnhandledRejection = (event) => {
-      emitirErroGlobal(event?.reason?.message || event?.reason || 'Falha assíncrona inesperada', 'error');
+      const detalhe = event?.reason?.message || event?.reason || 'Falha assíncrona inesperada';
+      reportFrontendCrash({
+        contexto: 'unhandledrejection',
+        mensagem: detalhe,
+        stack: event?.reason?.stack || null,
+        extra: {
+          reason_type: typeof event?.reason,
+        },
+      });
+      emitirErroGlobal(detalhe, 'error');
     };
 
     const onWindowError = (event) => {
       const detalhe = event?.error?.message || event?.message || 'Erro inesperado na interface';
+      reportFrontendCrash({
+        contexto: 'window.error',
+        mensagem: detalhe,
+        stack: event?.error?.stack || null,
+        extra: {
+          filename: event?.filename || null,
+          lineno: event?.lineno || null,
+          colno: event?.colno || null,
+        },
+      });
       emitirErroGlobal(detalhe, 'error');
     };
 
@@ -327,7 +383,7 @@ export const AppProvider = ({ children }) => {
       window.removeEventListener('unhandledrejection', onUnhandledRejection);
       window.removeEventListener('error', onWindowError);
     };
-  }, []);
+  }, [reportFrontendCrash]);
 
   const apiRequest = async (endpoint, options = {}) => {
     const headers = {
