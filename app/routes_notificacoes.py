@@ -51,6 +51,17 @@ class FrontendCrashReportRequest(BaseModel):
     user_type: Optional[str] = None
     extra: Optional[dict] = None
 
+
+class FrontendDiagnosticEventRequest(BaseModel):
+    origem: str = "frontend"
+    contexto: str
+    etapa: str
+    mensagem: Optional[str] = None
+    url: Optional[str] = None
+    user_agent: Optional[str] = None
+    user_type: Optional[str] = None
+    extra: Optional[dict] = None
+
 # ============================================================================
 # ENDPOINTS
 # ============================================================================
@@ -153,6 +164,24 @@ def registrar_crash_frontend(
         payload.url,
         payload.mensagem,
         payload.stack,
+        payload.extra,
+        payload.user_agent,
+    )
+    return {"status": "queued"}
+
+
+@router.post("/frontend-diagnostic", status_code=202)
+def registrar_evento_diagnostico_frontend(
+    payload: FrontendDiagnosticEventRequest,
+):
+    """Registra breadcrumbs públicos do frontend para diagnosticar fluxo até o crash."""
+    logger.warning(
+        "[frontend-diagnostic] user_type=%s contexto=%s etapa=%s mensagem=%s url=%s extra=%s user_agent=%s",
+        payload.user_type,
+        payload.contexto,
+        payload.etapa,
+        payload.mensagem,
+        payload.url,
         payload.extra,
         payload.user_agent,
     )

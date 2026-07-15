@@ -1,20 +1,72 @@
 import { Geolocation } from '@capacitor/geolocation';
 
+const DIAGNOSTIC_ENDPOINT = `${import.meta.env.VITE_API_URL?.trim() || ''}/api/v1/notificacoes/frontend-diagnostic`;
+let lastDiagnosticKey = '';
+let lastDiagnosticAt = 0;
+
+const enviarDiagnostico = async ({ contexto, etapa, mensagem = '', extra = null }) => {
+  const key = `${contexto}|${etapa}|${mensagem}`;
+  const now = Date.now();
+  if (lastDiagnosticKey === key && (now - lastDiagnosticAt) < 2500) {
+    return;
+  }
+
+  lastDiagnosticKey = key;
+  lastDiagnosticAt = now;
+
+  try {
+    const apiBase = import.meta.env.VITE_API_URL?.trim() || '';
+    if (!apiBase) return;
+
+    await fetch(DIAGNOSTIC_ENDPOINT, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        origem: 'frontend',
+        contexto,
+        etapa,
+        mensagem,
+        url: typeof window !== 'undefined' ? window.location.href : null,
+        user_agent: typeof navigator !== 'undefined' ? navigator.userAgent : null,
+        user_type: typeof window !== 'undefined' ? window.localStorage?.getItem?.('userType') || null : null,
+        extra,
+      }),
+    });
+  } catch (_err) {
+    // Silencioso: diagnóstico não pode interferir no fluxo principal.
+  }
+};
+
 const obterLocalizacaoPeloNavegador = () => new Promise((resolve, reject) => {
   if (!navigator?.geolocation) {
+    void enviarDiagnostico({ contexto: 'location.browser', etapa: 'geolocation-unavailable', mensagem: 'navigator.geolocation ausente' });
     reject(new Error('Geolocalização indisponível'));
     return;
   }
 
   navigator.geolocation.getCurrentPosition(
     (position) => {
+      void enviarDiagnostico({
+        contexto: 'location.browser',
+        etapa: 'success',
+        mensagem: 'Localização obtida via navegador',
+        extra: { accuracy: position.coords.accuracy },
+      });
       resolve({
         latitude: position.coords.latitude,
         longitude: position.coords.longitude,
         accuracy: position.coords.accuracy
       });
     },
-    reject,
+    (error) => {
+      void enviarDiagnostico({
+        contexto: 'location.browser',
+        etapa: 'error',
+        mensagem: error?.message || 'Falha getCurrentPosition',
+        extra: { code: error?.code ?? null },
+      });
+      reject(error);
+    },
     {
       enableHighAccuracy: true,
       timeout: 10000,
@@ -25,15 +77,30 @@ const obterLocalizacaoPeloNavegador = () => new Promise((resolve, reject) => {
 
 export const obterLocalizacaoAtual = async () => {
   try {
+    void enviarDiagnostico({ contexto: 'location.capacitor', etapa: 'request-permission:start', mensagem: 'Solicitando permissão' });
     const permissao = await Geolocation.requestPermissions();
+    void enviarDiagnostico({
+      contexto: 'location.capacitor',
+      etapa: 'request-permission:result',
+      mensagem: `Permissão retornou ${permissao?.location || 'desconhecido'}`,
+      extra: permissao || null,
+    });
     if (permissao?.location === 'denied') {
       throw new Error('Permissão de localização negada');
     }
 
+    void enviarDiagnostico({ contexto: 'location.capacitor', etapa: 'get-current-position:start', mensagem: 'Buscando posição via Capacitor' });
     const position = await Geolocation.getCurrentPosition({
       enableHighAccuracy: true,
       timeout: 10000,
       maximumAge: 0,
+    });
+
+    void enviarDiagnostico({
+      contexto: 'location.capacitor',
+      etapa: 'get-current-position:success',
+      mensagem: 'Posição obtida via Capacitor',
+      extra: { accuracy: position.coords.accuracy },
     });
 
     return {
@@ -41,7 +108,12 @@ export const obterLocalizacaoAtual = async () => {
     longitude: position.coords.longitude,
     accuracy: position.coords.accuracy
   };
-  } catch (_err) {
+  } catch (err) {
+    void enviarDiagnostico({
+      contexto: 'location.capacitor',
+      etapa: 'fallback-browser',
+      mensagem: err?.message || 'Falha no Capacitor, usando navegador',
+    });
     return obterLocalizacaoPeloNavegador();
   }
 };
@@ -49,6 +121,7 @@ export const obterLocalizacaoAtual = async () => {
 // Tenta obter posição via watchPosition para "acordar" GPS em dispositivos móveis
 export const obterPosicaoAltaPrecisa = async () => {
   if (typeof navigator === 'undefined' || !navigator.geolocation) {
+    void enviarDiagnostico({ contexto: 'location.watch', etapa: 'navigator-unavailable', mensagem: 'watchPosition indisponível, usando fallback' });
     return obterLocalizacaoAtual();
   }
   // Coleta múltiplas amostras via watchPosition e retorna a mais precisa
@@ -75,6 +148,12 @@ export const obterPosicaoAltaPrecisa = async () => {
     const success = (position) => {
       const { latitude, longitude, accuracy } = position.coords;
       samples.push({ latitude, longitude, accuracy, ts: Date.now() });
+      void enviarDiagnostico({
+        contexto: 'location.watch',
+        etapa: 'sample',
+        mensagem: 'Amostra de watchPosition recebida',
+        extra: { accuracy },
+      });
 
       // Se a precisão for boa, retorna imediatamente
       if (typeof accuracy === 'number' && accuracy <= 30) {
@@ -85,6 +164,12 @@ export const obterPosicaoAltaPrecisa = async () => {
 
     const fail = async (err) => {
       cleanup();
+      void enviarDiagnostico({
+        contexto: 'location.watch',
+        etapa: 'error',
+        mensagem: err?.message || 'Falha no watchPosition',
+        extra: { code: err?.code ?? null },
+      });
       try {
         const fallback = await obterLocalizacaoAtual();
         resolve(fallback);
@@ -106,6 +191,7 @@ export const obterPosicaoAltaPrecisa = async () => {
       cleanup();
       const best = pickBest();
       if (best) {
+        void enviarDiagnostico({ contexto: 'location.watch', etapa: 'timeout-best-sample', mensagem: 'Usando melhor amostra disponível', extra: { accuracy: best.accuracy } });
         resolve(best);
         return;
       }
