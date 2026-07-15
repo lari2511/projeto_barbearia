@@ -198,6 +198,14 @@ export default function App() {
         return
       }
 
+      // No app nativo, o modal/atalho de atualização estava competindo com a
+      // navegação normal e levando usuários para a tela de download. Mantemos
+      // a verificação do servidor, mas desativamos a abertura automática do
+      // fluxo de update até estabilizar o perfil do cliente.
+      if (isNativeApp) {
+        return
+      }
+
       setUpdateInfo({
         signature,
         filename: data.latest_filename,
@@ -205,14 +213,10 @@ export default function App() {
         isNative: isNativeApp,
       })
       setUpdateDismissed(false)
-      notifyNativeUpdate({
-        signature,
-        downloadUrl: data.download_url || data.latest_url || `${apiRootForApk}/downloads/${data.latest_filename}`,
-      })
     } catch (_err) {
       // Silencioso para nao quebrar a UX caso a API esteja indisponivel.
     }
-  }, [apiRootForApk, notifyNativeUpdate])
+  }, [apiRootForApk])
 
   React.useEffect(() => {
     fetchUpdateInfo()
