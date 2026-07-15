@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useContext } from 'react';
 import { Star, MapPin, Phone, Mail, Award, TrendingUp, MessageCircle } from 'lucide-react';
 import ChatRoom from './ChatRoom';
 import { AppContext } from '../contexts/AppContext';
-import { getApiBaseUrl } from '../utils/api';
+import { getApiBaseUrl, resolveMediaUrl } from '../utils/api';
 
 const DEFAULT_HOST = typeof window !== 'undefined' ? window.location.hostname : 'localhost';
 const DEFAULT_PROTOCOL = typeof window !== 'undefined' && window.location.protocol === 'https:' ? 'https' : 'http';
@@ -71,7 +71,7 @@ export default function ProfileCard({ usuarioId, userType, token, isOwnProfile: 
     }
   };
 
-  const profilePortfolioFotos = normalizePortfolioFotos(profile?.portfolio_fotos);
+  const profilePortfolioFotos = normalizePortfolioFotos(profile?.portfolio_fotos).map((item) => resolveMediaUrl(item, API_URL));
   const fotosPortfolioExibicao = profilePortfolioFotos.length > 0 ? profilePortfolioFotos : portfolioFotos;
   const avaliacoesNormalizadas = normalizeAvaliacoes(avaliacoes);
   const avaliacoesUltimas = avaliacoesNormalizadas.ultimas;
@@ -107,7 +107,7 @@ export default function ProfileCard({ usuarioId, userType, token, isOwnProfile: 
       }
 
       // Buscar fotos do portfólio (já vem em portfolio_fotos no profile)
-      setPortfolioFotos(normalizePortfolioFotos(data.portfolio_fotos));
+      setPortfolioFotos(normalizePortfolioFotos(data.portfolio_fotos).map((item) => resolveMediaUrl(item, API_URL)));
 
       if (userType === 'barbearia') {
         setCarregandoBarbearia(true);
@@ -236,7 +236,7 @@ export default function ProfileCard({ usuarioId, userType, token, isOwnProfile: 
       {profile.foto_capa && (
         <div className="relative h-48 rounded-2xl overflow-hidden">
           <img 
-            src={profile.foto_capa} 
+            src={resolveMediaUrl(profile.foto_capa, API_URL)} 
             alt="Capa do perfil" 
             className="w-full h-full object-cover"
           />
@@ -253,10 +253,10 @@ export default function ProfileCard({ usuarioId, userType, token, isOwnProfile: 
           {profile.foto_perfil && (
             <div 
               className="mb-4 cursor-pointer group"
-              onClick={() => setZoomFoto(profile.foto_perfil)}
+              onClick={() => setZoomFoto(resolveMediaUrl(profile.foto_perfil, API_URL))}
             >
               <img 
-                src={profile.foto_perfil} 
+                src={resolveMediaUrl(profile.foto_perfil, API_URL)} 
                 alt={profile.nome} 
                 className="w-24 h-24 rounded-full border-4 border-zinc-800 object-cover group-hover:opacity-80 transition-opacity"
               />

@@ -4,7 +4,7 @@ import ScreenWrapper from './ScreenWrapper';
 import AppCard from './AppCard';
 import Header from './Header';
 import styles from './TelaPerfilUsuario.module.css';
-import { getApiBaseUrl } from '../utils/api';
+import { getApiBaseUrl, resolveMediaUrl } from '../utils/api';
 import { gerarQrDataUrl, salvarMetodoPreferidoCliente, validarCartaoBasico } from './checkout/core';
 
 const PERFIL_META = {
@@ -336,6 +336,7 @@ export function TelaPerfilUsuario({
   const [telefone, setTelefone] = useState(usuario?.telefone || '');
   const [fotoPerfil, setFotoPerfil] = useState(usuario?.foto_perfil || '');
   const [portfolioFotos, setPortfolioFotos] = useState([]);
+  const fotoPerfilResolvida = useMemo(() => resolveMediaUrl(fotoPerfil, apiBase), [fotoPerfil, apiBase]);
 
   const [barbeariaId, setBarbeariaId] = useState(null);
   const [cadeirasPlano, setCadeirasPlano] = useState(1);
@@ -357,6 +358,7 @@ export function TelaPerfilUsuario({
   const [saving, setSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [portfolioFalhas, setPortfolioFalhas] = useState({});
 
   const [avatarSourceFile, setAvatarSourceFile] = useState(null);
   const [avatarDraftPreview, setAvatarDraftPreview] = useState('');
@@ -770,6 +772,11 @@ export function TelaPerfilUsuario({
     }
   };
 
+  const marcarFalhaPortfolio = useCallback((fotoId) => {
+    if (!fotoId) return;
+    setPortfolioFalhas((prev) => (prev[fotoId] ? prev : { ...prev, [fotoId]: true }));
+  }, []);
+
   const atualizarStatusBarbeiro = async (statusDesejado) => {
     if (perfilTipo !== 'barbeiro' || !token || !apiBase || !userId) return;
 
@@ -1007,8 +1014,8 @@ export function TelaPerfilUsuario({
           <div className={styles.profileAvatar}>
             {avatarDraftPreview ? (
               <img src={avatarDraftPreview} alt="Preview da foto" className={styles.avatarPhoto} />
-            ) : fotoPerfil ? (
-              <img src={fotoPerfil} alt="Foto de perfil" className={styles.avatarPhoto} />
+            ) : fotoPerfilResolvida ? (
+              <img src={fotoPerfilResolvida} alt="Foto de perfil" className={styles.avatarPhoto} />
             ) : (
               <div className={styles.avatarInner}>{initial}</div>
             )}
@@ -1086,7 +1093,18 @@ export function TelaPerfilUsuario({
               <div className={styles.portfolioGrid}>
                 {portfolioFotos.map((foto) => (
                   <div key={foto.id} className={styles.portfolioItem}>
-                    <img src={foto.url} alt="Portfolio" className={styles.portfolioImg} />
+                    {portfolioFalhas[foto.id] ? (
+                      <div className={`${styles.portfolioImg} flex items-center justify-center bg-black/20 px-2 text-center text-xs text-zinc-400`}>
+                        Imagem indisponivel
+                      </div>
+                    ) : (
+                      <img
+                        src={resolveMediaUrl(foto.url, apiBase)}
+                        alt="Portfolio"
+                        className={styles.portfolioImg}
+                        onError={() => marcarFalhaPortfolio(foto.id)}
+                      />
+                    )}
                     <button type="button" className={styles.removeBtn} onClick={() => removerPortfolio(foto.id)} aria-label="Remover foto">
                       <Trash2 size={12} />
                     </button>

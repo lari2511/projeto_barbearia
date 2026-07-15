@@ -41,6 +41,20 @@ const normalizeUrlHost = (rawUrl, fallbackProtocol, fallbackHostname, fallbackPa
   }
 };
 
+const getBaseOrigin = (rawBaseUrl, fallbackProtocol, fallbackHostname) => {
+  const fallbackOrigin = `${fallbackProtocol}://${fallbackHostname}`;
+
+  try {
+    return new URL(rawBaseUrl, fallbackOrigin).origin;
+  } catch {
+    try {
+      return new URL(NATIVE_API_FALLBACK).origin;
+    } catch {
+      return fallbackOrigin;
+    }
+  }
+};
+
 export const getApiBaseUrl = () => {
   const envUrl = import.meta.env.VITE_API_URL?.trim();
   const location = getWindowLocation();
@@ -106,4 +120,35 @@ export const getWsBaseUrl = () => {
   // Public host — return a relative websocket path so the browser will open
   // the socket on the same origin (ws/wss) used to load the page.
   return `/ws/notificacoes`;
+};
+
+export const resolveMediaUrl = (rawUrl, baseUrl = getApiBaseUrl()) => {
+  const value = String(rawUrl || '').trim();
+  if (!value) return '';
+  if (/^(data:|blob:|content:)/i.test(value)) return value;
+
+  const location = getWindowLocation();
+  const hostname = location?.hostname || 'localhost';
+  const protocol = location?.protocol === 'https:' ? 'https' : 'http';
+  const apiOrigin = getBaseOrigin(baseUrl || NATIVE_API_FALLBACK, protocol, hostname);
+
+  if (value.startsWith('//')) {
+    return `${protocol}:${value}`;
+  }
+
+  if (value.startsWith('/')) {
+    return `${apiOrigin}${value}`;
+  }
+
+  try {
+    const parsedUrl = new URL(value);
+
+    if (isPrivateHost(parsedUrl.hostname)) {
+      return new URL(`${parsedUrl.pathname}${parsedUrl.search}${parsedUrl.hash}`, apiOrigin).toString();
+    }
+
+    return parsedUrl.toString();
+  } catch {
+    return new URL(value.replace(/^\/+/, ''), `${apiOrigin}/`).toString();
+  }
 };
