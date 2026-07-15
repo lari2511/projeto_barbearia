@@ -1897,7 +1897,15 @@ export default function ClientDashboard({ token, logout, API_URL: apiUrlProp, no
             {/* ABA: PERFIL */}
             {tab === 'perfil' && (
                 <div className="p-2 sm:p-4 pb-20 max-w-3xl mx-auto w-full">
-                    <TelaPerfilUsuario userType="cliente" token={token} API_URL={API_URL} onLogout={logout} onNotify={notifySafe} />
+                    <TelaPerfilUsuario
+                        userType="cliente"
+                        token={token}
+                        API_URL={API_URL}
+                        onLogout={logout}
+                        onNotify={notifySafe}
+                        mostrarCabecalho={false}
+                        permitirEdicaoFoto={false}
+                    />
                 </div>
             )}
 

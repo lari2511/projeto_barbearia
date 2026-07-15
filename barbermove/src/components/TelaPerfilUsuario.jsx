@@ -313,6 +313,7 @@ export function TelaPerfilUsuario({
   onLogout,
   onNotify: onNotifyProp,
   mostrarCabecalho = true,
+  permitirEdicaoFoto = true,
 }) {
   const onNotify = useCallback((mensagem, tipo = 'info') => {
     if (typeof onNotifyProp !== 'function') return;
@@ -1025,12 +1026,14 @@ export function TelaPerfilUsuario({
             <div>
               <span className={styles.badge}>{meta.badge}</span>
             </div>
-            <label className={styles.fileBtn}>
-              <Camera size={14} />
-              {uploading ? 'Enviando...' : 'Trocar foto'}
-              <input type="file" accept="image/*" onChange={handleFotoPerfil} className={styles.hiddenInput} disabled={uploading} />
-            </label>
-            {avatarSourceFile && (
+            {permitirEdicaoFoto && (
+              <label className={styles.fileBtn}>
+                <Camera size={14} />
+                {uploading ? 'Enviando...' : 'Trocar foto'}
+                <input type="file" accept="image/*" onChange={handleFotoPerfil} className={styles.hiddenInput} disabled={uploading} />
+              </label>
+            )}
+            {permitirEdicaoFoto && avatarSourceFile && (
               <button
                 type="button"
                 className={styles.fileBtn}
