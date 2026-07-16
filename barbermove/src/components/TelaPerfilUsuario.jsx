@@ -338,6 +338,7 @@ export function TelaPerfilUsuario({
   const [fotoPerfil, setFotoPerfil] = useState(usuario?.foto_perfil || '');
   const [portfolioFotos, setPortfolioFotos] = useState([]);
   const fotoPerfilResolvida = useMemo(() => resolveMediaUrl(fotoPerfil, apiBase), [fotoPerfil, apiBase]);
+  const [fotoPerfilFalhou, setFotoPerfilFalhou] = useState(false);
 
   const [barbeariaId, setBarbeariaId] = useState(null);
   const [cadeirasPlano, setCadeirasPlano] = useState(1);
@@ -378,6 +379,10 @@ export function TelaPerfilUsuario({
   const avatarPointersRef = useRef(new Map());
   const avatarPinchRef = useRef({ active: false, startDistance: 0, startZoom: 1 });
   const saveSuccessTimeoutRef = useRef(null);
+
+  useEffect(() => {
+    setFotoPerfilFalhou(false);
+  }, [fotoPerfilResolvida]);
 
   const initial = (nome || '?').charAt(0).toUpperCase();
 
@@ -710,7 +715,10 @@ export function TelaPerfilUsuario({
 
       if (!res.ok) throw new Error('Falha ao atualizar foto');
 
-      setFotoPerfil(url);
+      const payload = await safeReadJson(res, {});
+      const persistedUrl = String(payload?.foto_perfil || payload?.url || url || '').trim();
+      setFotoPerfil(persistedUrl);
+      setFotoPerfilFalhou(false);
       cancelarDraftAvatar();
       onNotify?.('Foto de perfil atualizada', 'success');
     } catch (_e) {
@@ -1015,8 +1023,13 @@ export function TelaPerfilUsuario({
           <div className={styles.profileAvatar}>
             {avatarDraftPreview ? (
               <img src={avatarDraftPreview} alt="Preview da foto" className={styles.avatarPhoto} />
-            ) : fotoPerfilResolvida ? (
-              <img src={fotoPerfilResolvida} alt="Foto de perfil" className={styles.avatarPhoto} />
+            ) : fotoPerfilResolvida && !fotoPerfilFalhou ? (
+              <img
+                src={fotoPerfilResolvida}
+                alt="Foto de perfil"
+                className={styles.avatarPhoto}
+                onError={() => setFotoPerfilFalhou(true)}
+              />
             ) : (
               <div className={styles.avatarInner}>{initial}</div>
             )}

@@ -1,6 +1,7 @@
 // Componentes reutilizáveis do BarberMove
 import React from 'react'
 import { Star, MapPin, Clock, Award, User, XCircle, AlertTriangle, CheckCircle, Info, Eye, EyeOff } from 'lucide-react'
+import { getApiBaseUrl, resolveMediaUrl } from '../utils/api'
 
 export const Button = ({ children, variant = 'primary', fullWidth, onClick, disabled, icon: Icon, className = '' }) => {
   const variants = {
@@ -61,6 +62,15 @@ export const Input = ({ label, error, icon: Icon, ...props }) => {
 
 export const FreelancerCard = ({ freelancer, onClick, showDistance = false }) => {
   const { nome, foto_perfil, nivel_tecnico, media_avaliacoes, total_avaliacoes, distancia_km } = freelancer
+  const fallbackAvatar = `https://ui-avatars.com/api/?name=${encodeURIComponent(nome || 'Freelancer')}&background=random`
+  const fotoResolvida = React.useMemo(() => resolveMediaUrl(foto_perfil, getApiBaseUrl()), [foto_perfil])
+  const [fotoFalhou, setFotoFalhou] = React.useState(false)
+
+  React.useEffect(() => {
+    setFotoFalhou(false)
+  }, [fotoResolvida])
+
+  const srcFinal = fotoFalhou || !fotoResolvida ? fallbackAvatar : fotoResolvida
 
   return (
     <div
@@ -69,9 +79,10 @@ export const FreelancerCard = ({ freelancer, onClick, showDistance = false }) =>
     >
       <div className="flex items-start gap-3">
         <img
-          src={foto_perfil || `https://ui-avatars.com/api/?name=${encodeURIComponent(nome)}&background=random`}
+          src={srcFinal}
           alt={nome}
           className="h-16 w-16 rounded-full object-cover"
+          onError={() => setFotoFalhou(true)}
         />
         <div className="flex-1">
           <h3 className="text-lg font-semibold text-white">{nome}</h3>
