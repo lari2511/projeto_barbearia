@@ -3,7 +3,7 @@
 Cria/atualiza contas no PostgreSQL remoto (servidor) usando TARGET_DATABASE_URL.
 
 Contas padrao:
-- Admin: barbermove2024@gmail.com / barber123
+- Admin: barbermove2024@gmail.com / Senha@123
 - Cliente: lari.nascimento20148@gmail.com / senha123
 - Barbeiro: larissavideos2018@gmail.com / senha123
 - Barbearia: allansiqueira06@gmail.com / senha123
@@ -67,7 +67,7 @@ def main() -> None:
             email="barbermove2024@gmail.com",
             nome="BarberMove Admin",
             tipo="admin",
-            senha="barber123",
+            senha="Senha@123",
             email_verificado=True,
             perfil_aprovado=True,
         ),

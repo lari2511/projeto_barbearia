@@ -28,7 +28,7 @@ python criar_admin.py
 ```
 Email do admin: admin@barbermovie.com
 Nome completo: Administrador Sistema
-Senha: admin123
+Senha: Senha@123
 ```
 
 ✅ **Pronto!** Agora você tem um usuário admin.

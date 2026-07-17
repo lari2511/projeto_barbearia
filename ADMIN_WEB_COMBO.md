@@ -35,7 +35,7 @@ python criar_admin.py
 ```
 ✅ ADMIN CRIADO COM SUCESSO!
 📧 Email: admin@barbermovie.local
-🔐 Senha: admin123456
+🔐 Senha: Senha@123
 🆔 ID: 1
 ```
 
@@ -67,7 +67,7 @@ http://localhost:8001/admin
 
 **Faça login com:**
 - Email: `admin@barbermovie.local`
-- Senha: `admin123456`
+- Senha: `Senha@123`
 
 ---
 

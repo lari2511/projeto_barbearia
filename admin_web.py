@@ -11,7 +11,7 @@ Acesso:
     
 Login:
     Email: admin@barbermovie.local
-    Senha: admin123456
+    Senha: Senha@123
 """
 
 import uvicorn
@@ -24,7 +24,7 @@ if __name__ == "__main__":
     print("🔧 INICIANDO ADMIN DASHBOARD WEB")
     print("=" * 80)
     print(f"\n📍 Acesse em: http://localhost:{port}/admin")
-    print("🔐 Login: admin@barbermovie.local / admin123456")
+    print("🔐 Login: admin@barbermovie.local / Senha@123")
     print("\n" + "=" * 80 + "\n")
     
     uvicorn.run(

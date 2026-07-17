@@ -15,7 +15,7 @@ try:
     
     if admin:
         # Atualizar senha e configurações
-        admin.senha_hash = get_password_hash("senha123")
+        admin.senha_hash = get_password_hash("Senha@123")
         admin.tipo = "admin"
         admin.nome = "Admin BarberMove"
         admin.email_verificado = True
@@ -28,7 +28,7 @@ try:
         novo_admin = Usuario(
             email="barbermove2024@gmail.com",
             nome="Admin BarberMove",
-            senha_hash=get_password_hash("senha123"),
+            senha_hash=get_password_hash("Senha@123"),
             tipo="admin",
             email_verificado=True,
             perfil_aprovado=True,
@@ -42,7 +42,7 @@ try:
     
     print("\n" + "=" * 50)
     print("📧 Email: barbermove2024@gmail.com")
-    print("🔐 Senha: senha123")
+    print("🔐 Senha: Senha@123")
     print("👤 Tipo: Administrador")
     print("\n🔗 Acesse em: http://localhost:5173")
     print("=" * 50 + "\n")

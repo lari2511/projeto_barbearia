@@ -786,7 +786,34 @@ export function TelaPerfilUsuario({
     setPortfolioFalhas((prev) => (prev[fotoId] ? prev : { ...prev, [fotoId]: true }));
   }, []);
 
-  const atualizarStatusBarbeiro = async (statusDesejado) => {
+  const statusAtualTexto = useMemo(() => {
+    if (barberStatus === 'presente') {
+      return barbeariaAtualNome
+        ? `Presente na ${barbeariaAtualNome}`
+        : 'Presente na barbearia selecionada';
+    }
+
+    if (barberStatus === 'online') return 'Disponível na região';
+    return 'Offline';
+  }, [barberStatus, barbeariaAtualNome]);
+
+  const selecionarBarbeariaPresenca = useCallback((value) => {
+    const proximaBarbeariaId = String(value || '');
+    setBarbeariaPresencaId(proximaBarbeariaId);
+
+    if (proximaBarbeariaId) {
+      atualizarStatusBarbeiro('presente', proximaBarbeariaId);
+      return;
+    }
+
+    if (barberStatus === 'presente') {
+      setBarberStatus('online');
+      setBarbeariaAtualNome('');
+      setBarbeariaAtualEndereco('');
+    }
+  }, [barberStatus]);
+
+  const atualizarStatusBarbeiro = async (statusDesejado, barbeariaIdForcada = null) => {
     if (perfilTipo !== 'barbeiro' || !token || !apiBase || !userId) return;
 
     try {
@@ -794,7 +821,7 @@ export function TelaPerfilUsuario({
       const payload = { status: statusDesejado };
 
       if (statusDesejado === 'presente') {
-        const selecionada = Number(barbeariaPresencaId || 0);
+        const selecionada = Number(barbeariaIdForcada || barbeariaPresencaId || 0);
         if (!selecionada) {
           onNotify?.('Selecione uma barbearia para marcar como presente', 'info');
           return;
@@ -817,8 +844,18 @@ export function TelaPerfilUsuario({
       }
 
       setBarberStatus(statusDesejado);
-      if (statusDesejado !== 'presente') {
+      if (statusDesejado === 'presente') {
+        const nomePresenca = String(data?.barbearia_atual_nome || '').trim();
+        if (data?.barbearia_atual_id) {
+          setBarbeariaPresencaId(String(data.barbearia_atual_id));
+        }
+        if (nomePresenca) {
+          setBarbeariaAtualNome(nomePresenca);
+        }
+      } else {
         setBarbeariaPresencaId('');
+        setBarbeariaAtualNome('');
+        setBarbeariaAtualEndereco('');
       }
       onNotify?.(`Status atualizado para ${statusDesejado.toUpperCase()}`, 'success');
       await carregarPerfil();
@@ -1072,12 +1109,22 @@ export function TelaPerfilUsuario({
 
             <div>
               <label className={styles.label}>Barbearia para marcar presença</label>
-              <select value={barbeariaPresencaId} onChange={(e) => setBarbeariaPresencaId(e.target.value)} className={styles.input + ' mt-2'}>
+              <select
+                value={barbeariaPresencaId}
+                onChange={(e) => selecionarBarbeariaPresenca(e.target.value)}
+                className={styles.input + ' mt-2'}
+                disabled={saving}
+              >
                 <option value="">Selecione a barbearia</option>
                 {barbeariasDisponiveis.map((item) => (
                   <option key={item.id} value={item.id}>{item.nome}</option>
                 ))}
               </select>
+            </div>
+
+            <div className="rounded-xl border border-zinc-800 bg-zinc-950/70 p-3 text-xs text-zinc-300">
+              <p className="font-bold text-orange-300 mb-1">STATUS ATUAL</p>
+              <p className="text-sm font-bold text-white">{statusAtualTexto}</p>
             </div>
 
             {barbeariaAtualNome && (

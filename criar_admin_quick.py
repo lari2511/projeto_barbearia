@@ -20,7 +20,7 @@ try:
         novo_admin = Usuario(
             email="admin@barbermove.com",
             nome="Administrador",
-            senha_hash=get_password_hash("admin123456"),
+            senha_hash=get_password_hash("Senha@123"),
             tipo="admin",
             email_verificado=True,
             perfil_aprovado=True,
@@ -34,7 +34,7 @@ try:
         print("✅ ADMIN CRIADO COM SUCESSO!")
         print("=" * 50)
         print("\n📧 Email: admin@barbermove.com")
-        print("🔐 Senha: admin123456")
+        print("🔐 Senha: Senha@123")
         print("\n🔗 Acesse em: http://localhost:5173")
         print("\n")
         
