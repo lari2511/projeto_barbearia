@@ -63,13 +63,6 @@ export default function Login({ onLoginSuccess }) {
       icon: Store,
       color: 'purple',
     },
-    {
-      type: 'admin',
-      title: 'Sou Admin',
-      description: 'Aprovações, gestão e monitoramento',
-      icon: User,
-      color: 'orange',
-    },
   ];
 
   if (step === 'escolha') {

@@ -384,7 +384,7 @@ export default function ShopDashboard({ token, logout, notify, API_URL }) {
     };
 
     const acionarPrimeiraCadeiraDisponivel = async () => {
-        const primeiraDisponivel = cadeirasBarbearia.find((cadeira) => String(cadeira.status || '').toLowerCase() === 'disponivel');
+        const primeiraDisponivel = cadeirasBarbearia.find((cadeira) => isCadeiraDisponivel(cadeira));
         if (!primeiraDisponivel) {
             notify('Nenhuma cadeira disponível para acionar', 'info');
             return;
