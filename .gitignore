@@ -57,3 +57,7 @@ barbermove/node-22.zip
 *.pem
 *.key
 *.crt
+
+# Local deployment secrets
+.railway_ssh/
+firebase-credentials.json

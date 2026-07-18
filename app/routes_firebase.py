@@ -12,7 +12,7 @@ from typing import Optional
 from app.database import get_db
 from app.routes import get_current_user
 from app.models import Usuario
-from app.firebase_config import FIREBASE_DISPONIVEL
+from app.firebase_config import FIREBASE_DISPONIVEL, obter_status_firebase
 
 router = APIRouter(prefix="/api/v1/firebase", tags=["firebase"])
 
@@ -158,15 +158,17 @@ async def verificar_status_firebase():
         }
     """
     
-    if FIREBASE_DISPONIVEL:
+    disponivel, mensagem_status = obter_status_firebase()
+
+    if disponivel:
         return FirebaseStatusResponse(
             disponivel=True,
-            mensagem="Firebase Cloud Messaging está configurado e pronto para enviar notificações"
+            mensagem=mensagem_status
         )
     else:
         return FirebaseStatusResponse(
             disponivel=False,
-            mensagem="Firebase Cloud Messaging não está configurado. Notificações push não funcionarão."
+            mensagem=mensagem_status
         )
 
 

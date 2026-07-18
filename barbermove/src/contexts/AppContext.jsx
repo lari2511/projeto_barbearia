@@ -93,6 +93,14 @@ export const AppProvider = ({ children }) => {
   const [loading, setLoading] = useState(false);
   const [toast, setToast] = useState(null);
   const crashReportRef = React.useRef({ lastKey: '', lastSentAt: 0 });
+  const authTokenRef = React.useRef(token);
+  const pushSetupRef = React.useRef({ initialized: false, listeners: [] });
+
+  const isNativeApp = typeof window !== 'undefined' && (
+    window.location.protocol === 'capacitor:' ||
+    window.location.protocol === 'ionic:' ||
+    window.Capacitor?.isNativePlatform?.() === true
+  );
 
   const reportFrontendCrash = useCallback(async (payload) => {
     const message = toReadableString(payload?.mensagem || payload?.message || 'Erro desconhecido');
@@ -152,12 +160,109 @@ export const AppProvider = ({ children }) => {
     }
   }, [token, userType]);
 
+  const sincronizarDeviceToken = useCallback(async (jwtToken, deviceToken) => {
+    if (!jwtToken || !deviceToken) {
+      return false;
+    }
+
+    const tokenAnterior = storage.get('deviceToken');
+    const endpoint = tokenAnterior && tokenAnterior !== deviceToken
+      ? '/api/v1/firebase/renovar-token'
+      : '/api/v1/firebase/registrar-token';
+
+    const payload = tokenAnterior && tokenAnterior !== deviceToken
+      ? { token_antigo: tokenAnterior, token_novo: deviceToken }
+      : { device_token: deviceToken, tipo_dispositivo: 'android' };
+
+    try {
+      const response = await fetch(`${API_URL}${endpoint}`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${jwtToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+      });
+
+      if (!response.ok) {
+        const errorPayload = await safeReadJson(response);
+        throw new Error(toReadableString(errorPayload) || `Falha ${response.status} ao registrar push`);
+      }
+
+      storage.set('deviceToken', deviceToken);
+      return true;
+    } catch (error) {
+      reportFrontendCrash({
+        contexto: 'push-sync',
+        mensagem: error,
+        extra: { endpoint },
+      });
+      return false;
+    }
+  }, [reportFrontendCrash]);
+
+  const configurarPushNativo = useCallback(async (jwtToken) => {
+    if (!isNativeApp || !jwtToken) {
+      return;
+    }
+
+    authTokenRef.current = jwtToken;
+
+    try {
+      const { PushNotifications } = await import('@capacitor/push-notifications');
+
+      if (!pushSetupRef.current.initialized) {
+        const registrationListener = await PushNotifications.addListener('registration', async (tokenInfo) => {
+          await sincronizarDeviceToken(authTokenRef.current, tokenInfo?.value);
+        });
+
+        const errorListener = await PushNotifications.addListener('registrationError', (error) => {
+          reportFrontendCrash({
+            contexto: 'push-registration',
+            mensagem: error,
+          });
+        });
+
+        pushSetupRef.current = {
+          initialized: true,
+          listeners: [registrationListener, errorListener],
+        };
+      }
+
+      let permissao = await PushNotifications.checkPermissions();
+      if (permissao.receive !== 'granted') {
+        permissao = await PushNotifications.requestPermissions();
+      }
+
+      if (permissao.receive === 'granted') {
+        await PushNotifications.register();
+      }
+    } catch (error) {
+      reportFrontendCrash({
+        contexto: 'push-bootstrap',
+        mensagem: error,
+      });
+    }
+  }, [isNativeApp, reportFrontendCrash, sincronizarDeviceToken]);
+
   // Verificar se tem token ao carregar
   useEffect(() => {
     if (token && userType) {
       fetchUserData(token, userType);
     }
   }, [fetchUserData, token, userType]);
+
+  useEffect(() => {
+    authTokenRef.current = token;
+
+    if (!token) {
+      return undefined;
+    }
+
+    configurarPushNativo(token);
+
+    return undefined;
+  }, [configurarPushNativo, token]);
 
   const login = async (email, senha, tipo) => {
     setLoading(true);

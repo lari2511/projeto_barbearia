@@ -4,11 +4,14 @@ Configuração do Firebase Cloud Messaging (FCM) para notificações push
 """
 
 import os
+import json
+import logging
 from dotenv import load_dotenv
 from datetime import datetime
 from typing import Optional
 
 load_dotenv()
+logger = logging.getLogger(__name__)
 
 # Firebase é importado com try/except porque pode não estar instalado ainda
 try:
@@ -17,24 +20,51 @@ try:
     FIREBASE_DISPONIVEL = True
 except ImportError:
     FIREBASE_DISPONIVEL = False
-    print("Aviso: firebase-admin não está instalado.")
-    print("   Execute: pip install firebase-admin")
-    print("   Notificações push não funcionarão sem essa dependência.")
+    logger.warning("firebase-admin nao esta instalado. Notificacoes push ficarao desabilitadas.")
 
 # Caminho para o arquivo JSON de credenciais do Firebase
 FIREBASE_CREDENTIALS_PATH = os.getenv("FIREBASE_CREDENTIALS_PATH", "firebase-credentials.json")
+FIREBASE_CREDENTIALS_JSON = os.getenv("FIREBASE_CREDENTIALS_JSON", "").strip()
+FIREBASE_STATUS_MENSAGEM = "Firebase nao configurado"
+
+
+def _resolver_credenciais_firebase():
+    """Resolve credenciais por JSON inline (Railway) ou caminho de arquivo."""
+    if FIREBASE_CREDENTIALS_JSON:
+        payload = FIREBASE_CREDENTIALS_JSON
+        try:
+            # Permite JSON enviado com aspas/escapes na variavel
+            payload = payload.replace("\\n", "\n")
+            info = json.loads(payload)
+            return credentials.Certificate(info), "FIREBASE_CREDENTIALS_JSON"
+        except Exception as exc:
+            raise RuntimeError(f"FIREBASE_CREDENTIALS_JSON invalido: {exc}") from exc
+
+    if os.path.exists(FIREBASE_CREDENTIALS_PATH):
+        return credentials.Certificate(FIREBASE_CREDENTIALS_PATH), "FIREBASE_CREDENTIALS_PATH"
+
+    raise RuntimeError(
+        "Credenciais ausentes. Defina FIREBASE_CREDENTIALS_JSON ou FIREBASE_CREDENTIALS_PATH"
+    )
 
 # Inicializar Firebase uma única vez (evita múltiplas inicializações)
 if FIREBASE_DISPONIVEL:
     try:
         if not firebase_admin._apps:
-            cred = credentials.Certificate(FIREBASE_CREDENTIALS_PATH)
+            cred, origem = _resolver_credenciais_firebase()
             firebase_admin.initialize_app(cred)
-        print("Firebase inicializado com sucesso")
+            FIREBASE_STATUS_MENSAGEM = f"Firebase inicializado com sucesso via {origem}"
+        else:
+            FIREBASE_STATUS_MENSAGEM = "Firebase ja inicializado"
+        logger.info(FIREBASE_STATUS_MENSAGEM)
     except Exception as e:
         FIREBASE_DISPONIVEL = False
-        print(f"Aviso: Firebase não inicializado. {e}")
-        print("   Notificações push não funcionarão sem configuração adequada do Firebase.")
+        FIREBASE_STATUS_MENSAGEM = f"Firebase nao inicializado: {e}"
+        logger.warning(FIREBASE_STATUS_MENSAGEM)
+
+
+def obter_status_firebase() -> tuple[bool, str]:
+    return FIREBASE_DISPONIVEL, FIREBASE_STATUS_MENSAGEM
 
 
 def _formatar_moeda(valor: float) -> str:

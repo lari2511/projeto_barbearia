@@ -17,3 +17,4 @@ psycopg2-binary
 fastapi-mail[jinja2]
 pydantic-settings
 mercadopago
+firebase-admin
