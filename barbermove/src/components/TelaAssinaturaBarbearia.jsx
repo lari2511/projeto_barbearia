@@ -223,6 +223,7 @@ export default function TelaAssinaturaBarbearia({ token, onNotify }) {
   const [status, setStatus] = useState(null);
   const [cadeirasDesejadas, setCadeirasDesejadas] = useState(1);
   const [calculoPreco, setCalculoPreco] = useState(null);
+  const [painelCadeiras, setPainelCadeiras] = useState(null);
   const [metodoPagamento, setMetodoPagamento] = useState('pix');
   const [processandoPagamento, setProcessandoPagamento] = useState(false);
   const [pixData, setPixData] = useState(null);
@@ -296,6 +297,17 @@ export default function TelaAssinaturaBarbearia({ token, onNotify }) {
       if (statusRes.ok) {
         const statusData = await statusRes.json();
         setStatus(statusData);
+
+        const painelRes = await fetch(`${API_URL}/api/v1/assinaturas/painel-cadeiras`, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+
+        if (painelRes.ok) {
+          const painelData = await painelRes.json();
+          setPainelCadeiras(painelData);
+        } else {
+          setPainelCadeiras(null);
+        }
 
         if (statusData.tem_assinatura) {
           const assinaturaRes = await fetch(`${API_URL}/api/v1/assinaturas/minha`, {
@@ -852,6 +864,50 @@ export default function TelaAssinaturaBarbearia({ token, onNotify }) {
             );
           })}
         </div>
+      </div>
+
+      <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-6">
+        <h3 className="text-lg font-bold text-white mb-4">🪑 Cadeiras Contratadas</h3>
+
+        {!painelCadeiras || !Array.isArray(painelCadeiras.cadeiras) || painelCadeiras.cadeiras.length === 0 ? (
+          <div className="rounded-lg border border-zinc-800 bg-zinc-950/70 p-4 text-sm text-zinc-400">
+            Nenhuma cadeira contratada no momento.
+          </div>
+        ) : (
+          <>
+            <div className="mb-4 rounded-lg border border-zinc-800 bg-zinc-950/70 p-4 text-sm text-zinc-200">
+              <p>Total de cadeiras ativas: <strong>{painelCadeiras.total_cadeiras_ativas}</strong></p>
+              <p>Valor total mensal: <strong>R$ {Number(painelCadeiras.valor_total_mensal || 0).toFixed(2)}</strong></p>
+            </div>
+
+            <div className="overflow-x-auto rounded-lg border border-zinc-800">
+              <table className="min-w-full divide-y divide-zinc-800 text-sm">
+                <thead className="bg-zinc-950 text-zinc-300">
+                  <tr>
+                    <th className="px-3 py-2 text-left font-semibold">Cadeira</th>
+                    <th className="px-3 py-2 text-left font-semibold">Origem</th>
+                    <th className="px-3 py-2 text-left font-semibold">Valor</th>
+                    <th className="px-3 py-2 text-left font-semibold">Próxima cobrança</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-zinc-900 bg-zinc-900 text-zinc-200">
+                  {painelCadeiras.cadeiras.map((cadeira) => (
+                    <tr key={cadeira.cadeira_contratada_id}>
+                      <td className="px-3 py-2">#{cadeira.numero_referencia}</td>
+                      <td className="px-3 py-2">
+                        <span className={`inline-flex rounded-full px-2 py-1 text-xs font-bold ${cadeira.origem === 'Compra Inicial' ? 'bg-emerald-900/60 text-emerald-300' : 'bg-orange-900/60 text-orange-300'}`}>
+                          {cadeira.origem}
+                        </span>
+                      </td>
+                      <td className="px-3 py-2">R$ {Number(cadeira.valor_individual || 0).toFixed(2)}</td>
+                      <td className="px-3 py-2">{cadeira.data_proxima_cobranca ? new Date(cadeira.data_proxima_cobranca).toLocaleDateString('pt-BR') : '-'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
+        )}
       </div>
     </div>
   );
