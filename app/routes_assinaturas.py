@@ -411,6 +411,7 @@ def contratar_ou_atualizar_assinatura(
                 precos=precos_novas,
                 data_contratacao=agora,
             )
+            db.flush()
 
         if dados.cadeiras_ativas < quantidade_atual:
             quantidade_retirar = quantidade_atual - dados.cadeiras_ativas
@@ -422,6 +423,8 @@ def contratar_ou_atualizar_assinatura(
             for cadeira in cadeiras_para_desativar:
                 cadeira.ativa = False
                 cadeira.cancelada_em = agora
+
+            db.flush()
 
         cadeiras_ativas = _resumo_ativo_cadeiras(db, assinatura.id)
         _sincronizar_totais_assinatura(assinatura, cadeiras_ativas, agora)
@@ -471,6 +474,7 @@ def contratar_ou_atualizar_assinatura(
             precos=precos,
             data_contratacao=agora,
         )
+        db.flush()
 
         cadeiras_ativas = _resumo_ativo_cadeiras(db, nova_assinatura.id)
         _sincronizar_totais_assinatura(nova_assinatura, cadeiras_ativas, agora)
