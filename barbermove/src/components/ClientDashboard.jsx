@@ -10,7 +10,7 @@ import TrackingPanel from './TrackingPanel';
 import TelaRotasAtivos from './TelaRotasAtivos';
 import MapaBarbeiros from './MapaBarbeiros';
 import { obterLocalizacaoAtual, obterPosicaoAltaPrecisa } from '../utils/location';
-import { getApiBaseUrl, getWsBaseUrl } from '../utils/api';
+import { getApiBaseUrl, getWsBaseUrl, resolveMediaUrl } from '../utils/api';
 const getShopImage = (id) => `https://images.unsplash.com/photo-${id % 2 === 0 ? '1521590832874-552721032d00' : '1503951914290-d20607416905'}?auto=format&fit=crop&w=800&q=80`;
 const BARBEIROS_CACHE_KEY = 'barbermove.client.barbeiros_cache';
 const GPS_PREFERENCE_KEY = 'barbermove.client.gps_preference';
@@ -184,6 +184,11 @@ export default function ClientDashboard({ token, logout, API_URL: apiUrlProp, no
         }
         return rawBase;
     }, [apiUrlProp]);
+
+    const resolverFoto = useCallback((url) => {
+        const foto = resolveMediaUrl(url, API_URL);
+        return foto || '';
+    }, [API_URL]);
 
     const notifySafe = useCallback((mensagem, tipo = 'info') => {
         if (typeof notify !== 'function') return;
@@ -1533,7 +1538,7 @@ export default function ClientDashboard({ token, logout, API_URL: apiUrlProp, no
                                     <div key={barber.id} className="barber-card bm-card bg-zinc-900 rounded-2xl border border-zinc-800/60 hover:border-orange-500 transition-colors p-2 flex gap-3 items-start">
                                         <div className="barber-image relative w-24 h-24 sm:w-28 sm:h-28 md:w-32 md:h-32 shrink-0 rounded-xl overflow-hidden bg-gradient-to-r from-zinc-800 to-zinc-900">
                                             <img
-                                                src={barber.foto_perfil || getShopImage(barber.id)}
+                                                src={resolverFoto(barber.foto_perfil) || getShopImage(barber.id)}
                                                 alt=""
                                                 className="w-full h-full object-cover"
                                                 onError={(e) => {
@@ -1624,7 +1629,7 @@ export default function ClientDashboard({ token, logout, API_URL: apiUrlProp, no
                                     <div key={barbearia.id} className="bm-card bg-zinc-900 rounded-2xl border border-zinc-800/60 hover:border-orange-500 transition-colors p-2 flex gap-3 items-start">
                                         <div className="relative w-24 h-24 sm:w-28 sm:h-28 md:w-32 md:h-32 shrink-0 rounded-xl overflow-hidden bg-gradient-to-r from-zinc-800 to-zinc-900">
                                             <img
-                                                src={barbearia.foto_perfil || getShopImage(barbearia.id)}
+                                                src={resolverFoto(barbearia.foto_perfil) || getShopImage(barbearia.id)}
                                                 alt=""
                                                 className="w-full h-full object-cover"
                                                 onError={(e) => {

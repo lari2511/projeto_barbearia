@@ -196,7 +196,7 @@ export default function TrackingMapRealtime({
   }
 
   return (
-    <div className="w-full rounded-xl overflow-hidden border border-zinc-800 bg-zinc-950/70">
+    <div className="bm-map-surface w-full rounded-xl overflow-hidden border border-zinc-800 bg-zinc-950/70">
       <div className="flex items-center justify-between gap-2 p-3 border-b border-zinc-800 bg-zinc-900/60">
         <div className="flex items-center gap-2 min-w-0">
           <span className="text-orange-400">📍</span>

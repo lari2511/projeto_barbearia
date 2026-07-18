@@ -22,7 +22,7 @@ export default function TrackingMapEmbed({
   const rotaUrl = `https://maps.google.com/maps?output=embed&f=d&saddr=${latOrigem},${lonOrigem}&daddr=${latDestino},${lonDestino}&dirflg=w${markers}`;
 
   return (
-    <div className="w-full rounded-xl overflow-hidden border border-zinc-800 bg-zinc-950/70">
+    <div className="bm-map-surface w-full rounded-xl overflow-hidden border border-zinc-800 bg-zinc-950/70">
       <div className="flex items-center justify-between gap-2 p-3 border-b border-zinc-800 bg-zinc-900/60">
         <div className="flex items-center gap-2 min-w-0">
           <MapPin size={14} className="text-orange-400 shrink-0" />

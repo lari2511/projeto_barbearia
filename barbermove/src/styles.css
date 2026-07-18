@@ -88,6 +88,27 @@ img, svg, picture {
   z-index: 1;
 }
 
+/* Camada base para qualquer mapa/embed.
+   Mantém o mapa contido na própria seção e evita sobreposição sobre modais/telas. */
+.bm-map-surface {
+  position: relative;
+  isolation: isolate;
+  z-index: 0;
+}
+
+.bm-map-surface .leaflet-container,
+.bm-map-surface iframe {
+  position: relative;
+  z-index: 0 !important;
+}
+
+.bm-map-surface .leaflet-pane,
+.bm-map-surface .leaflet-control,
+.bm-map-surface .leaflet-top,
+.bm-map-surface .leaflet-bottom {
+  z-index: 1 !important;
+}
+
 .bm-input {
   width: 100%;
   background: var(--bm-card);

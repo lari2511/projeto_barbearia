@@ -152,7 +152,7 @@ export default function MapaBarbeiros({ userLocation, barbeiros = [], vagasRelam
   }, []);
 
   return (
-    <div className="rounded-2xl overflow-hidden border border-zinc-800 mb-3">
+    <div className="bm-map-surface rounded-2xl overflow-hidden border border-zinc-800 mb-3">
       <style>{'@keyframes bmPing{0%,100%{transform:scale(1);opacity:.7}50%{transform:scale(1.5);opacity:0}}'}</style>
       <div className="flex items-center gap-2 px-3 py-2 bg-zinc-900 text-xs text-zinc-400">
         <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-blue-500 text-white"><UserRound size={12} /></span> Você

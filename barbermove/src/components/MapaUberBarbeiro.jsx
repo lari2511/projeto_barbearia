@@ -188,7 +188,7 @@ export default function MapaUberBarbeiro({ chamadoId, token, API_URL, minhaPosic
   const etaLabel = eta != null ? `${eta} min` : '—';
 
   return (
-    <div className="rounded-2xl overflow-hidden border border-zinc-800 bg-zinc-950 shadow-xl">
+    <div className="bm-map-surface rounded-2xl overflow-hidden border border-zinc-800 bg-zinc-950 shadow-xl">
       {/* Header estilo Uber */}
       <div className="flex items-center justify-between px-4 py-3 bg-zinc-900 border-b border-zinc-800">
         <div>

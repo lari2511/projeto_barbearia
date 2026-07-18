@@ -110,7 +110,7 @@ export default function MapaRastreamento({
   return (
     <div
       ref={mapContainer}
-      className="w-full h-[400px] rounded-lg border border-zinc-800 mb-5 bg-zinc-900/40"
+      className="bm-map-surface w-full h-[400px] rounded-lg border border-zinc-800 mb-5 bg-zinc-900/40"
     />
   );
 }

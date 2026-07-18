@@ -13,7 +13,7 @@ export default function MapEmbed({ endereco, nome = "Local", height = "250px" })
   const mapaUrl = `https://maps.google.com/maps?q=${encodeURIComponent(query)}&t=&z=15&ie=UTF8&iwloc=&output=embed`;
 
   return (
-    <div className="map-wrapper mt-3">
+    <div className="map-wrapper bm-map-surface mt-3">
       <div className="flex items-center gap-2 p-3 bg-zinc-900/50 border-b border-zinc-700">
         <MapPin size={16} className="text-orange-500" />
         <p className="text-xs font-bold text-zinc-400">Localização</p>

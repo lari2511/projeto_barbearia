@@ -103,7 +103,7 @@ function MapaUber({ coordsCliente, barbearia, minhaPosicao }) {
     }
   }, [coordsCliente?.lat, coordsCliente?.lon]);
 
-  return <div ref={containerRef} style={{ height: '320px', width: '100%' }} />;
+  return <div ref={containerRef} className="bm-map-surface" style={{ height: '320px', width: '100%' }} />;
 }
 
 // ── Painel principal ──────────────────────────────────────────────────────────
