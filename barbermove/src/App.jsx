@@ -36,9 +36,20 @@ export default function App() {
   }, [API_URL])
   const [updateInfo, setUpdateInfo] = React.useState(null)
   const [updateDismissed, setUpdateDismissed] = React.useState(false)
+  const updateInfoRef = React.useRef(null)
   const wsRef = React.useRef(null)
   const reconnectRef = React.useRef(null)
   const notifiedEventsRef = React.useRef(new Set())
+  const startUpdateDownload = React.useCallback((payload) => {
+    if (!payload?.downloadUrl || !payload?.signature) return
+
+    localStorage.setItem('apk_update_baseline_signature', payload.signature)
+    localStorage.removeItem('apk_update_skip_signature')
+    localStorage.setItem('apk_update_last_notified_signature', payload.signature)
+    window.location.href = payload.downloadUrl
+    setUpdateInfo(null)
+  }, [])
+
   const notifyNativeUpdate = React.useCallback(async (updatePayload) => {
     if (!isNativeApp || !updatePayload?.signature) return
 
@@ -61,6 +72,7 @@ export default function App() {
             body: 'Existe uma nova versão pronta. Toque para abrir e atualizar.',
             schedule: { at: new Date(Date.now() + 2000) },
             extra: {
+              type: 'apk_update_available',
               downloadUrl: updatePayload.downloadUrl,
               signature: updatePayload.signature,
             },
@@ -97,6 +109,33 @@ export default function App() {
         return {
           title: 'Atendimento iniciado',
           body: 'O atendimento entrou em andamento.',
+        }
+      case 'chamado':
+      case 'agendamento':
+      case 'agendamento_confirmado':
+        return {
+          title: 'Agendamento atualizado',
+          body: message?.mensagem || 'Seu agendamento teve uma atualizacao.',
+        }
+      case 'agendamento_cancelado':
+        return {
+          title: 'Agendamento cancelado',
+          body: message?.mensagem || 'Um agendamento foi cancelado.',
+        }
+      case 'pagamento_confirmado':
+        return {
+          title: 'Pagamento confirmado',
+          body: message?.mensagem || 'Pagamento confirmado com sucesso.',
+        }
+      case 'saque_processado':
+        return {
+          title: 'Saque processado',
+          body: message?.mensagem || 'Seu saque foi processado.',
+        }
+      case 'perfil_aprovado':
+        return {
+          title: 'Perfil aprovado',
+          body: message?.mensagem || 'Seu perfil foi aprovado.',
         }
       case 'chamado_chegada_atualizada':
         return {
@@ -198,25 +237,66 @@ export default function App() {
         return
       }
 
-      // No app nativo, o modal/atalho de atualização estava competindo com a
-      // navegação normal e levando usuários para a tela de download. Mantemos
-      // a verificação do servidor, mas desativamos a abertura automática do
-      // fluxo de update até estabilizar o perfil do cliente.
-      if (isNativeApp) {
-        return
-      }
-
-      setUpdateInfo({
+      const nextUpdateInfo = {
         signature,
         filename: data.latest_filename,
         downloadUrl: data.download_url || data.latest_url || `${apiRootForApk}/downloads/${data.latest_filename}`,
         isNative: isNativeApp,
-      })
+      }
+
+      setUpdateInfo(nextUpdateInfo)
       setUpdateDismissed(false)
+
+      if (isNativeApp) {
+        await notifyNativeUpdate(nextUpdateInfo)
+      }
     } catch (_err) {
       // Silencioso para nao quebrar a UX caso a API esteja indisponivel.
     }
-  }, [apiRootForApk])
+  }, [apiRootForApk, notifyNativeUpdate])
+
+  React.useEffect(() => {
+    updateInfoRef.current = updateInfo
+  }, [updateInfo])
+
+  React.useEffect(() => {
+    if (!isNativeApp) return undefined
+
+    let cleanup = null
+
+    const attachNotificationClickHandler = async () => {
+      try {
+        const { LocalNotifications } = await getLocalNotifications()
+        const listener = await LocalNotifications.addListener('localNotificationActionPerformed', (event) => {
+          const extra = event?.notification?.extra || {}
+          const activeUpdate = updateInfoRef.current
+
+          if ((extra?.type || extra?.kind) === 'apk_update_available') {
+            startUpdateDownload({
+              signature: extra?.signature || activeUpdate?.signature,
+              downloadUrl: extra?.downloadUrl || activeUpdate?.downloadUrl,
+            })
+          }
+        })
+
+        cleanup = () => {
+          try {
+            listener?.remove?.()
+          } catch (_error) {
+            // Ignora falhas de cleanup de listener.
+          }
+        }
+      } catch (_error) {
+        // Sem plugin/permissao: seguimos sem interacao via toque na notificacao.
+      }
+    }
+
+    attachNotificationClickHandler()
+
+    return () => {
+      if (cleanup) cleanup()
+    }
+  }, [startUpdateDownload])
 
   React.useEffect(() => {
     fetchUpdateInfo()
@@ -285,13 +365,7 @@ export default function App() {
   }, [token, emitRealtimeAlert])
 
   const handleDownloadUpdate = () => {
-    if (!updateInfo?.downloadUrl) return
-
-    localStorage.setItem('apk_update_baseline_signature', updateInfo.signature)
-    localStorage.removeItem('apk_update_skip_signature')
-    localStorage.setItem('apk_update_last_notified_signature', updateInfo.signature)
-    window.location.href = updateInfo.downloadUrl
-    setUpdateInfo(null)
+    startUpdateDownload(updateInfo)
   }
 
   const handleSkipUpdate = () => {
