@@ -13,19 +13,22 @@ from typing import Optional
 load_dotenv()
 logger = logging.getLogger(__name__)
 
-# Firebase é importado com try/except porque pode não estar instalado ainda
-try:
-    import firebase_admin
-    from firebase_admin import credentials, messaging
-    FIREBASE_DISPONIVEL = True
-except ImportError:
-    FIREBASE_DISPONIVEL = False
-    logger.warning("firebase-admin nao esta instalado. Notificacoes push ficarao desabilitadas.")
+def _env_bool(key: str, default: bool = False) -> bool:
+    raw = os.getenv(key)
+    if raw is None:
+        return default
+    return str(raw).strip().lower() in {"1", "true", "yes", "on"}
+
+
+# Mantemos Firebase desativado por padrao para evitar ruído em ambientes
+# que nao usam FCM. Para ativar, defina FIREBASE_ENABLED=1.
+FIREBASE_ENABLED = _env_bool("FIREBASE_ENABLED", default=False)
+FIREBASE_DISPONIVEL = False
 
 # Caminho para o arquivo JSON de credenciais do Firebase
 FIREBASE_CREDENTIALS_PATH = os.getenv("FIREBASE_CREDENTIALS_PATH", "firebase-credentials.json")
 FIREBASE_CREDENTIALS_JSON = os.getenv("FIREBASE_CREDENTIALS_JSON", "").strip()
-FIREBASE_STATUS_MENSAGEM = "Firebase nao configurado"
+FIREBASE_STATUS_MENSAGEM = "Firebase desabilitado por configuracao (FIREBASE_ENABLED=0)"
 
 
 def _resolver_credenciais_firebase():
@@ -48,15 +51,24 @@ def _resolver_credenciais_firebase():
     )
 
 # Inicializar Firebase uma única vez (evita múltiplas inicializações)
-if FIREBASE_DISPONIVEL:
+if FIREBASE_ENABLED:
     try:
+        import firebase_admin
+        from firebase_admin import credentials, messaging
+
         if not firebase_admin._apps:
             cred, origem = _resolver_credenciais_firebase()
             firebase_admin.initialize_app(cred)
             FIREBASE_STATUS_MENSAGEM = f"Firebase inicializado com sucesso via {origem}"
         else:
             FIREBASE_STATUS_MENSAGEM = "Firebase ja inicializado"
+
+        FIREBASE_DISPONIVEL = True
         logger.info(FIREBASE_STATUS_MENSAGEM)
+    except ImportError:
+        FIREBASE_DISPONIVEL = False
+        FIREBASE_STATUS_MENSAGEM = "Firebase habilitado, mas firebase-admin nao esta instalado"
+        logger.warning(FIREBASE_STATUS_MENSAGEM)
     except Exception as e:
         FIREBASE_DISPONIVEL = False
         FIREBASE_STATUS_MENSAGEM = f"Firebase nao inicializado: {e}"
