@@ -20,14 +20,26 @@ const readStorageValue = (key) => {
   }
 };
 
+const normalizeImageField = (value) => {
+  if (!value) return '';
+  if (typeof value === 'string') return value;
+  if (typeof value === 'object') {
+    return (
+      value.url ||
+      value.url_imagem ||
+      value.imagem_url ||
+      value.foto_url ||
+      value.path ||
+      ''
+    );
+  }
+  return '';
+};
+
 const normalizePortfolioFotos = (value) => {
   if (!Array.isArray(value)) return [];
   return value
-    .map((item) => {
-      if (typeof item === 'string') return item;
-      if (item && typeof item.url === 'string') return item.url;
-      return '';
-    })
+    .map((item) => normalizeImageField(item))
     .filter(Boolean);
 };
 
@@ -70,6 +82,9 @@ export default function ProfileCard({ usuarioId, userType, token, isOwnProfile: 
       console.error(mensagem, detalhe);
     }
   };
+
+  const fotoPerfilUrl = resolveMediaUrl(normalizeImageField(profile?.foto_perfil), API_URL);
+  const fotoCapaUrl = resolveMediaUrl(normalizeImageField(profile?.foto_capa), API_URL);
 
   const profilePortfolioFotos = normalizePortfolioFotos(profile?.portfolio_fotos).map((item) => resolveMediaUrl(item, API_URL));
   const fotosPortfolioExibicao = profilePortfolioFotos.length > 0 ? profilePortfolioFotos : portfolioFotos;
@@ -233,10 +248,10 @@ export default function ProfileCard({ usuarioId, userType, token, isOwnProfile: 
   return (
     <div className="space-y-6">
       {/* Foto de Capa */}
-      {profile.foto_capa && (
+      {fotoCapaUrl && (
         <div className="relative h-48 rounded-2xl overflow-hidden">
           <img 
-            src={resolveMediaUrl(profile.foto_capa, API_URL)} 
+            src={fotoCapaUrl} 
             alt="Capa do perfil" 
             className="w-full h-full object-cover"
           />
@@ -250,13 +265,13 @@ export default function ProfileCard({ usuarioId, userType, token, isOwnProfile: 
       }`}>
         <div className="bg-gradient-to-br from-zinc-900 to-black p-6 relative">
           {/* Foto de Perfil */}
-          {profile.foto_perfil && (
+          {fotoPerfilUrl && (
             <div 
               className="mb-4 cursor-pointer group"
-              onClick={() => setZoomFoto(resolveMediaUrl(profile.foto_perfil, API_URL))}
+              onClick={() => setZoomFoto(fotoPerfilUrl)}
             >
               <img 
-                src={resolveMediaUrl(profile.foto_perfil, API_URL)} 
+                src={fotoPerfilUrl} 
                 alt={profile.nome} 
                 className="w-24 h-24 rounded-full border-4 border-zinc-800 object-cover group-hover:opacity-80 transition-opacity"
               />

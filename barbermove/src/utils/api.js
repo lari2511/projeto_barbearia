@@ -143,6 +143,12 @@ export const resolveMediaUrl = (rawUrl, baseUrl = getApiBaseUrl()) => {
   try {
     const parsedUrl = new URL(value);
 
+    // Em páginas HTTPS, força mídia HTTP para HTTPS quando possível,
+    // evitando bloqueio de mixed-content em foto/portfólio.
+    if (protocol === 'https' && parsedUrl.protocol === 'http:') {
+      parsedUrl.protocol = 'https:';
+    }
+
     if (isPrivateHost(parsedUrl.hostname)) {
       return new URL(`${parsedUrl.pathname}${parsedUrl.search}${parsedUrl.hash}`, apiOrigin).toString();
     }

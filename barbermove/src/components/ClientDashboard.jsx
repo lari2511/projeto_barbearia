@@ -2002,7 +2002,7 @@ export default function ClientDashboard({ token, logout, API_URL: apiUrlProp, no
         </div>
 
         {perfilModal && (
-            <div className="fixed inset-0 bg-black/70 z-[90] flex items-center justify-center p-4">
+            <div className="fixed inset-0 bg-black/80 z-[2200] flex items-center justify-center p-4">
                 <div className="profile-modal bg-zinc-950 border border-zinc-800 rounded-2xl w-full max-w-[420px] max-h-[90vh] overflow-y-auto p-4">
                     <div className="flex justify-between items-center mb-3">
                         <h3 className="text-sm font-bold text-white">Perfil</h3>
