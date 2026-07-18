@@ -11,6 +11,7 @@ import os
 
 from app.database import get_db
 from app.models import Barbearia, Cadeira, StatusCadeira, Assinatura, AssinaturaBarbearia, Usuario
+from app.plan_policy import merge_with_free_test_limit, is_test_barbershop_profile
 from app.schemas import (
     CadeiraCreate,
     CadeiraUpdate,
@@ -63,7 +64,16 @@ def _validar_limite_cadeiras_ativas(db: Session, barbearia_id: int, cadeira_id_a
     assinatura = _buscar_assinatura_barbearia(barbearia_id, db)
     assinatura_ativa, limite_cadeiras = _assinatura_ativa_e_limite(assinatura)
 
-    if not assinatura_ativa or limite_cadeiras <= 0:
+    barbearia = db.query(Barbearia).filter(Barbearia.id == barbearia_id).first()
+    usuario = db.query(Usuario).filter(Usuario.id == barbearia.usuario_id).first() if barbearia else None
+
+    limite_efetivo = merge_with_free_test_limit(
+        paid_limit=limite_cadeiras,
+        usuario=usuario,
+        barbearia=barbearia,
+    )
+
+    if (not assinatura_ativa and limite_efetivo <= 0) or limite_efetivo <= 0:
         raise HTTPException(
             status_code=status.HTTP_402_PAYMENT_REQUIRED,
             detail="Assinatura inativa ou inexistente. Regularize seu plano para acionar cadeiras."
@@ -78,12 +88,17 @@ def _validar_limite_cadeiras_ativas(db: Session, barbearia_id: int, cadeira_id_a
         query_ativas = query_ativas.filter(Cadeira.id != cadeira_id_atual)
 
     cadeiras_ativas = query_ativas.count()
-    return limite_cadeiras, cadeiras_ativas
+    return limite_efetivo, cadeiras_ativas
 
 
 def verificar_assinatura_ativa(barbearia_id: int, db: Session):
     """Verifica se a barbearia tem assinatura ativa"""
     if not ASSINATURA_OBRIGATORIA:
+        return True
+
+    barbearia = db.query(Barbearia).filter(Barbearia.id == barbearia_id).first()
+    usuario = db.query(Usuario).filter(Usuario.id == barbearia.usuario_id).first() if barbearia else None
+    if is_test_barbershop_profile(usuario=usuario, barbearia=barbearia):
         return True
 
     assinatura = db.query(Assinatura).filter(

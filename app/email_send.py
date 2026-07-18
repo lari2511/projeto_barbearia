@@ -7,6 +7,7 @@ from pydantic import EmailStr
 from dotenv import load_dotenv
 from pathlib import Path
 from typing import Optional
+import requests
 
 load_dotenv()
 
@@ -62,6 +63,113 @@ conf = ConnectionConfig(
 fm = FastMail(conf)
 
 
+def _brevo_api_key() -> str:
+    return _first_env("BREVO_API_KEY", "SENDINBLUE_API_KEY")
+
+
+def _brevo_sender_email() -> str:
+    return _first_env("BREVO_SENDER_EMAIL", "MAIL_FROM", "SMTP_FROM")
+
+
+def _brevo_sender_name() -> str:
+    return _first_env("BREVO_SENDER_NAME", "MAIL_FROM_NAME", default="BarberMove")
+
+
+def _send_via_brevo_api(
+    to_email: str,
+    subject: str,
+    html_body: str,
+    text_body: str,
+) -> bool:
+    api_key = _brevo_api_key()
+    sender_email = _brevo_sender_email()
+    if not api_key or not sender_email:
+        return False
+
+    payload = {
+        "sender": {"name": _brevo_sender_name(), "email": sender_email},
+        "to": [{"email": to_email}],
+        "subject": subject,
+        "htmlContent": html_body,
+        "textContent": text_body,
+    }
+    headers = {
+        "api-key": api_key,
+        "Content-Type": "application/json",
+    }
+
+    try:
+        response = requests.post(
+            "https://api.brevo.com/v3/smtp/email",
+            json=payload,
+            headers=headers,
+            timeout=20,
+        )
+        if response.status_code in (200, 201, 202):
+            print(f"✅ [BREVO API] E-mail enviado para {to_email}")
+            return True
+
+        print(
+            f"❌ [BREVO API] Falha no envio para {to_email}: "
+            f"HTTP {response.status_code} - {response.text}"
+        )
+        return False
+    except Exception as exc:  # noqa: BLE001
+        print(f"❌ [BREVO API] Exceção no envio para {to_email}: {exc}")
+        return False
+
+
+def _resend_api_key() -> str:
+    return _first_env("RESEND_API_KEY")
+
+
+def _resend_from_email() -> str:
+    return _first_env("RESEND_FROM", "MAIL_FROM", "SMTP_FROM", default="onboarding@resend.dev")
+
+
+def _send_via_resend_api(
+    to_email: str,
+    subject: str,
+    html_body: str,
+    text_body: str,
+) -> bool:
+    api_key = _resend_api_key()
+    if not api_key:
+        return False
+
+    payload = {
+        "from": _resend_from_email(),
+        "to": [to_email],
+        "subject": subject,
+        "html": html_body,
+        "text": text_body,
+    }
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+    }
+
+    try:
+        response = requests.post(
+            "https://api.resend.com/emails",
+            json=payload,
+            headers=headers,
+            timeout=20,
+        )
+        if response.status_code in (200, 201, 202):
+            print(f"✅ [RESEND API] E-mail enviado para {to_email}")
+            return True
+
+        print(
+            f"❌ [RESEND API] Falha no envio para {to_email}: "
+            f"HTTP {response.status_code} - {response.text}"
+        )
+        return False
+    except Exception as exc:  # noqa: BLE001
+        print(f"❌ [RESEND API] Exceção no envio para {to_email}: {exc}")
+        return False
+
+
 def _build_verification_link(token_verification: str) -> str:
     verification_link_base = os.getenv("VERIFICATION_LINK_BASE", "").strip()
     public_api_base = _resolve_public_api_base()
@@ -87,8 +195,39 @@ async def send_verification_email(email_to: EmailStr, token_verification: str, u
         "support_email": "suporte@barbermovie.com",
     }
 
+    subject = "BarberMove - Confirme seu cadastro"
+    html_body = (
+        f"<p>Olá, {user_name}!</p>"
+        f"<p>Confirme seu email para ativar a conta.</p>"
+        f"<p><a href='{verify_link}'>Verificar email</a></p>"
+        f"<p>Ou copie e cole no navegador: {verify_link}</p>"
+    )
+    text_body = (
+        f"Olá, {user_name}!\n"
+        "Confirme seu email para ativar a conta.\n"
+        f"Link: {verify_link}\n"
+    )
+
+    # Produção em Railway: prioriza API HTTP (Brevo/Resend).
+    # Se não houver API key, cai automaticamente no SMTP configurado (ex.: Gmail App Password).
+    if _send_via_brevo_api(
+        to_email=str(email_to),
+        subject=subject,
+        html_body=html_body,
+        text_body=text_body,
+    ):
+        return True
+
+    if _send_via_resend_api(
+        to_email=str(email_to),
+        subject=subject,
+        html_body=html_body,
+        text_body=text_body,
+    ):
+        return True
+
     message = MessageSchema(
-        subject="BarberMove - Confirme seu cadastro",
+        subject=subject,
         recipients=[email_to],
         template_body=template_body,
         subtype=MessageType.html,
@@ -109,20 +248,8 @@ async def send_verification_email(email_to: EmailStr, token_verification: str, u
 
         try:
             from .email_utils import send_email
-
-            html_body = (
-                f"<p>Olá, {user_name}!</p>"
-                f"<p>Confirme seu email para ativar a conta.</p>"
-                f"<p><a href='{verify_link}'>Verificar email</a></p>"
-                f"<p>Ou copie e cole no navegador: {verify_link}</p>"
-            )
-            text_body = (
-                f"Olá, {user_name}!\n"
-                "Confirme seu email para ativar a conta.\n"
-                f"Link: {verify_link}\n"
-            )
             return send_email(
-                subject="BarberMove - Confirme seu cadastro",
+                subject=subject,
                 to_email=email_to,
                 html_body=html_body,
                 text_body=text_body,

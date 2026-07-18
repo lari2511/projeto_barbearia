@@ -8,6 +8,7 @@ from datetime import datetime
 from app.database import get_db
 from app import models
 from app.routes import get_current_user
+from app.plan_policy import is_test_barbershop_profile
 
 
 async def verificar_barbearia_ativa(
@@ -36,9 +37,11 @@ async def verificar_barbearia_ativa(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Barbearia não encontrada"
         )
+
+    perfil_teste = is_test_barbershop_profile(usuario=usuario_atual, barbearia=barbearia)
     
     # Verificar se está bloqueada
-    if barbearia.bloqueada:
+    if barbearia.bloqueada and not perfil_teste:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail={
@@ -54,7 +57,7 @@ async def verificar_barbearia_ativa(
     ).first()
     
     # Se não tem assinatura, bloqueia (precisa contratar)
-    if not assinatura:
+    if not assinatura and not perfil_teste:
         raise HTTPException(
             status_code=status.HTTP_402_PAYMENT_REQUIRED,
             detail={
@@ -62,9 +65,12 @@ async def verificar_barbearia_ativa(
                 "mensagem": "Você precisa contratar uma assinatura para usar o app. Escolha quantas cadeiras deseja ativar."
             }
         )
+
+    if not assinatura and perfil_teste:
+        return usuario_atual
     
     # Verificar se assinatura está vencida
-    if assinatura.status == "inadimplente" or assinatura.proximo_vencimento < datetime.utcnow():
+    if (assinatura.status == "inadimplente" or assinatura.proximo_vencimento < datetime.utcnow()) and not perfil_teste:
         # Bloquear automaticamente a barbearia
         if not barbearia.bloqueada:
             barbearia.bloqueada = True

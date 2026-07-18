@@ -16,6 +16,7 @@ import base64
 from app.database import get_db
 from app import models
 from app.routes import get_current_user, oauth2_scheme
+from app.plan_policy import merge_with_free_test_limit, is_test_barbershop_profile
 
 router = APIRouter(prefix="/assinaturas", tags=["Assinaturas"])
 
@@ -691,8 +692,13 @@ def verificar_limite_cadeiras(
     assinatura = db.query(models.AssinaturaBarbearia).filter(
         models.AssinaturaBarbearia.barbearia_id == barbearia.id
     ).first()
-    
-    cadeiras_contratadas = assinatura.quantidade_cadeiras if assinatura else 0
+
+    cadeiras_pagamento = assinatura.quantidade_cadeiras if assinatura else 0
+    cadeiras_contratadas = merge_with_free_test_limit(
+        paid_limit=cadeiras_pagamento,
+        usuario=usuario_atual,
+        barbearia=barbearia,
+    )
     
     # Contar cadeiras ocupadas
     cadeiras_ocupadas = db.query(models.Cadeira).filter(
@@ -707,6 +713,8 @@ def verificar_limite_cadeiras(
     
     return {
         "cadeiras_contratadas": cadeiras_contratadas,
+        "cadeiras_pagamento": cadeiras_pagamento,
+        "perfil_teste": is_test_barbershop_profile(usuario=usuario_atual, barbearia=barbearia),
         "cadeiras_ocupadas": cadeiras_ocupadas,
         "cadeiras_disponiveis": max(0, cadeiras_contratadas - cadeiras_ocupadas),
         "total_cadastradas": total_cadastradas,
