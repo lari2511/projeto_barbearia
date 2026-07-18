@@ -551,6 +551,77 @@ def criar_assinatura_alias(
     return contratar_ou_atualizar_assinatura(dados=dados, db=db, usuario_atual=usuario_atual)
 
 
+@router.post("/teste/definir-cadeiras", response_model=AssinaturaResponse)
+def definir_cadeiras_teste(
+    dados: AssinaturaCreate,
+    db: Session = Depends(get_db),
+    usuario_atual = Depends(get_current_user)
+):
+    """Define quantidade de cadeiras imediatamente para perfil de teste."""
+    if usuario_atual.tipo != "barbearia":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Apenas donos de barbearia podem alterar cadeiras"
+        )
+
+    if dados.cadeiras_ativas < 1 or dados.cadeiras_ativas > 50:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Número de cadeiras deve estar entre 1 e 50"
+        )
+
+    barbearia = db.query(models.Barbearia).filter(
+        models.Barbearia.usuario_id == usuario_atual.id
+    ).first()
+
+    if not barbearia:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Barbearia não encontrada"
+        )
+
+    if not is_test_barbershop_profile(usuario=usuario_atual, barbearia=barbearia):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Endpoint permitido apenas para perfil de teste"
+        )
+
+    metodo_pagamento = normalizar_metodo_pagamento(dados.metodo_pagamento)
+    assinatura = db.query(models.AssinaturaBarbearia).filter(
+        models.AssinaturaBarbearia.barbearia_id == barbearia.id
+    ).first()
+
+    agora = datetime.now()
+    calculo = calcular_valor_assinatura(dados.cadeiras_ativas)
+
+    if not assinatura:
+        assinatura = models.AssinaturaBarbearia(
+            barbearia_id=barbearia.id,
+            quantidade_cadeiras=dados.cadeiras_ativas,
+            valor_mensalidade=calculo["valor_total"],
+            valor_por_cadeira=json.dumps(calculo["breakdown"]),
+            economia_mensal=calculo["economia"],
+            metodo_pagamento_preferido=metodo_pagamento,
+            dia_vencimento=agora.day,
+            proximo_vencimento=calcular_proxima_cobranca_individual(agora),
+            status="ativa",
+        )
+        db.add(assinatura)
+    else:
+        assinatura.quantidade_cadeiras = dados.cadeiras_ativas
+        assinatura.valor_mensalidade = calculo["valor_total"]
+        assinatura.valor_por_cadeira = json.dumps(calculo["breakdown"])
+        assinatura.economia_mensal = calculo["economia"]
+        assinatura.metodo_pagamento_preferido = metodo_pagamento
+        assinatura.status = "ativa"
+        assinatura.motivo_suspensao = None
+        assinatura.ultima_atualizacao = agora
+
+    db.commit()
+    db.refresh(assinatura)
+    return serializar_assinatura(assinatura)
+
+
 @router.post("/renovar", response_model=AssinaturaResponse)
 def renovar_assinatura(
     dados: AssinaturaRenovar = AssinaturaRenovar(),

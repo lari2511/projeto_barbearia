@@ -906,7 +906,7 @@ export function TelaPerfilUsuario({
 
       if (perfilTipo === 'barbearia' && barbeariaId) {
         if (perfilBarbeariaTeste) {
-          const criarRes = await fetch(`${apiBase}/api/v1/assinaturas/criar`, {
+          const criarRes = await fetch(`${apiBase}/api/v1/assinaturas/teste/definir-cadeiras`, {
             method: 'POST',
             headers: {
               Authorization: `Bearer ${token}`,
