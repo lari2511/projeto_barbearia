@@ -5,7 +5,7 @@ Sistema de cobrança por cadeira com desconto progressivo
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from datetime import datetime, timedelta
-from typing import Optional
+from typing import Optional, List
 from pydantic import BaseModel
 import calendar
 import json
@@ -18,6 +18,10 @@ from app import models
 from app.routes import get_current_user, oauth2_scheme
 
 router = APIRouter(prefix="/assinaturas", tags=["Assinaturas"])
+
+PRECO_CADEIRA_CHEIO = 47.90
+PRECOS_PROGRESSIVOS_INICIAIS = [47.90, 37.90, 27.90, 20.90, 17.90]
+PRECO_PROGRESSIVO_MINIMO = 17.90
 
 
 class AssinaturaCreate(BaseModel):
@@ -36,6 +40,23 @@ class AssinaturaResponse(BaseModel):
     
     class Config:
         from_attributes = True
+
+
+class CadeiraContratadaItemResponse(BaseModel):
+    cadeira_contratada_id: int
+    numero_referencia: int
+    origem: str
+    valor_individual: float
+    data_contratacao: datetime
+    data_proxima_cobranca: datetime
+    ativa: bool
+
+
+class PainelCadeirasResponse(BaseModel):
+    barbearia_id: int
+    total_cadeiras_ativas: int
+    valor_total_mensal: float
+    cadeiras: List[CadeiraContratadaItemResponse]
 
 
 class AssinaturaRenovar(BaseModel):
@@ -63,6 +84,140 @@ def normalizar_metodo_pagamento(metodo: Optional[str]) -> str:
             detail="Metodo de pagamento invalido. Use: pix, cartao, cartao_credito, cartao_debito ou dinheiro"
         )
     return metodo_normalizado
+
+
+def calcular_proxima_cobranca_individual(data_base: datetime, dia_preferido: Optional[int] = None) -> datetime:
+    """Calcula a próxima cobrança no mesmo dia do mês seguinte (com ajuste de mês curto)."""
+    dia = dia_preferido or data_base.day
+    return _proximo_vencimento_mensal(data_base, dia)
+
+
+def _preco_progressivo_por_posicao(posicao: int) -> float:
+    if posicao <= 0:
+        raise ValueError("Posição da cadeira deve ser maior que zero")
+
+    if posicao <= len(PRECOS_PROGRESSIVOS_INICIAIS):
+        return PRECOS_PROGRESSIVOS_INICIAIS[posicao - 1]
+
+    return PRECO_PROGRESSIVO_MINIMO
+
+
+def calcular_precos_compra_inicial(quantidade: int) -> List[float]:
+    if quantidade <= 0:
+        return []
+    return [round(_preco_progressivo_por_posicao(i), 2) for i in range(1, quantidade + 1)]
+
+
+def calcular_precos_cadeiras_adicionais(quantidade: int) -> List[float]:
+    if quantidade <= 0:
+        return []
+    return [round(PRECO_CADEIRA_CHEIO, 2) for _ in range(quantidade)]
+
+
+def _serializar_cadeira_contratada(cadeira: models.CadeiraContratada) -> dict:
+    origem = "Compra Inicial" if cadeira.origem_contratacao == models.OrigemContratacaoCadeira.COMPRA_INICIAL.value else "Adicional"
+    return {
+        "cadeira_contratada_id": cadeira.id,
+        "numero_referencia": cadeira.numero_referencia,
+        "origem": origem,
+        "valor_individual": round(float(cadeira.valor_mensal or 0), 2),
+        "data_contratacao": cadeira.data_contratacao,
+        "data_proxima_cobranca": cadeira.data_proxima_cobranca,
+        "ativa": bool(cadeira.ativa),
+    }
+
+
+def _barbearia_tem_historico_contratacao(db: Session, barbearia_id: int) -> bool:
+    total_historico = db.query(models.CadeiraContratada).filter(
+        models.CadeiraContratada.barbearia_id == barbearia_id
+    ).count()
+
+    if total_historico > 0:
+        return True
+
+    assinatura_existente = db.query(models.AssinaturaBarbearia).filter(
+        models.AssinaturaBarbearia.barbearia_id == barbearia_id
+    ).first()
+
+    return bool(assinatura_existente and (assinatura_existente.quantidade_cadeiras or 0) > 0)
+
+
+def _proximo_numero_referencia(db: Session, barbearia_id: int) -> int:
+    ultimo = db.query(models.CadeiraContratada).filter(
+        models.CadeiraContratada.barbearia_id == barbearia_id
+    ).order_by(models.CadeiraContratada.numero_referencia.desc()).first()
+
+    return (ultimo.numero_referencia + 1) if ultimo else 1
+
+
+def _resumo_ativo_cadeiras(db: Session, assinatura_id: int) -> List[models.CadeiraContratada]:
+    return db.query(models.CadeiraContratada).filter(
+        models.CadeiraContratada.assinatura_id == assinatura_id,
+        models.CadeiraContratada.ativa.is_(True),
+    ).order_by(models.CadeiraContratada.numero_referencia.asc()).all()
+
+
+def _sincronizar_totais_assinatura(
+    assinatura: models.AssinaturaBarbearia,
+    cadeiras_ativas: List[models.CadeiraContratada],
+    referencia: datetime,
+):
+    breakdown = [round(float(c.valor_mensal or 0), 2) for c in cadeiras_ativas]
+    total = round(sum(breakdown), 2)
+    economia = round((len(breakdown) * PRECO_CADEIRA_CHEIO) - total, 2) if breakdown else 0.0
+
+    assinatura.quantidade_cadeiras = len(cadeiras_ativas)
+    assinatura.valor_mensalidade = total
+    assinatura.valor_por_cadeira = json.dumps(breakdown)
+    assinatura.economia_mensal = economia
+    assinatura.ultima_atualizacao = referencia
+
+    if cadeiras_ativas:
+        assinatura.dia_vencimento = cadeiras_ativas[0].data_contratacao.day
+        assinatura.proximo_vencimento = min(cadeiras_ativas, key=lambda c: c.data_proxima_cobranca).data_proxima_cobranca
+    else:
+        assinatura.proximo_vencimento = referencia + timedelta(days=30)
+
+
+def _registrar_cadeiras(
+    db: Session,
+    assinatura: models.AssinaturaBarbearia,
+    quantidade: int,
+    origem: str,
+    precos: List[float],
+    data_contratacao: datetime,
+):
+    numero_ref = _proximo_numero_referencia(db, assinatura.barbearia_id)
+    for i in range(quantidade):
+        data_proxima = calcular_proxima_cobranca_individual(data_contratacao)
+        db.add(models.CadeiraContratada(
+            assinatura_id=assinatura.id,
+            barbearia_id=assinatura.barbearia_id,
+            numero_referencia=numero_ref + i,
+            origem_contratacao=origem,
+            valor_mensal=precos[i],
+            data_contratacao=data_contratacao,
+            data_proxima_cobranca=data_proxima,
+            ativa=True,
+        ))
+
+
+def _avancar_ciclo_cobranca_cadeiras(
+    cadeiras_ativas: List[models.CadeiraContratada],
+    referencia: datetime,
+    apenas_vencidas: bool = False,
+) -> int:
+    """Avança a próxima cobrança de cada cadeira em um mês de calendário."""
+    atualizadas = 0
+    for cadeira in cadeiras_ativas:
+        if apenas_vencidas and cadeira.data_proxima_cobranca > referencia:
+            continue
+
+        base = cadeira.data_proxima_cobranca or cadeira.data_contratacao or referencia
+        cadeira.data_proxima_cobranca = calcular_proxima_cobranca_individual(base, cadeira.data_contratacao.day)
+        atualizadas += 1
+
+    return atualizadas
 
 
 def serializar_assinatura(assinatura: models.AssinaturaBarbearia) -> dict:
@@ -131,23 +286,11 @@ def calcular_valor_assinatura(num_cadeiras: int):
     - 5ª cadeira: R$ 17,90
     - 6ª em diante: R$ 17,90 (piso mínimo)
     """
-    precos_base = [47.90, 37.90, 27.90, 20.90, 17.90]
-    preco_minimo = 17.90
-    
-    total = 0
-    breakdown = []
-    
-    for i in range(num_cadeiras):
-        if i < len(precos_base):
-            preco = precos_base[i]
-        else:
-            preco = preco_minimo
-        
-        total += preco
-        breakdown.append(preco)
+    breakdown = calcular_precos_compra_inicial(num_cadeiras)
+    total = sum(breakdown)
     
     # Calcular economia (comparando com o preço da 1ª cadeira)
-    preco_sem_desconto = num_cadeiras * 47.90
+    preco_sem_desconto = num_cadeiras * PRECO_CADEIRA_CHEIO
     economia = preco_sem_desconto - total if num_cadeiras > 1 else 0
     
     return {
@@ -230,52 +373,110 @@ def contratar_ou_atualizar_assinatura(
             detail="Barbearia não encontrada"
         )
     
-    # Calcular valores
-    calculo = calcular_valor_assinatura(dados.cadeiras_ativas)
-    
     # Verificar se já tem assinatura
     assinatura = db.query(models.AssinaturaBarbearia).filter(
         models.AssinaturaBarbearia.barbearia_id == barbearia.id
     ).first()
-    
+
+    agora = datetime.now()
+
     if assinatura:
-        # Atualizar assinatura existente
-        assinatura.quantidade_cadeiras = dados.cadeiras_ativas
-        assinatura.valor_mensalidade = calculo["valor_total"]
-        assinatura.valor_por_cadeira = json.dumps(calculo["breakdown"])
-        assinatura.economia_mensal = calculo["economia"]
+        cadeiras_ativas = _resumo_ativo_cadeiras(db, assinatura.id)
+        quantidade_atual = len(cadeiras_ativas)
+
+        if quantidade_atual == 0 and (assinatura.quantidade_cadeiras or 0) > 0:
+            # Migração compatível: assinaturas antigas sem histórico de cadeira.
+            precos_legado = calcular_precos_cadeiras_adicionais(assinatura.quantidade_cadeiras)
+            _registrar_cadeiras(
+                db=db,
+                assinatura=assinatura,
+                quantidade=assinatura.quantidade_cadeiras,
+                origem=models.OrigemContratacaoCadeira.ADICIONAL.value,
+                precos=precos_legado,
+                data_contratacao=assinatura.criado_em or agora,
+            )
+            db.flush()
+            cadeiras_ativas = _resumo_ativo_cadeiras(db, assinatura.id)
+            quantidade_atual = len(cadeiras_ativas)
+
+        if dados.cadeiras_ativas > quantidade_atual:
+            quantidade_novas = dados.cadeiras_ativas - quantidade_atual
+            precos_novas = calcular_precos_cadeiras_adicionais(quantidade_novas)
+            _registrar_cadeiras(
+                db=db,
+                assinatura=assinatura,
+                quantidade=quantidade_novas,
+                origem=models.OrigemContratacaoCadeira.ADICIONAL.value,
+                precos=precos_novas,
+                data_contratacao=agora,
+            )
+
+        if dados.cadeiras_ativas < quantidade_atual:
+            quantidade_retirar = quantidade_atual - dados.cadeiras_ativas
+            cadeiras_para_desativar = db.query(models.CadeiraContratada).filter(
+                models.CadeiraContratada.assinatura_id == assinatura.id,
+                models.CadeiraContratada.ativa.is_(True),
+            ).order_by(models.CadeiraContratada.numero_referencia.desc()).limit(quantidade_retirar).all()
+
+            for cadeira in cadeiras_para_desativar:
+                cadeira.ativa = False
+                cadeira.cancelada_em = agora
+
+        cadeiras_ativas = _resumo_ativo_cadeiras(db, assinatura.id)
+        _sincronizar_totais_assinatura(assinatura, cadeiras_ativas, agora)
         assinatura.metodo_pagamento_preferido = metodo_pagamento
-        assinatura.ultima_atualizacao = datetime.now()
-        
+
         # Se estava suspensa/cancelada, reativar
         if assinatura.status in ["suspensa", "cancelada", "inadimplente"]:
             assinatura.status = "ativa"
             assinatura.motivo_suspensao = None
-            
+
         db.commit()
         db.refresh(assinatura)
-        
+
         return serializar_assinatura(assinatura)
     else:
-        # Criar nova assinatura
-        proximo_vencimento = datetime.now() + timedelta(days=30)
-        
+        primeira_compra = not _barbearia_tem_historico_contratacao(db, barbearia.id)
+        precos = (
+            calcular_precos_compra_inicial(dados.cadeiras_ativas)
+            if primeira_compra else
+            calcular_precos_cadeiras_adicionais(dados.cadeiras_ativas)
+        )
+
         nova_assinatura = models.AssinaturaBarbearia(
             barbearia_id=barbearia.id,
-            quantidade_cadeiras=dados.cadeiras_ativas,
-            valor_mensalidade=calculo["valor_total"],
-            valor_por_cadeira=json.dumps(calculo["breakdown"]),
-            economia_mensal=calculo["economia"],
+            quantidade_cadeiras=0,
+            valor_mensalidade=0,
+            valor_por_cadeira=json.dumps([]),
+            economia_mensal=0,
             metodo_pagamento_preferido=metodo_pagamento,
-            dia_vencimento=10,
-            proximo_vencimento=proximo_vencimento,
+            dia_vencimento=agora.day,
+            proximo_vencimento=calcular_proxima_cobranca_individual(agora),
             status="ativa"
         )
-        
+
         db.add(nova_assinatura)
+        db.flush()
+
+        _registrar_cadeiras(
+            db=db,
+            assinatura=nova_assinatura,
+            quantidade=dados.cadeiras_ativas,
+            origem=(
+                models.OrigemContratacaoCadeira.COMPRA_INICIAL.value
+                if primeira_compra
+                else models.OrigemContratacaoCadeira.ADICIONAL.value
+            ),
+            precos=precos,
+            data_contratacao=agora,
+        )
+
+        cadeiras_ativas = _resumo_ativo_cadeiras(db, nova_assinatura.id)
+        _sincronizar_totais_assinatura(nova_assinatura, cadeiras_ativas, agora)
+
         db.commit()
         db.refresh(nova_assinatura)
-        
+
         return serializar_assinatura(nova_assinatura)
 
 
@@ -286,6 +487,53 @@ def obter_minha_assinatura_alias(
 ):
     """Alias para compatibilidade com o frontend novo."""
     return obter_minha_assinatura(db=db, usuario_atual=usuario_atual)
+
+
+@router.get("/painel-cadeiras", response_model=PainelCadeirasResponse)
+def obter_painel_cadeiras(
+    db: Session = Depends(get_db),
+    usuario_atual = Depends(get_current_user)
+):
+    """Retorna o detalhamento das cadeiras contratadas para o painel da barbearia."""
+    if usuario_atual.tipo != "barbearia":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Apenas donos de barbearia podem acessar o painel de cadeiras"
+        )
+
+    barbearia = db.query(models.Barbearia).filter(
+        models.Barbearia.usuario_id == usuario_atual.id
+    ).first()
+
+    if not barbearia:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Barbearia não encontrada"
+        )
+
+    assinatura = db.query(models.AssinaturaBarbearia).filter(
+        models.AssinaturaBarbearia.barbearia_id == barbearia.id
+    ).first()
+
+    if not assinatura:
+        return {
+            "barbearia_id": barbearia.id,
+            "total_cadeiras_ativas": 0,
+            "valor_total_mensal": 0.0,
+            "cadeiras": [],
+        }
+
+    cadeiras_ativas = _resumo_ativo_cadeiras(db, assinatura.id)
+    _sincronizar_totais_assinatura(assinatura, cadeiras_ativas, datetime.now())
+    db.commit()
+    db.refresh(assinatura)
+
+    return {
+        "barbearia_id": barbearia.id,
+        "total_cadeiras_ativas": len(cadeiras_ativas),
+        "valor_total_mensal": round(assinatura.valor_mensalidade or 0, 2),
+        "cadeiras": [_serializar_cadeira_contratada(c) for c in cadeiras_ativas],
+    }
 
 
 @router.post("/criar", response_model=AssinaturaResponse)
@@ -332,7 +580,13 @@ def renovar_assinatura(
         )
 
     agora = datetime.now()
-    assinatura.proximo_vencimento = _calcular_novo_vencimento_assinatura(assinatura, agora)
+    cadeiras_ativas = _resumo_ativo_cadeiras(db, assinatura.id)
+    if cadeiras_ativas:
+        _avancar_ciclo_cobranca_cadeiras(cadeiras_ativas, agora)
+        _sincronizar_totais_assinatura(assinatura, cadeiras_ativas, agora)
+    else:
+        assinatura.proximo_vencimento = _calcular_novo_vencimento_assinatura(assinatura, agora)
+
     assinatura.status = "ativa"
     assinatura.motivo_suspensao = None
     assinatura.ultima_atualizacao = agora
@@ -511,6 +765,7 @@ def pagar_mensalidade(
     _normalizar_vencimento_adiantado(assinatura, hoje)
 
     vencimento_referencia = assinatura.proximo_vencimento or datetime.now()
+    cadeiras_ativas = _resumo_ativo_cadeiras(db, assinatura.id)
 
     # Exigir confirmacao explicita do PIX para evitar pagamento "automatico" sem etapa de QR
     if metodo_pagamento == "pix" and not dados.confirmar_pix:
@@ -540,11 +795,16 @@ def pagar_mensalidade(
                 detail="CVV invalido"
             )
 
-    # Calcular novo vencimento mensal por mês de calendário.
-    novo_vencimento = _calcular_novo_vencimento_assinatura(assinatura, hoje)
+    # Avança somente cadeiras vencidas para respeitar ciclos individuais.
+    atualizadas = _avancar_ciclo_cobranca_cadeiras(cadeiras_ativas, hoje, apenas_vencidas=True)
+    if atualizadas == 0 and cadeiras_ativas:
+        # Segurança operacional: se nenhuma venceu, ainda assim permite antecipar 1 ciclo.
+        _avancar_ciclo_cobranca_cadeiras(cadeiras_ativas, hoje, apenas_vencidas=False)
+
+    _sincronizar_totais_assinatura(assinatura, cadeiras_ativas, hoje)
+    novo_vencimento = assinatura.proximo_vencimento
 
     # Atualizar assinatura
-    assinatura.proximo_vencimento = novo_vencimento
     assinatura.status = "ativa"
     assinatura.motivo_suspensao = None
     assinatura.ultima_atualizacao = hoje

@@ -51,6 +51,12 @@ class OrigemCliente(str, enum.Enum):
     APP = "app"          # Cliente veio pelo BarberMovie (gera comissão)
     PROPRIO = "proprio"  # Cliente próprio do freelancer (sem comissão)
 
+
+class OrigemContratacaoCadeira(str, enum.Enum):
+    """Origem da contratação da cadeira no plano da barbearia."""
+    COMPRA_INICIAL = "compra_inicial"
+    ADICIONAL = "adicional"
+
 class BarbeariaFreelancer(Base):
     """Relacionamento entre barbearias e freelancers (para bloqueios)"""
     __tablename__ = "barbearia_freelancer"
@@ -860,6 +866,36 @@ class AssinaturaBarbearia(Base):
     # Relationships
     barbearia = relationship("Barbearia")
     faturas = relationship("FaturaAssinatura", back_populates="assinatura")
+    cadeiras_contratadas = relationship("CadeiraContratada", back_populates="assinatura")
+
+
+class CadeiraContratada(Base):
+    """Controle individual de cobrança por cadeira contratada."""
+    __tablename__ = "cadeiras_contratadas"
+
+    id = Column(Integer, primary_key=True, index=True)
+    assinatura_id = Column(Integer, ForeignKey("assinaturas_barbearia.id"), nullable=False, index=True)
+    barbearia_id = Column(Integer, ForeignKey("barbearias.id"), nullable=False, index=True)
+
+    numero_referencia = Column(Integer, nullable=False)  # Número sequencial no histórico da barbearia
+    origem_contratacao = Column(String, default=OrigemContratacaoCadeira.COMPRA_INICIAL.value, nullable=False)
+    valor_mensal = Column(Float, nullable=False)
+
+    data_contratacao = Column(DateTime, nullable=False)
+    data_proxima_cobranca = Column(DateTime, nullable=False, index=True)
+
+    ativa = Column(Boolean, default=True, index=True)
+    cancelada_em = Column(DateTime, nullable=True)
+
+    criado_em = Column(DateTime, default=datetime.utcnow)
+    atualizado_em = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    __table_args__ = (
+        UniqueConstraint("barbearia_id", "numero_referencia", name="uq_cadeira_contratada_num_ref"),
+    )
+
+    assinatura = relationship("AssinaturaBarbearia", back_populates="cadeiras_contratadas")
+    barbearia = relationship("Barbearia")
 
 
 class FaturaAssinatura(Base):
