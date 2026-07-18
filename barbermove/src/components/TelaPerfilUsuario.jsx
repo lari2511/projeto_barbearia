@@ -341,6 +341,7 @@ export function TelaPerfilUsuario({
   const [fotoPerfilFalhou, setFotoPerfilFalhou] = useState(false);
 
   const [barbeariaId, setBarbeariaId] = useState(null);
+  const [perfilBarbeariaTeste, setPerfilBarbeariaTeste] = useState(false);
   const [cadeirasPlano, setCadeirasPlano] = useState(1);
   const [cadeirasPlanoSalvas, setCadeirasPlanoSalvas] = useState(1);
   const [metodoPagamentoPlano, setMetodoPagamentoPlano] = useState('pix');
@@ -390,6 +391,10 @@ export function TelaPerfilUsuario({
   const mensalidadeAnterior = useMemo(() => calcularMensalidadeTotal(cadeirasPlanoSalvas), [cadeirasPlanoSalvas]);
   const precoCadeiraAtual = useMemo(() => calcularPrecoCadeira(cadeirasPlano), [cadeirasPlano]);
   const aumentoCadeirasPendente = useMemo(() => perfilTipo === 'barbearia' && cadeirasPlano > cadeirasPlanoSalvas, [perfilTipo, cadeirasPlano, cadeirasPlanoSalvas]);
+  const exigirPagamentoMudancaCadeiras = useMemo(
+    () => aumentoCadeirasPendente && !perfilBarbeariaTeste,
+    [aumentoCadeirasPendente, perfilBarbeariaTeste]
+  );
   const acrescimoMensalPlano = useMemo(() => Number(Math.max(0, mensalidadeTotal - mensalidadeAnterior).toFixed(2)), [mensalidadeTotal, mensalidadeAnterior]);
 
   const carregarPerfil = useCallback(async () => {
@@ -473,10 +478,19 @@ export function TelaPerfilUsuario({
               setCadeirasPlano(Math.max(1, Math.min(50, qtd)));
               setCadeirasPlanoSalvas(Math.max(1, Math.min(50, qtd)));
             }
+
+            const limiteRes = await fetch(`${apiBase}/api/v1/assinaturas/verificar-limite-cadeiras`, {
+              headers: { Authorization: `Bearer ${token}` },
+            });
+            if (limiteRes.ok) {
+              const limiteData = await safeReadJson(limiteRes, {});
+              setPerfilBarbeariaTeste(Boolean(limiteData?.perfil_teste));
+            }
           }
         }
       } catch (_e) {
         // ignora erro de assinatura
+        setPerfilBarbeariaTeste(false);
       }
     }
   }, [apiBase, token, perfilTipo]);
@@ -891,7 +905,27 @@ export function TelaPerfilUsuario({
       }
 
       if (perfilTipo === 'barbearia' && barbeariaId) {
-        if (aumentoCadeirasPendente) {
+        if (perfilBarbeariaTeste) {
+          const criarRes = await fetch(`${apiBase}/api/v1/assinaturas/criar`, {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${token}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              cadeiras_ativas: cadeirasPlano,
+              metodo_pagamento: 'pix',
+            }),
+          });
+
+          const criarData = await criarRes.json().catch(() => ({}));
+          if (!criarRes.ok) {
+            throw new Error(criarData?.detail || 'Falha ao atualizar cadeiras no perfil de teste');
+          }
+
+          setPixPlano(null);
+          setCadeirasPlanoSalvas(cadeirasPlano);
+        } else if (exigirPagamentoMudancaCadeiras) {
           const metodoPlano = metodoPagamentoPlano === 'cartao' ? tipoCartaoPlano : 'pix';
 
           const criarRes = await fetch(`${apiBase}/api/v1/assinaturas/criar`, {
@@ -983,7 +1017,7 @@ export function TelaPerfilUsuario({
 
       const payload = { nome, email, telefone, fotoPerfil, cadeirasPlano, mensalidadeTotal, userType: perfilTipo };
       if (typeof aoSalvar === 'function') aoSalvar(payload);
-      if (!(aumentoCadeirasPendente && metodoPagamentoPlano === 'pix')) {
+      if (!(exigirPagamentoMudancaCadeiras && metodoPagamentoPlano === 'pix')) {
         setSaveSuccess(true);
         if (saveSuccessTimeoutRef.current) {
           clearTimeout(saveSuccessTimeoutRef.current);
@@ -992,7 +1026,14 @@ export function TelaPerfilUsuario({
           setSaveSuccess(false);
         }, 1800);
       }
-      onNotify?.(aumentoCadeirasPendente && metodoPagamentoPlano === 'pix' ? 'Perfil salvo e PIX gerado para liberar as novas cadeiras' : 'Perfil salvo com sucesso', 'success');
+      onNotify?.(
+        perfilBarbeariaTeste
+          ? 'Perfil de teste atualizado. Você pode alterar cadeiras livremente.'
+          : (exigirPagamentoMudancaCadeiras && metodoPagamentoPlano === 'pix'
+            ? 'Perfil salvo e PIX gerado para liberar as novas cadeiras'
+            : 'Perfil salvo com sucesso'),
+        'success'
+      );
     } catch (e) {
       onNotify?.(e?.message || 'Nao foi possivel salvar o perfil', 'error');
     } finally {
@@ -1241,7 +1282,14 @@ export function TelaPerfilUsuario({
               </div>
             )}
 
-            {aumentoCadeirasPendente && (
+            {perfilBarbeariaTeste && (
+              <div className="rounded-xl border border-indigo-500/30 bg-indigo-500/10 p-3">
+                <p className="text-[11px] font-bold uppercase tracking-wide text-indigo-300">Perfil de teste liberado</p>
+                <p className="mt-1 text-xs text-zinc-200">Alterações de cadeiras estão livres para este perfil, sem etapa de pagamento.</p>
+              </div>
+            )}
+
+            {exigirPagamentoMudancaCadeiras && (
               <div className="rounded-xl border border-emerald-600/30 bg-emerald-500/10 p-3 space-y-3">
                 <div>
                   <p className="text-sm font-bold text-emerald-300">Forma de pagamento para liberar as novas cadeiras</p>
@@ -1396,12 +1444,12 @@ export function TelaPerfilUsuario({
       <AppCard>
         <div className={styles.actions}>
           <button type="button" onClick={salvar} className={styles.saveBtn} disabled={saving}>
-            {saving ? (
+              {saving ? (
               <span className="inline-flex items-center gap-2">
                 <Loader size={14} className="animate-spin" />
-                {aumentoCadeirasPendente ? (metodoPagamentoPlano === 'pix' ? 'Gerando PIX...' : 'Processando cartao...') : 'Salvando...'}
+                {exigirPagamentoMudancaCadeiras ? (metodoPagamentoPlano === 'pix' ? 'Gerando PIX...' : 'Processando cartao...') : 'Salvando...'}
               </span>
-            ) : saveSuccess ? 'Salvo' : pixPlano ? 'Aguardando confirmacao do PIX' : aumentoCadeirasPendente ? (metodoPagamentoPlano === 'pix' ? 'Salvar e gerar PIX' : `Salvar e pagar com ${tipoCartaoPlano === 'cartao_debito' ? 'debito' : 'credito'}`) : 'Salvar alteracoes'}
+            ) : saveSuccess ? 'Salvo' : pixPlano ? 'Aguardando confirmacao do PIX' : exigirPagamentoMudancaCadeiras ? (metodoPagamentoPlano === 'pix' ? 'Salvar e gerar PIX' : `Salvar e pagar com ${tipoCartaoPlano === 'cartao_debito' ? 'debito' : 'credito'}`) : 'Salvar alteracoes'}
           </button>
         </div>
       </AppCard>
