@@ -121,6 +121,15 @@ export default function PainelBarberMovePremium({ token: tokenProp, logout: logo
       // sem bloqueio de UX por falha pontual
     }
   }, [token, API_URL]);
+
+  const handleStatusAtualizado = useCallback((novoPerfil) => {
+    if (!novoPerfil || typeof novoPerfil !== 'object') return;
+
+    setPerfil((atual) => ({
+      ...(atual || {}),
+      ...novoPerfil,
+    }));
+  }, []);
   
   // Buscar perfil completo
   useEffect(() => {
@@ -785,7 +794,7 @@ export default function PainelBarberMovePremium({ token: tokenProp, logout: logo
                       : 'Disponível na região'}
                   </p>
                 </div>
-                <TelaPerfilUsuario userType="barbeiro" token={token} API_URL={API_URL} onLogout={handleLogout} onNotify={notify} />
+                <TelaPerfilUsuario userType="barbeiro" token={token} API_URL={API_URL} onLogout={handleLogout} onNotify={notify} onStatusAtualizado={handleStatusAtualizado} />
               </div>
             </div>
           )}

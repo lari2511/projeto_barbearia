@@ -314,6 +314,7 @@ export function TelaPerfilUsuario({
   onNotify: onNotifyProp,
   mostrarCabecalho = true,
   permitirEdicaoFoto = true,
+  onStatusAtualizado,
 }) {
   const onNotify = useCallback((mensagem, tipo = 'info') => {
     if (typeof onNotifyProp !== 'function') return;
@@ -871,6 +872,18 @@ export function TelaPerfilUsuario({
         setBarbeariaAtualNome('');
         setBarbeariaAtualEndereco('');
       }
+
+      if (typeof onStatusAtualizado === 'function') {
+        onStatusAtualizado({
+          status_atual: statusDesejado,
+          presente_em_local: statusDesejado === 'presente',
+          online_regiao: statusDesejado === 'online',
+          disponivel: statusDesejado !== 'offline',
+          barbearia_atual_id: data?.barbearia_atual_id || (statusDesejado === 'presente' ? Number(barbeariaIdForcada || barbeariaPresencaId || 0) : null),
+          barbearia_atual_nome: data?.barbearia_atual_nome || (statusDesejado === 'presente' ? barbeariaAtualNome : null),
+        });
+      }
+
       onNotify?.(`Status atualizado para ${statusDesejado.toUpperCase()}`, 'success');
       await carregarPerfil();
     } catch (e) {
