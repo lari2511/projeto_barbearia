@@ -4,9 +4,9 @@ Cria/atualiza contas no PostgreSQL remoto (servidor) usando TARGET_DATABASE_URL.
 
 Contas padrao:
 - Admin: barbermove2024@gmail.com / Senha@123
-- Cliente: lari.nascimento20148@gmail.com / senha123
-- Barbeiro: larissavideos2018@gmail.com / senha123
-- Barbearia: allansiqueira06@gmail.com / senha123
+- Cliente: lari.nascimento20148@gmail.com / Senha@123
+- Barbeiro: larissavideos2018@gmail.com / Senha@123
+- Barbearia: allansiqueira06@gmail.com / Senha@123
 
 Uso:
   1) Defina TARGET_DATABASE_URL no terminal
@@ -60,7 +60,7 @@ def main() -> None:
     from app.database import SessionLocal
     from app.models import Usuario
 
-    pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+    pwd_context = CryptContext(schemes=["argon2", "bcrypt"], deprecated="auto")
 
     accounts = [
         Account(
@@ -75,19 +75,19 @@ def main() -> None:
             email="lari.nascimento20148@gmail.com",
             nome="Lari Nascimento",
             tipo="cliente",
-            senha="senha123",
+            senha="Senha@123",
         ),
         Account(
             email="larissavideos2018@gmail.com",
             nome="Lari",
             tipo="barbeiro",
-            senha="senha123",
+            senha="Senha@123",
         ),
         Account(
             email="allansiqueira06@gmail.com",
             nome="Allan Siqueira",
             tipo="barbearia",
-            senha="senha123",
+            senha="Senha@123",
         ),
     ]
 

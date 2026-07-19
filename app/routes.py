@@ -755,24 +755,6 @@ def cadastrar_cliente(
     )
     db.add(novo_usuario)
     db.commit()
-    # Enviar push para o cliente informando conclusão (se disponível)
-    try:
-        cliente = db.query(models.Usuario).filter(models.Usuario.id == chamado.cliente_id).first()
-        if cliente and getattr(cliente, 'device_token', None) and firebase_config.FIREBASE_DISPONIVEL:
-            try:
-                msg = firebase_config.messaging.Message(
-                    notification=firebase_config.messaging.Notification(
-                        title="Serviço Concluído",
-                        body="Seu serviço foi concluído! Não esqueça de avaliar."
-                    ),
-                    data={"tipo": "chamado_concluido", "chamado_id": str(chamado.id)},
-                    token=cliente.device_token
-                )
-                firebase_config.messaging.send(msg)
-            except Exception:
-                pass
-    except Exception:
-        pass
     db.refresh(novo_usuario)
     
     # Enviar e-mail de verificação em background (não bloqueia a resposta)
@@ -1041,11 +1023,12 @@ def login_cliente(form_data: OAuth2PasswordRequestForm = Depends(), db: Session 
     if not usuario or not verify_password(senha, usuario.senha_hash):
         raise HTTPException(status_code=401, detail="Email ou senha incorretos")
 
-    # ✅ NOVO: Se email não está verificado, avisar mas não bloquear
     email_nao_verificado = REQUIRE_EMAIL_VERIFIED and not usuario.email_verificado
     if email_nao_verificado and not DEBUG_ALLOW_UNVERIFIED_EMAIL:
-        print(f"⚠️ Email não verificado para {usuario.email}")
-        # Não bloqueia o login, apenas avisa
+        raise HTTPException(
+            status_code=403,
+            detail="Email não verificado. Verifique sua caixa de entrada ou reenvie o link.",
+        )
     
     access_token = create_access_token(data={"sub": str(usuario.id), "tipo": usuario.tipo})
     return {
