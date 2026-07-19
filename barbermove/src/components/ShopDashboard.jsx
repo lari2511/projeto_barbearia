@@ -939,7 +939,7 @@ export default function ShopDashboard({ token, logout, notify, API_URL }) {
                                     {freelancersPendentesAprovacao.map((f) => (
                                         <div key={f.usuario_id} className="bg-black/40 border border-zinc-700 rounded p-2">
                                             <p className="text-sm font-bold text-white">{f.nome}</p>
-                                            <p className="text-[11px] text-zinc-400">Perfil em análise pelo admin</p>
+                                            <p className="text-[11px] text-zinc-400">Perfil em análise</p>
                                         </div>
                                     ))}
                                 </div>

@@ -102,6 +102,17 @@ export const AppProvider = ({ children }) => {
     window.Capacitor?.isNativePlatform?.() === true
   );
 
+  useEffect(() => {
+    const tipoAtual = String(storage.get('userType') || userType || '').toLowerCase();
+    if (tipoAtual !== 'admin') return;
+
+    storage.clear();
+    setToken(null);
+    setUserType(null);
+    setUser(null);
+    notify('Perfil admin foi removido deste app. Use o painel web administrativo.', 'info');
+  }, [userType]);
+
   const reportFrontendCrash = useCallback(async (payload) => {
     const message = toReadableString(payload?.mensagem || payload?.message || 'Erro desconhecido');
     if (!message || message === 'Erro desconhecido') return;
@@ -300,6 +311,14 @@ export const AppProvider = ({ children }) => {
         dataJson.role ||
         tipo
       );
+
+      if (String(serverType || '').toLowerCase() === 'admin') {
+        storage.clear();
+        setToken(null);
+        setUserType(null);
+        setUser(null);
+        throw new Error('Perfil admin foi removido do app. Use o painel web administrativo.');
+      }
 
       storage.set('token', dataJson.access_token);
       storage.set('userType', serverType);
