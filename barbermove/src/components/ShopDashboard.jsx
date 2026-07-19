@@ -676,6 +676,10 @@ export default function ShopDashboard({ token, logout, notify, API_URL }) {
                                                             {cadeirasBarbearia.map((cadeira, index) => {
                                                                 const status = String(cadeira.status || cadeira.status_atendimento || '').trim().toLowerCase();
                                                                 const disponivel = isCadeiraDisponivel(cadeira);
+                                                                const cadeiraComVagaAberta = vagasRelampago.some((vaga) => (
+                                                                    Number(vaga?.cadeira_id) === Number(cadeira.id) &&
+                                                                    String(vaga?.status || '').toLowerCase() === 'disponivel'
+                                                                ));
                                 const statusConfig = {
                                   disponivel: { bg: 'bg-black/40', border: 'border-green-600/30', label: '🟢 Disponível', labelColor: 'text-green-400', labelBg: 'bg-green-600/20' },
                                   ocupada: { bg: 'bg-black/40', border: 'border-blue-600/30', label: '🔵 Ocupada', labelColor: 'text-blue-400', labelBg: 'bg-blue-600/20' },
@@ -701,11 +705,11 @@ export default function ShopDashboard({ token, logout, notify, API_URL }) {
                                           <>
                                                                                         <button 
                                                                                             onClick={() => acionarCadeira(cadeira.id)}
-                                                                                            disabled={acionandoCadeiraId === cadeira.id}
-                                                                                            className="bg-orange-600 hover:bg-orange-700 disabled:bg-orange-800/50 text-white px-3 py-2 rounded-lg text-xs font-bold transition-all"
-                                                                                            title="Usar quando quiser anunciar esta cadeira para barbeiros disponíveis"
+                                                                                            disabled={acionandoCadeiraId === cadeira.id || cadeiraComVagaAberta}
+                                                                                            className={`${cadeiraComVagaAberta ? 'bg-emerald-700 text-emerald-100 cursor-not-allowed' : 'bg-orange-600 hover:bg-orange-700 disabled:bg-orange-800/50 text-white'} px-3 py-2 rounded-lg text-xs font-bold transition-all`}
+                                                                                            title={cadeiraComVagaAberta ? 'Esta cadeira já está anunciada como vaga relâmpago' : 'Usar quando quiser anunciar esta cadeira para barbeiros disponíveis'}
                                                                                         >
-                                                                                            {acionandoCadeiraId === cadeira.id ? 'Anunciando...' : cadeiraAnunciadaSucessoId === cadeira.id ? 'Anunciada' : 'Anunciar vaga'}
+                                                                                            {acionandoCadeiraId === cadeira.id ? 'Anunciando...' : cadeiraComVagaAberta ? 'Vaga acionada' : cadeiraAnunciadaSucessoId === cadeira.id ? 'Anunciada' : 'Anunciar vaga'}
                                             </button>
                                             <button 
                                               onClick={() => bloquearCadeira(cadeira.id)}
