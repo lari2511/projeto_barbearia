@@ -34,6 +34,9 @@ const isNativeApp = typeof window !== 'undefined' && (
   window.Capacitor?.isNativePlatform?.() === true
 )
 
+const ANDROID_NOTIFICATION_ICON = 'ic_stat_barbermove'
+const ANDROID_NOTIFICATION_COLOR = '#0B7AA5'
+
 export default function App() {
   const { token, userType, logout, notify, API_URL } = useApp()
   const apiRootForApk = React.useMemo(() => {
@@ -81,6 +84,8 @@ export default function App() {
             title: 'BarberMove atualizado',
             body: 'Existe uma nova versão pronta. Toque para abrir e atualizar.',
             schedule: { at: new Date(Date.now() + 2000) },
+            smallIcon: ANDROID_NOTIFICATION_ICON,
+            iconColor: ANDROID_NOTIFICATION_COLOR,
             extra: {
               type: 'apk_update_available',
               downloadUrl: updatePayload.downloadUrl,
@@ -234,6 +239,8 @@ export default function App() {
             title: alert.title,
             body: alert.body,
             schedule: { at: new Date(Date.now() + 800) },
+            smallIcon: ANDROID_NOTIFICATION_ICON,
+            iconColor: ANDROID_NOTIFICATION_COLOR,
             extra: {
               eventKey,
               type: message?.type || message?.tipo,
