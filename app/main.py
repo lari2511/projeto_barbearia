@@ -198,8 +198,12 @@ def _ensure_versioned_apk_alias() -> None:
             return
 
         alias_path = apk_download_dir / f"BarberMove-{safe_version}.apk"
+        # Atualiza alias sempre que o APK principal mudar.
         if alias_path.exists():
-            return
+            base_stat = base_apk.stat()
+            alias_stat = alias_path.stat()
+            if alias_stat.st_size == base_stat.st_size and int(alias_stat.st_mtime) >= int(base_stat.st_mtime):
+                return
 
         shutil.copy2(base_apk, alias_path)
     except Exception:
@@ -224,13 +228,27 @@ def _resolve_apk_file(filename: str) -> pathlib.Path:
 
 
 # Endpoint dedicado para baixar APK com cabecalho correto.
+def _pick_latest_apk(apks: list[pathlib.Path]) -> pathlib.Path | None:
+    if not apks:
+        return None
+
+    # Sempre prioriza o artefato oficial de distribuição.
+    oficial = [f for f in apks if f.name == "BarberMove.apk"]
+    if oficial:
+        return oficial[0]
+
+    return max(apks, key=lambda file_path: file_path.stat().st_mtime)
+
+
 @app.get("/apk/latest")
 def download_latest_apk():
     apks = _list_apk_files()
     if not apks:
         raise HTTPException(status_code=404, detail="Nenhum APK disponivel")
 
-    latest = max(apks, key=lambda file_path: file_path.stat().st_mtime)
+    latest = _pick_latest_apk(apks)
+    if latest is None:
+        raise HTTPException(status_code=404, detail="Nenhum APK disponivel")
     return FileResponse(
         str(latest),
         media_type="application/vnd.android.package-archive",
@@ -266,7 +284,15 @@ def apk_info():
             "message": "Nenhum APK publicado",
         }
 
-    latest = max(apks, key=lambda file_path: file_path.stat().st_mtime)
+    latest = _pick_latest_apk(apks)
+    if latest is None:
+        return {
+            "status": "empty",
+            "apk_dir": str(apk_download_dir),
+            "downloads_path": "/downloads",
+            "latest_endpoint": "/apk/latest",
+            "message": "Nenhum APK publicado",
+        }
     latest_stat = latest.stat()
     latest_endpoint = f"/apk/{latest.name}"
     latest_url = f"{api_url}{latest_endpoint}" if api_url else latest_endpoint
