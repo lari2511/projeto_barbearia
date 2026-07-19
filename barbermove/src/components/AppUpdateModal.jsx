@@ -79,7 +79,9 @@ export default function AppUpdateModal({ updateInfo, onUpdateNow, onLater, onClo
           </div>
 
           <p className="mt-4 text-center text-[11px] text-zinc-500">
-            {updateInfo.filename ? `Versão: ${updateInfo.filename}` : 'Verificando nova versão pelo servidor'}
+            {updateInfo.versionName || updateInfo.versionCode
+              ? `Instalado: ${updateInfo.installedVersionName || updateInfo.installedVersionCode || 'desconhecido'} · Publicado: ${updateInfo.versionName || updateInfo.versionCode}`
+              : (updateInfo.filename ? `Versão: ${updateInfo.filename}` : 'Verificando nova versão pelo servidor')}
           </p>
         </div>
       </div>

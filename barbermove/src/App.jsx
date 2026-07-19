@@ -10,6 +10,7 @@ import { useApp } from './contexts/AppContext.jsx'
 import { getWsBaseUrl } from './utils/api'
 
 let localNotificationsModulePromise = null
+let appPluginModulePromise = null
 
 const getLocalNotifications = async () => {
   if (!localNotificationsModulePromise) {
@@ -17,6 +18,14 @@ const getLocalNotifications = async () => {
   }
 
   return localNotificationsModulePromise
+}
+
+const getAppPlugin = async () => {
+  if (!appPluginModulePromise) {
+    appPluginModulePromise = import('@capacitor/app').catch(() => null)
+  }
+
+  return appPluginModulePromise
 }
 
 const isNativeApp = typeof window !== 'undefined' && (
@@ -37,6 +46,7 @@ export default function App() {
   const [updateInfo, setUpdateInfo] = React.useState(null)
   const [updateDismissed, setUpdateDismissed] = React.useState(false)
   const updateInfoRef = React.useRef(null)
+  const installedAppInfoRef = React.useRef({ buildNumber: null, version: null })
   const wsRef = React.useRef(null)
   const reconnectRef = React.useRef(null)
   const notifiedEventsRef = React.useRef(new Set())
@@ -83,6 +93,29 @@ export default function App() {
       localStorage.setItem(notificationKey, updatePayload.signature)
     } catch (_error) {
       // Se a permissão ou o plugin falhar, o modal continua funcionando.
+    }
+  }, [])
+
+  const loadInstalledAppInfo = React.useCallback(async () => {
+    if (!isNativeApp) return null
+
+    try {
+      const module = await getAppPlugin()
+      const AppPlugin = module?.App || module?.default || module
+      if (!AppPlugin?.getInfo) return null
+
+      const info = await AppPlugin.getInfo()
+      const buildValue = Number(info?.build ?? info?.buildNumber ?? info?.versionCode ?? 0) || null
+
+      const nextInfo = {
+        buildNumber: buildValue,
+        version: info?.version || null,
+      }
+
+      installedAppInfoRef.current = nextInfo
+      return nextInfo
+    } catch (_error) {
+      return null
     }
   }, [])
 
@@ -217,6 +250,7 @@ export default function App() {
     try {
       if (!apiRootForApk) return
 
+      const installedInfo = installedAppInfoRef.current?.buildNumber ? installedAppInfoRef.current : await loadInstalledAppInfo()
       const res = await fetch(`${apiRootForApk}/apk/info`, { cache: 'no-store' })
       if (!res.ok) return
 
@@ -224,8 +258,32 @@ export default function App() {
       if (data?.status !== 'ok') return
 
       const signature = data.latest_signature || `${data.latest_filename}:${data.latest_mtime_epoch}:${data.latest_size_bytes}`
+      const latestVersionCode = Number(data.latest_version_code || 0) || null
       const baselineKey = 'apk_update_baseline_signature'
       const skipKey = 'apk_update_skip_signature'
+      const installedBuild = Number(installedInfo?.buildNumber || 0) || null
+
+      if (installedBuild && latestVersionCode && installedBuild < latestVersionCode) {
+        const nextUpdateInfo = {
+          signature,
+          filename: data.latest_filename,
+          downloadUrl: data.download_url || data.latest_url || `${apiRootForApk}/downloads/${data.latest_filename}`,
+          isNative: isNativeApp,
+          versionCode: latestVersionCode,
+          versionName: data.latest_version_name || null,
+          installedVersionCode: installedBuild,
+          installedVersionName: installedInfo?.version || null,
+        }
+
+        setUpdateInfo(nextUpdateInfo)
+        setUpdateDismissed(false)
+
+        if (isNativeApp) {
+          await notifyNativeUpdate(nextUpdateInfo)
+        }
+
+        return
+      }
 
       const baseline = localStorage.getItem(baselineKey)
       if (!baseline) {
@@ -242,6 +300,10 @@ export default function App() {
         filename: data.latest_filename,
         downloadUrl: data.download_url || data.latest_url || `${apiRootForApk}/downloads/${data.latest_filename}`,
         isNative: isNativeApp,
+        versionCode: latestVersionCode,
+        versionName: data.latest_version_name || null,
+        installedVersionCode: installedBuild,
+        installedVersionName: installedInfo?.version || null,
       }
 
       setUpdateInfo(nextUpdateInfo)
@@ -253,7 +315,7 @@ export default function App() {
     } catch (_err) {
       // Silencioso para nao quebrar a UX caso a API esteja indisponivel.
     }
-  }, [apiRootForApk, notifyNativeUpdate])
+  }, [apiRootForApk, loadInstalledAppInfo, notifyNativeUpdate])
 
   React.useEffect(() => {
     updateInfoRef.current = updateInfo
@@ -299,11 +361,15 @@ export default function App() {
   }, [startUpdateDownload])
 
   React.useEffect(() => {
+    if (isNativeApp) {
+      loadInstalledAppInfo()
+    }
+
     fetchUpdateInfo()
     const intervalId = window.setInterval(fetchUpdateInfo, isNativeApp ? 6 * 60 * 1000 : 10 * 60 * 1000)
 
     return () => window.clearInterval(intervalId)
-  }, [fetchUpdateInfo])
+  }, [fetchUpdateInfo, loadInstalledAppInfo])
 
   React.useEffect(() => {
     if (!isNativeApp) return

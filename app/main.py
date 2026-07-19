@@ -7,6 +7,7 @@ from contextlib import asynccontextmanager
 from dotenv import load_dotenv
 import os
 import hashlib
+import json
 
 # Carrega variáveis do .env
 load_dotenv()
@@ -218,6 +219,14 @@ def download_latest_apk():
 def apk_info():
     apks = _list_apk_files()
     api_url = os.getenv("API_URL", "").rstrip("/")
+    metadata_path = apk_download_dir / "latest.json"
+    latest_metadata = {}
+
+    if metadata_path.exists():
+        try:
+            latest_metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+        except Exception:
+            latest_metadata = {}
 
     if not apks:
         return {
@@ -244,6 +253,8 @@ def apk_info():
         "apk_dir": str(apk_download_dir),
         "downloads_path": "/downloads",
         "latest_filename": latest.name,
+        "latest_version_code": latest_metadata.get("versionCode"),
+        "latest_version_name": latest_metadata.get("versionName"),
         "latest_size_bytes": latest_stat.st_size,
         "latest_mtime_epoch": int(latest_stat.st_mtime),
         "latest_signature": latest_signature,
