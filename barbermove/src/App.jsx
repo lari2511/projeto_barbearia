@@ -274,18 +274,19 @@ export default function App() {
       const baselineKey = 'apk_update_baseline_signature'
       const skipKey = 'apk_update_skip_signature'
       const installedBuild = Number(installedInfo?.buildNumber || 0) || null
+      const buildUpdatePayload = () => ({
+        signature,
+        filename: data.latest_filename,
+        downloadUrl: data.download_url || data.latest_url || `${apiRootForApk}/downloads/${data.latest_filename}`,
+        isNative: isNativeApp,
+        versionCode: latestVersionCode,
+        versionName: data.latest_version_name || null,
+        installedVersionCode: installedBuild,
+        installedVersionName: installedInfo?.version || null,
+      })
 
       if (installedBuild && latestVersionCode && installedBuild < latestVersionCode) {
-        const nextUpdateInfo = {
-          signature,
-          filename: data.latest_filename,
-          downloadUrl: data.download_url || data.latest_url || `${apiRootForApk}/downloads/${data.latest_filename}`,
-          isNative: isNativeApp,
-          versionCode: latestVersionCode,
-          versionName: data.latest_version_name || null,
-          installedVersionCode: installedBuild,
-          installedVersionName: installedInfo?.version || null,
-        }
+        const nextUpdateInfo = buildUpdatePayload()
 
         setUpdateInfo(nextUpdateInfo)
         setUpdateDismissed(false)
@@ -294,6 +295,19 @@ export default function App() {
           await notifyNativeUpdate(nextUpdateInfo)
         }
 
+        return
+      }
+
+      // Em alguns aparelhos o plugin App.getInfo() não retorna build/versionCode.
+      // Nesses casos, no app nativo, ainda exibimos o aviso usando a assinatura
+      // remota (respeitando apenas o "Depois" da mesma assinatura).
+      if (isNativeApp && latestVersionCode && !installedBuild) {
+        if (signature !== localStorage.getItem(skipKey)) {
+          const nextUpdateInfo = buildUpdatePayload()
+          setUpdateInfo(nextUpdateInfo)
+          setUpdateDismissed(false)
+          await notifyNativeUpdate(nextUpdateInfo)
+        }
         return
       }
 
@@ -307,16 +321,7 @@ export default function App() {
         return
       }
 
-      const nextUpdateInfo = {
-        signature,
-        filename: data.latest_filename,
-        downloadUrl: data.download_url || data.latest_url || `${apiRootForApk}/downloads/${data.latest_filename}`,
-        isNative: isNativeApp,
-        versionCode: latestVersionCode,
-        versionName: data.latest_version_name || null,
-        installedVersionCode: installedBuild,
-        installedVersionName: installedInfo?.version || null,
-      }
+      const nextUpdateInfo = buildUpdatePayload()
 
       setUpdateInfo(nextUpdateInfo)
       setUpdateDismissed(false)
