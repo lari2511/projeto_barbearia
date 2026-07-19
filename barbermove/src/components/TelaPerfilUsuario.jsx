@@ -1139,23 +1139,56 @@ export function TelaPerfilUsuario({
 
   const pixPlanoQrSrc = getPixQrSrcPerfil(pixPlano?.qrcode_base64);
 
+  const obterCoordenadasAtuais = async () => {
+    // Em app nativo, prioriza plugin do Capacitor para evitar inconsistência no navigator.geolocation.
+    const isNativeApp = typeof window !== 'undefined' && (
+      window.location.protocol === 'capacitor:' ||
+      window.location.protocol === 'ionic:' ||
+      window.Capacitor?.isNativePlatform?.() === true
+    );
+
+    if (isNativeApp) {
+      try {
+        const module = await import('@capacitor/geolocation');
+        const Geolocation = module?.Geolocation;
+        if (Geolocation?.requestPermissions) {
+          await Geolocation.requestPermissions();
+        }
+        if (Geolocation?.getCurrentPosition) {
+          const position = await Geolocation.getCurrentPosition({
+            enableHighAccuracy: true,
+            timeout: 15000,
+            maximumAge: 0,
+          });
+          return position?.coords || null;
+        }
+      } catch (_error) {
+        // Se plugin falhar, tenta fallback web.
+      }
+    }
+
+    if (typeof navigator === 'undefined' || !navigator.geolocation) {
+      return null;
+    }
+
+    return new Promise((resolve, reject) => {
+      navigator.geolocation.getCurrentPosition(
+        (position) => resolve(position.coords),
+        (error) => reject(error),
+        { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
+      );
+    });
+  };
+
   const capturarGpsBarbearia = async () => {
     if (!token || !apiBase || perfilTipo !== 'barbearia') return;
-    if (typeof navigator === 'undefined' || !navigator.geolocation) {
-      onNotify?.('Geolocalizacao nao disponivel neste aparelho', 'error');
-      return;
-    }
 
     try {
       setLocationLoading(true);
-
-      const coords = await new Promise((resolve, reject) => {
-        navigator.geolocation.getCurrentPosition(
-          (position) => resolve(position.coords),
-          (error) => reject(error),
-          { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
-        );
-      });
+      const coords = await obterCoordenadasAtuais();
+      if (!coords) {
+        throw new Error('Geolocalizacao nao disponivel neste aparelho');
+      }
 
       const latitude = Number(coords.latitude);
       const longitude = Number(coords.longitude);

@@ -248,8 +248,13 @@ def configurar_endereco_minha_barbearia_por_gps(payload: ConfigurarEnderecoPorGp
 
     lat = payload.latitude
     lon = payload.longitude
-    # Reverse geocode to human-readable address
-    endereco_normalizado = _reverse_geocode_nominatim(lat, lon)
+    endereco_normalizado = (barbearia.endereco or '').strip()
+    try:
+        # Tenta obter endereço legível, mas não bloqueia a persistência do GPS.
+        endereco_normalizado = _reverse_geocode_nominatim(lat, lon)
+    except Exception:
+        if not endereco_normalizado:
+            endereco_normalizado = f"Lat {float(lat):.6f}, Lon {float(lon):.6f}"
 
     barbearia.latitude = float(lat)
     barbearia.longitude = float(lon)
