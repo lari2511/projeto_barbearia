@@ -8,6 +8,7 @@ from dotenv import load_dotenv
 import os
 import hashlib
 import json
+import shutil
 
 # Carrega variáveis do .env
 load_dotenv()
@@ -179,6 +180,33 @@ def _list_apk_files() -> list[pathlib.Path]:
     ]
 
 
+def _ensure_versioned_apk_alias() -> None:
+    """Garante um alias por versão (ex.: BarberMove-1.5.apk) para facilitar download sem cache."""
+    try:
+        base_apk = apk_download_dir / "BarberMove.apk"
+        metadata_path = apk_download_dir / "latest.json"
+        if not base_apk.exists() or not metadata_path.exists():
+            return
+
+        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+        version_name = str(metadata.get("versionName") or "").strip()
+        if not version_name:
+            return
+
+        safe_version = "".join(ch for ch in version_name if ch.isalnum() or ch in {".", "-", "_"}).strip("._-")
+        if not safe_version:
+            return
+
+        alias_path = apk_download_dir / f"BarberMove-{safe_version}.apk"
+        if alias_path.exists():
+            return
+
+        shutil.copy2(base_apk, alias_path)
+    except Exception:
+        # Se falhar, seguimos com o APK principal para nao interromper a API.
+        return
+
+
 def _resolve_apk_file(filename: str) -> pathlib.Path:
     file_path = (apk_download_dir / filename).resolve()
 
@@ -217,6 +245,7 @@ def download_latest_apk():
 
 @app.get("/apk/info")
 def apk_info():
+    _ensure_versioned_apk_alias()
     apks = _list_apk_files()
     api_url = os.getenv("API_URL", "").rstrip("/")
     metadata_path = apk_download_dir / "latest.json"
