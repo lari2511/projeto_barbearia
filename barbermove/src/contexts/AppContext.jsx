@@ -32,6 +32,19 @@ const storage = {
   },
 };
 
+function normalizeUserType(value) {
+  return String(value || '')
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+}
+
+function isAdminType(value) {
+  const normalized = normalizeUserType(value);
+  return normalized === 'admin' || normalized === 'adm' || normalized === 'administrador' || normalized.includes('admin');
+}
+
 // Função auxiliar para converter QUALQUER coisa para string legível
 function toReadableString(value) {
   if (value === null || value === undefined) return 'Erro desconhecido';
@@ -103,8 +116,8 @@ export const AppProvider = ({ children }) => {
   );
 
   useEffect(() => {
-    const tipoAtual = String(storage.get('userType') || userType || '').toLowerCase();
-    if (tipoAtual !== 'admin') return;
+    const tipoAtual = storage.get('userType') || userType || '';
+    if (!isAdminType(tipoAtual)) return;
 
     storage.clear();
     setToken(null);
@@ -312,7 +325,7 @@ export const AppProvider = ({ children }) => {
         tipo
       );
 
-      if (String(serverType || '').toLowerCase() === 'admin') {
+      if (isAdminType(serverType)) {
         storage.clear();
         setToken(null);
         setUserType(null);
@@ -415,6 +428,14 @@ export const AppProvider = ({ children }) => {
         dataJson.role ||
         tipo
       );
+
+      if (isAdminType(serverType)) {
+        storage.clear();
+        setToken(null);
+        setUserType(null);
+        setUser(null);
+        throw new Error('Perfil admin foi removido do app. Use o painel web administrativo.');
+      }
 
       storage.set('token', dataJson.access_token);
       storage.set('userType', serverType);

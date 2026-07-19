@@ -36,6 +36,17 @@ const isNativeApp = typeof window !== 'undefined' && (
 const ANDROID_NOTIFICATION_ICON = 'ic_stat_barbermove'
 const ANDROID_NOTIFICATION_COLOR = '#0B7AA5'
 
+const normalizeUserType = (value) => String(value || '')
+  .trim()
+  .toLowerCase()
+  .normalize('NFD')
+  .replace(/[\u0300-\u036f]/g, '')
+
+const isAdminType = (value) => {
+  const normalized = normalizeUserType(value)
+  return normalized === 'admin' || normalized === 'adm' || normalized === 'administrador' || normalized.includes('admin')
+}
+
 export default function App() {
   const { token, userType, logout, notify, API_URL } = useApp()
   const apiRootForApk = React.useMemo(() => {
@@ -63,7 +74,7 @@ export default function App() {
   }, [])
 
   React.useEffect(() => {
-    if (!token || userType !== 'admin') return
+    if (!token || !isAdminType(userType)) return
     notify('Perfil admin foi removido deste app. Use o painel web administrativo.', 'info')
     logout()
   }, [token, userType, notify, logout])
