@@ -72,6 +72,8 @@ export default function ProfileCard({ usuarioId, userType, token, isOwnProfile: 
   const [portfolioFotos, setPortfolioFotos] = useState([]);
   const [zoomFoto, setZoomFoto] = useState(null);
   const [chatLoading, setChatLoading] = useState(false);
+  const [fotoPerfilFalhou, setFotoPerfilFalhou] = useState(false);
+  const [fotosQueFalharam, setFotosQueFalharam] = useState({});
 
   const appContext = useContext(AppContext);
   const { notify } = appContext || {};
@@ -85,6 +87,23 @@ export default function ProfileCard({ usuarioId, userType, token, isOwnProfile: 
 
   const fotoPerfilUrl = resolveMediaUrl(normalizeImageField(profile?.foto_perfil), API_URL);
   const fotoCapaUrl = resolveMediaUrl(normalizeImageField(profile?.foto_capa), API_URL);
+  const fotoPerfilExibicao = fotoPerfilFalhou ? '' : fotoPerfilUrl;
+
+  const coordenadaLat =
+    profile?.barbearia_atual_latitude ??
+    profile?.latitude ??
+    null;
+  const coordenadaLon =
+    profile?.barbearia_atual_longitude ??
+    profile?.longitude ??
+    null;
+  const enderecoMapa = String(profile?.endereco || profile?.barbearia_atual_endereco || '').trim();
+  const mapaEmbedSrc =
+    Number.isFinite(Number(coordenadaLat)) && Number.isFinite(Number(coordenadaLon))
+      ? `https://www.google.com/maps?q=${Number(coordenadaLat)},${Number(coordenadaLon)}&z=16&output=embed`
+      : enderecoMapa
+        ? `https://www.google.com/maps?q=${encodeURIComponent(enderecoMapa)}&z=16&output=embed`
+        : '';
 
   const profilePortfolioFotos = normalizePortfolioFotos(profile?.portfolio_fotos).map((item) => resolveMediaUrl(item, API_URL));
   const fotosPortfolioExibicao = profilePortfolioFotos.length > 0 ? profilePortfolioFotos : portfolioFotos;
@@ -110,6 +129,8 @@ export default function ProfileCard({ usuarioId, userType, token, isOwnProfile: 
         throw new Error('Payload de perfil invalido');
       }
       setProfile(data);
+      setFotoPerfilFalhou(false);
+      setFotosQueFalharam({});
 
       // Buscar média de avaliações
       const mediaRes = await fetch(`${API_URL}/api/v1/usuario/${usuarioId}/media_avaliacao`, {
@@ -127,35 +148,39 @@ export default function ProfileCard({ usuarioId, userType, token, isOwnProfile: 
       if (userType === 'barbearia') {
         setCarregandoBarbearia(true);
         try {
-          const barbeariaRes = await fetch(`${API_URL}/api/v1/barbearia/minha`, {
-            headers: token ? { 'Authorization': `Bearer ${token}` } : {}
-          });
+          const barbeariaId = Number(data?.barbearia_id || data?.barbearia_atual_id || 0);
+          const barbeariaDoPerfil = {
+            id: barbeariaId || null,
+            nome: data?.barbearia_atual_nome || data?.nome || '',
+            endereco: data?.barbearia_atual_endereco || data?.endereco || '',
+            latitude: data?.barbearia_atual_latitude ?? data?.latitude ?? null,
+            longitude: data?.barbearia_atual_longitude ?? data?.longitude ?? null,
+          };
 
-          if (barbeariaRes.ok) {
-            const encontrada = await barbeariaRes.json();
+          if (barbeariaDoPerfil.id) {
+            const cadeirasRes = await fetch(`${API_URL}/api/v1/cadeiras/barbearia/${barbeariaDoPerfil.id}`, {
+              headers: token ? { 'Authorization': `Bearer ${token}` } : {}
+            });
 
-            if (encontrada?.id) {
-              const cadeirasRes = await fetch(`${API_URL}/api/v1/cadeiras/barbearia/${encontrada.id}`, {
-                headers: token ? { 'Authorization': `Bearer ${token}` } : {}
-              });
-
-              let cadeiras = [];
-              if (cadeirasRes.ok) {
-                const cadeirasData = await cadeirasRes.json();
-                cadeiras = Array.isArray(cadeirasData) ? cadeirasData : [];
-              }
-
-              const possuiCadeiraDisponivel = cadeiras.some((cadeira) => {
-                const status = String(cadeira?.status || cadeira?.status_atendimento || '').toLowerCase();
-                return status.includes('dispon') || status === 'livre' || status === 'ativo';
-              });
-
-              setBarbeariaProfile({
-                ...encontrada,
-                cadeira_disponivel: possuiCadeiraDisponivel,
-              });
-              setCadeirasBarbearia(cadeiras);
+            let cadeiras = [];
+            if (cadeirasRes.ok) {
+              const cadeirasData = await cadeirasRes.json();
+              cadeiras = Array.isArray(cadeirasData) ? cadeirasData : [];
             }
+
+            const possuiCadeiraDisponivel = cadeiras.some((cadeira) => {
+              const status = String(cadeira?.status || cadeira?.status_atendimento || '').toLowerCase();
+              return status.includes('dispon') || status === 'livre' || status === 'ativo';
+            });
+
+            setBarbeariaProfile({
+              ...barbeariaDoPerfil,
+              cadeira_disponivel: possuiCadeiraDisponivel,
+            });
+            setCadeirasBarbearia(cadeiras);
+          } else {
+            setBarbeariaProfile(null);
+            setCadeirasBarbearia([]);
           }
         } catch (_err) {
           setBarbeariaProfile(null);
@@ -170,7 +195,7 @@ export default function ProfileCard({ usuarioId, userType, token, isOwnProfile: 
     } finally {
       setLoading(false);
     }
-  }, [token, usuarioId]);
+  }, [token, usuarioId, userType]);
 
   useEffect(() => {
     let ativo = true;
@@ -265,17 +290,22 @@ export default function ProfileCard({ usuarioId, userType, token, isOwnProfile: 
       }`}>
         <div className="bg-gradient-to-br from-zinc-900 to-black p-6 relative">
           {/* Foto de Perfil */}
-          {fotoPerfilUrl && (
+          {fotoPerfilExibicao ? (
             <div 
               className="mb-4 cursor-pointer group"
-              onClick={() => setZoomFoto(fotoPerfilUrl)}
+              onClick={() => setZoomFoto(fotoPerfilExibicao)}
             >
               <img 
-                src={fotoPerfilUrl} 
+                src={fotoPerfilExibicao}
                 alt={profile.nome} 
                 className="w-24 h-24 rounded-full border-4 border-zinc-800 object-cover group-hover:opacity-80 transition-opacity"
+                onError={() => setFotoPerfilFalhou(true)}
               />
               <p className="text-xs text-zinc-500 mt-1">Toque para ampliar</p>
+            </div>
+          ) : (
+            <div className="mb-4 w-24 h-24 rounded-full border-4 border-zinc-800 bg-zinc-800 flex items-center justify-center">
+              <span className="text-2xl font-black text-zinc-300">{String(profile.nome || '?').charAt(0).toUpperCase()}</span>
             </div>
           )}
 
@@ -349,6 +379,21 @@ export default function ProfileCard({ usuarioId, userType, token, isOwnProfile: 
               </div>
             )}
           </div>
+
+          {mapaEmbedSrc && (
+            <div className="mt-4">
+              <p className="text-xs text-zinc-400 mb-2">Mapa da localização</p>
+              <div className="bm-map-surface rounded-xl overflow-hidden border border-zinc-800 bg-black/40">
+                <iframe
+                  title="Mapa da barbearia"
+                  src={mapaEmbedSrc}
+                  loading="lazy"
+                  referrerPolicy="no-referrer-when-downgrade"
+                  className="w-full h-44"
+                />
+              </div>
+            </div>
+          )}
 
           {/* Bot\u00e3o WhatsApp */}
 
@@ -482,13 +527,23 @@ export default function ProfileCard({ usuarioId, userType, token, isOwnProfile: 
               <div 
                 key={idx} 
                 className="aspect-square rounded-lg overflow-hidden border border-zinc-800 cursor-pointer group"
-                onClick={() => setZoomFoto(foto)}
+                onClick={() => {
+                  if (fotosQueFalharam[foto]) return;
+                  setZoomFoto(foto);
+                }}
               >
-                <img 
-                  src={foto} 
-                  alt={`Portfólio ${idx + 1}`} 
-                  className="w-full h-full object-cover group-hover:scale-105 transition-transform"
-                />
+                {fotosQueFalharam[foto] ? (
+                  <div className="w-full h-full flex items-center justify-center bg-zinc-900 text-xs text-zinc-500 px-2 text-center">
+                    Imagem indisponível
+                  </div>
+                ) : (
+                  <img
+                    src={foto}
+                    alt={`Portfólio ${idx + 1}`}
+                    className="w-full h-full object-cover group-hover:scale-105 transition-transform"
+                    onError={() => setFotosQueFalharam((prev) => ({ ...prev, [foto]: true }))}
+                  />
+                )}
               </div>
             ))}
           </div>
@@ -531,7 +586,7 @@ export default function ProfileCard({ usuarioId, userType, token, isOwnProfile: 
       {/* Modal de Zoom Seguro */}
       {zoomFoto && (
         <div 
-          className="fixed inset-0 bg-black z-50 flex items-center justify-center p-2"
+          className="fixed inset-0 bg-black z-[2600] flex items-center justify-center p-2"
           onClick={() => setZoomFoto(null)}
         >
           <div onClick={(e) => e.stopPropagation()} className="relative">
@@ -552,7 +607,7 @@ export default function ProfileCard({ usuarioId, userType, token, isOwnProfile: 
 
       {/* Modal de Chat (quando houver chamado entre usuários) */}
       {chatOpen && (
-        <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-2 sm:p-4">
+        <div className="fixed inset-0 bg-black/80 z-[2600] flex items-center justify-center p-2 sm:p-4">
           <div className="w-full max-w-[96vw] sm:max-w-5xl lg:max-w-6xl h-[92vh] bg-zinc-950 border border-zinc-800 rounded-2xl p-3 sm:p-5 flex flex-col shadow-2xl">
             <div className="flex items-center justify-between gap-3 mb-4 pb-3 border-b border-zinc-800">
               <div>

@@ -613,26 +613,47 @@ def obter_usuario_publico(usuario_id: int, db: Session = Depends(get_db)):
     fotos = db.query(models.Foto).filter(models.Foto.usuario_id == usuario.id).all()
 
     barbearia_atual_nome = None
-    if usuario.barbearia_atual_id:
-        barbearia = db.query(models.Barbearia).filter(
+    barbearia_atual_endereco = None
+    barbearia_atual_latitude = None
+    barbearia_atual_longitude = None
+    barbearia_id = None
+
+    barbearia_vinculada = None
+    if usuario.tipo == 'barbearia':
+        barbearia_vinculada = db.query(models.Barbearia).filter(
+            models.Barbearia.usuario_id == usuario.id
+        ).first()
+    elif usuario.barbearia_atual_id:
+        barbearia_vinculada = db.query(models.Barbearia).filter(
             models.Barbearia.id == usuario.barbearia_atual_id
         ).first()
-        if barbearia:
-            barbearia_atual_nome = barbearia.nome
+
+    if barbearia_vinculada:
+        barbearia_id = barbearia_vinculada.id
+        barbearia_atual_nome = barbearia_vinculada.nome
+        barbearia_atual_endereco = barbearia_vinculada.endereco
+        barbearia_atual_latitude = barbearia_vinculada.latitude
+        barbearia_atual_longitude = barbearia_vinculada.longitude
 
     return {
         "id": usuario.id,
         "nome": usuario.nome,
         "tipo": usuario.tipo,
         "telefone": usuario.telefone,
-        "endereco": usuario.endereco,
+        "endereco": barbearia_atual_endereco or usuario.endereco,
+        "latitude": barbearia_atual_latitude if barbearia_atual_latitude is not None else usuario.latitude,
+        "longitude": barbearia_atual_longitude if barbearia_atual_longitude is not None else usuario.longitude,
         "email": usuario.email,
         "foto_perfil": usuario.foto_perfil,
         "disponivel": usuario.disponivel,
         "presente_em_local": usuario.presente_em_local or False,
         "online_regiao": usuario.online_regiao or False,
+        "barbearia_id": barbearia_id,
         "barbearia_atual_id": usuario.barbearia_atual_id,
         "barbearia_atual_nome": barbearia_atual_nome,
+        "barbearia_atual_endereco": barbearia_atual_endereco,
+        "barbearia_atual_latitude": barbearia_atual_latitude,
+        "barbearia_atual_longitude": barbearia_atual_longitude,
         "portfolio_fotos": [f.url for f in fotos if f.url]
     }
 

@@ -342,6 +342,10 @@ export function TelaPerfilUsuario({
   const [fotoPerfilFalhou, setFotoPerfilFalhou] = useState(false);
 
   const [barbeariaId, setBarbeariaId] = useState(null);
+  const [enderecoBarbearia, setEnderecoBarbearia] = useState('');
+  const [latitudeBarbearia, setLatitudeBarbearia] = useState(null);
+  const [longitudeBarbearia, setLongitudeBarbearia] = useState(null);
+  const [locationLoading, setLocationLoading] = useState(false);
   const [perfilBarbeariaTeste, setPerfilBarbeariaTeste] = useState(false);
   const [cadeirasPlano, setCadeirasPlano] = useState(1);
   const [cadeirasPlanoSalvas, setCadeirasPlanoSalvas] = useState(1);
@@ -470,6 +474,13 @@ export function TelaPerfilUsuario({
           const id = Number(barbearia?.id || 0);
           if (id) {
             setBarbeariaId(id);
+            setEnderecoBarbearia(String(barbearia?.endereco || ''));
+            setLatitudeBarbearia(
+              Number.isFinite(Number(barbearia?.latitude)) ? Number(barbearia.latitude) : null
+            );
+            setLongitudeBarbearia(
+              Number.isFinite(Number(barbearia?.longitude)) ? Number(barbearia.longitude) : null
+            );
             const assinaturaRes = await fetch(`${apiBase}/api/v1/assinatura/barbearia/${id}`, {
               headers: { Authorization: `Bearer ${token}` },
             });
@@ -917,6 +928,31 @@ export function TelaPerfilUsuario({
         throw new Error(errData?.detail || 'Falha ao salvar perfil');
       }
 
+      if (perfilTipo === 'barbearia' && String(enderecoBarbearia || '').trim()) {
+        const enderecoRes = await fetch(`${apiBase}/api/v1/barbearia/minha/configurar-endereco`, {
+          method: 'PATCH',
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ endereco_texto: String(enderecoBarbearia || '').trim() }),
+        });
+
+        if (!enderecoRes.ok) {
+          const errEndereco = await enderecoRes.json().catch(() => ({}));
+          throw new Error(errEndereco?.detail || 'Falha ao salvar endereco da barbearia');
+        }
+
+        const enderecoPayload = await safeReadJson(enderecoRes, {});
+        setEnderecoBarbearia(String(enderecoPayload?.endereco || enderecoBarbearia || '').trim());
+        setLatitudeBarbearia(
+          Number.isFinite(Number(enderecoPayload?.latitude)) ? Number(enderecoPayload.latitude) : latitudeBarbearia
+        );
+        setLongitudeBarbearia(
+          Number.isFinite(Number(enderecoPayload?.longitude)) ? Number(enderecoPayload.longitude) : longitudeBarbearia
+        );
+      }
+
       if (perfilTipo === 'barbearia' && barbeariaId) {
         if (perfilBarbeariaTeste) {
           const criarRes = await fetch(`${apiBase}/api/v1/assinaturas/teste/definir-cadeiras`, {
@@ -1102,6 +1138,59 @@ export function TelaPerfilUsuario({
   };
 
   const pixPlanoQrSrc = getPixQrSrcPerfil(pixPlano?.qrcode_base64);
+
+  const capturarGpsBarbearia = async () => {
+    if (!token || !apiBase || perfilTipo !== 'barbearia') return;
+    if (typeof navigator === 'undefined' || !navigator.geolocation) {
+      onNotify?.('Geolocalizacao nao disponivel neste aparelho', 'error');
+      return;
+    }
+
+    try {
+      setLocationLoading(true);
+
+      const coords = await new Promise((resolve, reject) => {
+        navigator.geolocation.getCurrentPosition(
+          (position) => resolve(position.coords),
+          (error) => reject(error),
+          { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
+        );
+      });
+
+      const latitude = Number(coords.latitude);
+      const longitude = Number(coords.longitude);
+
+      const res = await fetch(`${apiBase}/api/v1/barbearia/minha/configurar-endereco-por-gps`, {
+        method: 'PATCH',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ latitude, longitude }),
+      });
+
+      const data = await safeReadJson(res, {});
+      if (!res.ok) {
+        throw new Error(data?.detail || 'Falha ao atualizar localizacao via GPS');
+      }
+
+      setLatitudeBarbearia(Number.isFinite(Number(data?.coordenadas?.[0])) ? Number(data.coordenadas[0]) : latitude);
+      setLongitudeBarbearia(Number.isFinite(Number(data?.coordenadas?.[1])) ? Number(data.coordenadas[1]) : longitude);
+      setEnderecoBarbearia(String(data?.endereco || enderecoBarbearia || '').trim());
+      onNotify?.('Localizacao atualizada com sucesso via GPS', 'success');
+    } catch (err) {
+      onNotify?.(err?.message || 'Nao foi possivel capturar localizacao via GPS', 'error');
+    } finally {
+      setLocationLoading(false);
+    }
+  };
+
+  const mapaBarbeariaSrc =
+    Number.isFinite(Number(latitudeBarbearia)) && Number.isFinite(Number(longitudeBarbearia))
+      ? `https://www.google.com/maps?q=${Number(latitudeBarbearia)},${Number(longitudeBarbearia)}&z=16&output=embed`
+      : String(enderecoBarbearia || '').trim()
+        ? `https://www.google.com/maps?q=${encodeURIComponent(String(enderecoBarbearia || '').trim())}&z=16&output=embed`
+        : '';
 
   return (
     <ScreenWrapper>
@@ -1450,6 +1539,44 @@ export function TelaPerfilUsuario({
               <label className={styles.label}>Telefone / WhatsApp</label>
               <input type="text" value={telefone} onChange={(e) => setTelefone(e.target.value)} className={styles.input + ' mt-2'} />
             </div>
+
+            <div>
+              <label className={styles.label}>Endereco da barbearia</label>
+              <textarea
+                value={enderecoBarbearia}
+                onChange={(e) => setEnderecoBarbearia(e.target.value)}
+                className={styles.input + ' mt-2 min-h-[86px]'}
+                placeholder="Rua, numero, bairro, cidade"
+              />
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={capturarGpsBarbearia}
+                disabled={saving || locationLoading}
+                className="rounded-lg border border-emerald-500/40 bg-emerald-500/20 px-3 py-2 text-xs font-bold text-emerald-200 disabled:opacity-60"
+              >
+                {locationLoading ? 'Capturando GPS...' : 'Usar minha localizacao atual'}
+              </button>
+              {Number.isFinite(Number(latitudeBarbearia)) && Number.isFinite(Number(longitudeBarbearia)) && (
+                <span className="rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-[11px] text-zinc-300">
+                  {Number(latitudeBarbearia).toFixed(6)}, {Number(longitudeBarbearia).toFixed(6)}
+                </span>
+              )}
+            </div>
+
+            {mapaBarbeariaSrc && (
+              <div className="bm-map-surface overflow-hidden rounded-xl border border-zinc-800 bg-zinc-950/80">
+                <iframe
+                  title="Mapa da minha barbearia"
+                  src={mapaBarbeariaSrc}
+                  loading="lazy"
+                  referrerPolicy="no-referrer-when-downgrade"
+                  className="h-44 w-full"
+                />
+              </div>
+            )}
           </div>
         </AppCard>
       )}
