@@ -22,9 +22,9 @@
 		// 2) tentar usar prompt quando disponível, mas não bloquear se não for suportado
 		try {
 			if (typeof window.prompt === 'function') {
-				const token = window.prompt('Cole o token de desenvolvimento (ou cancele):');
+					const token = window.prompt('Cole o token de desenvolvimento (ou cancele):');
 				if (token) {
-					const userType = typeof window.prompt === 'function' ? window.prompt('Tipo de usuário (barbearia/barbeiro/cliente/admin):', 'barbearia') || 'barbearia' : 'barbearia';
+						const userType = typeof window.prompt === 'function' ? window.prompt('Tipo de usuário (barbearia/barbeiro/cliente):', 'barbearia') || 'barbearia' : 'barbearia';
 					const userId = typeof window.prompt === 'function' ? window.prompt('User ID (opcional):', '') : '';
 					localStorage.setItem('token', token);
 					localStorage.setItem('userType', userType);

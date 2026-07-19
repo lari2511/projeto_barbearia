@@ -18,6 +18,12 @@ export default function Login({ onLoginSuccess }) {
   const [senha, setSenha] = useState('');
   const [erroLogin, setErroLogin] = useState('');
 
+  React.useEffect(() => {
+    if (step === 'login' && !selectedType) {
+      setStep('escolha');
+    }
+  }, [step, selectedType]);
+
   const handleTypeSelect = (type) => {
     setSelectedType(type);
     setErroLogin('');
@@ -124,6 +130,7 @@ export default function Login({ onLoginSuccess }) {
 
   if (step === 'login') {
     const selectedUserType = userTypes.find(t => t.type === selectedType);
+    if (!selectedUserType) return null;
 
     return (
       <div className="bg-[#0b0b0d] text-white flex flex-col justify-start px-1 pt-2 pb-6">
@@ -191,7 +198,7 @@ export default function Login({ onLoginSuccess }) {
   }
 
   if (step === 'esqueci') {
-    return <EsqueciSenha onBack={() => setStep('login')} />;
+    return <EsqueciSenha onBack={() => setStep(selectedType ? 'login' : 'escolha')} />;
   }
 
   if (step === 'cadastro') {

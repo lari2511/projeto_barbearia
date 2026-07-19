@@ -5,7 +5,6 @@ import BarberDashboard from './components/BarberDashboard'
 import ShopDashboard from './components/ShopDashboard'
 import Login from './components/Login'
 import AppUpdateModal from './components/AppUpdateModal'
-import AdminDashboard from './components/AdminDashboard'
 import { useApp } from './contexts/AppContext.jsx'
 import { getWsBaseUrl } from './utils/api'
 
@@ -62,6 +61,12 @@ export default function App() {
     window.location.href = payload.downloadUrl
     setUpdateInfo(null)
   }, [])
+
+  React.useEffect(() => {
+    if (!token || userType !== 'admin') return
+    notify('Perfil admin foi removido deste app. Use o painel web administrativo.', 'info')
+    logout()
+  }, [token, userType, notify, logout])
 
   const notifyNativeUpdate = React.useCallback(async (updatePayload) => {
     if (!isNativeApp || !updatePayload?.signature) return
@@ -463,10 +468,6 @@ export default function App() {
 
     if (userType === 'barbearia') {
       return <ShopDashboard token={token} logout={logout} notify={notify} API_URL={API_URL} />
-    }
-
-    if (userType === 'admin') {
-      return <AdminDashboard token={token} logout={logout} notify={notify} API_URL={API_URL} />
     }
 
     return <Login />
