@@ -658,14 +658,15 @@ export default function ClientDashboard({ token, logout, API_URL: apiUrlProp, no
 
             setVagasRelampago(lista.map((vaga) => ({
                 ...vaga,
-                barbearia_latitude: vaga.barbearia_latitude ?? selectedBarbearia?.latitude ?? null,
-                barbearia_longitude: vaga.barbearia_longitude ?? selectedBarbearia?.longitude ?? null,
-                barbearia_nome: vaga.barbearia_nome ?? selectedBarbearia?.nome ?? 'Barbearia',
+                // Não herdar coordenada da barbearia selecionada para evitar marcador/chamada em local errado.
+                barbearia_latitude: vaga.barbearia_latitude ?? null,
+                barbearia_longitude: vaga.barbearia_longitude ?? null,
+                barbearia_nome: vaga.barbearia_nome ?? 'Barbearia',
             })));
         } catch (_err) {
             // noop
         }
-    }, [API_URL, token, selectedBarbearia?.latitude, selectedBarbearia?.longitude, selectedBarbearia?.nome]);
+    }, [API_URL, token]);
 
     const reservarVagaRelampago = useCallback(async (vaga) => {
         if (!vaga?.id) return;
@@ -1013,6 +1014,7 @@ export default function ClientDashboard({ token, logout, API_URL: apiUrlProp, no
 
     const tempoEstimadoBarbeiroMinutos = estimarTempoMinutos(distanciaBarbeiroParaBarbeariaKm);
     const barbeiroDentroDoLimite = tempoEstimadoBarbeiroMinutos !== null && tempoEstimadoBarbeiroMinutos <= 10;
+    const possuiGpsBarbeiroValido = tempoEstimadoBarbeiroMinutos !== null;
     const gpsStatusTexto = (() => {
         if (!localizacaoCliente) return 'GPS indisponível';
         if (tempoEstimadoBarbeariaMinutos == null) return 'GPS detectado';
@@ -1071,8 +1073,8 @@ export default function ClientDashboard({ token, logout, API_URL: apiUrlProp, no
     const imediatoPorPresenca = barbeiroPodeReceberAgora && barbeiroPresenteEmLocal && (mesmaBarbearia || barbeariaAtualIdBarbeiro == null);
 
     // Fluxo atual: só existe chamado em tempo real.
-    // Permite chamar somente se tanto o cliente quanto o barbeiro estiverem a até 10 minutos da barbearia.
-    const podeChamarAgora = (clienteDentroDoLimite && barbeiroDentroDoLimite) || imediatoPorPresenca || TEST_GPS_OVERRIDE_ATIVO;
+    // Cliente deve estar a até 10 minutos. Se não houver GPS válido do barbeiro, não bloqueia o fluxo.
+    const podeChamarAgora = (clienteDentroDoLimite && (barbeiroDentroDoLimite || !possuiGpsBarbeiroValido)) || imediatoPorPresenca || TEST_GPS_OVERRIDE_ATIVO;
     const ehAgendamentoAgora = podeChamarAgora;
     const mensagemAgendamento = "Chamar AGORA";
     const horarioAgendamento = new Date().toISOString();
@@ -1107,11 +1109,12 @@ export default function ClientDashboard({ token, logout, API_URL: apiUrlProp, no
             : null;
         const tempoEstimadoBarbeiroAtual = estimarTempoMinutos(distanciaBarbeiroAtualKm);
         const barbeiroDentroDoLimiteAtual = tempoEstimadoBarbeiroAtual !== null && tempoEstimadoBarbeiroAtual <= 10;
+        const possuiGpsBarbeiroValidoAtual = tempoEstimadoBarbeiroAtual !== null;
 
-        // Exigir que ambos (cliente e barbeiro) estejam a ≤ 10 minutos, salvo override de dev ou presença imediata
-        const podeChamarAgoraAtual = (clienteDentroDoLimiteAtual && barbeiroDentroDoLimiteAtual) || imediatoPorPresenca || TEST_GPS_OVERRIDE_ATIVO;
+        // Exigir cliente a ≤ 10 minutos e validar barbeiro somente quando houver GPS válido.
+        const podeChamarAgoraAtual = (clienteDentroDoLimiteAtual && (barbeiroDentroDoLimiteAtual || !possuiGpsBarbeiroValidoAtual)) || imediatoPorPresenca || TEST_GPS_OVERRIDE_ATIVO;
         if (!podeChamarAgoraAtual) {
-            notifySafe('Tanto o cliente quanto o barbeiro devem estar a no máximo 10 minutos da barbearia para chamar agora.', 'error');
+            notifySafe('Você precisa estar a no máximo 10 minutos da barbearia para chamar agora.', 'error');
             return;
         }
 
@@ -1181,8 +1184,9 @@ export default function ClientDashboard({ token, logout, API_URL: apiUrlProp, no
             : null;
         const tempoEstimadoBarbeiroMulti = estimarTempoMinutos(distanciaBarbeiroMultiKm);
         const barbeiroDentroDoLimiteMulti = tempoEstimadoBarbeiroMulti !== null && tempoEstimadoBarbeiroMulti <= 10;
+        const possuiGpsBarbeiroValidoMulti = tempoEstimadoBarbeiroMulti !== null;
 
-        const podeChamarAgoraMulti = ((tempoEstimadoAtual !== null && tempoEstimadoAtual <= 10) && barbeiroDentroDoLimiteMulti) || imediatoPorPresenca || TEST_GPS_OVERRIDE_ATIVO;
+        const podeChamarAgoraMulti = ((tempoEstimadoAtual !== null && tempoEstimadoAtual <= 10) && (barbeiroDentroDoLimiteMulti || !possuiGpsBarbeiroValidoMulti)) || imediatoPorPresenca || TEST_GPS_OVERRIDE_ATIVO;
         const localizacaoParaEnvio = TEST_GPS_OVERRIDE_ATIVO && selectedBarbearia?.latitude != null && selectedBarbearia?.longitude != null
             ? { latitude: Number(selectedBarbearia.latitude), longitude: Number(selectedBarbearia.longitude) }
             : localizacao;

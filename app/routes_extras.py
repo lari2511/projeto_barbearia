@@ -886,9 +886,12 @@ def listar_barbearias_do_barbeiro(barbeiro_id: int, db: Session = Depends(get_db
             )
             barbearias_com_distancia.append({
                 "id": barbearia.id,
+                "usuario_id": barbearia.usuario_id,
                 "nome": barbearia.nome,
                 "endereco": barbearia.endereco,
                 "telefone": barbearia.telefone,
+                "latitude": barbearia.latitude,
+                "longitude": barbearia.longitude,
                 "distancia_km": round(distancia, 2),
                 "cadeira_livre": True,
                 "cadeira_disponivel": True
@@ -908,9 +911,12 @@ def listar_barbearias_do_barbeiro(barbeiro_id: int, db: Session = Depends(get_db
                 continue
             resultado.append({
                 "id": b.id,
+                "usuario_id": b.usuario_id,
                 "nome": b.nome,
                 "endereco": b.endereco,
                 "telefone": b.telefone,
+                "latitude": b.latitude,
+                "longitude": b.longitude,
                 "cadeira_livre": True,
                 "cadeira_disponivel": True
             })

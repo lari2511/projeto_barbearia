@@ -3006,6 +3006,8 @@ def listar_barbearias_do_barbeiro(barbeiro_id: int, db: Session = Depends(get_db
                 "nome": barbearia_atual.nome,
                 "endereco": barbearia_atual.endereco,
                 "telefone": barbearia_atual.telefone,
+                "latitude": barbearia_atual.latitude,
+                "longitude": barbearia_atual.longitude,
                 "cadeira_livre": cadeira_disponivel is not None,
                 "cadeira_disponivel": cadeira_disponivel is not None
             }]
@@ -3035,6 +3037,8 @@ def listar_barbearias_do_barbeiro(barbeiro_id: int, db: Session = Depends(get_db
             "nome": b.nome,
             "endereco": b.endereco,
             "telefone": b.telefone,
+            "latitude": b.latitude,
+            "longitude": b.longitude,
             "cadeira_livre": True,
             "cadeira_disponivel": True
         })
