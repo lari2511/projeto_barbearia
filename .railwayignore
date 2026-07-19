@@ -1,0 +1,33 @@
+# VCS and local environments
+.git
+.git/**
+.venv
+.venv/**
+
+# Python caches
+__pycache__
+**/__pycache__/**
+*.pyc
+
+# Node and frontend caches
+barbermove/node_modules
+barbermove/node_modules/**
+barbermove/.vite
+barbermove/.vite/**
+
+# Android/Gradle build artifacts
+barbermove/android/.gradle
+barbermove/android/.gradle/**
+barbermove/android/build
+barbermove/android/build/**
+barbermove/android/app/build
+barbermove/android/app/build/**
+
+# Generic logs and local temp files
+*.log
+*.tmp
+*.bak
+
+# Keep only the distributable APK used by /apk/info
+APK_PRONTO/*.apk
+!APK_PRONTO/BarberMove.apk
