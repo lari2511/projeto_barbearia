@@ -321,6 +321,7 @@ export const AppProvider = ({ children }) => {
         dataJson.usuario?.tipo_usuario ||
         dataJson.user_type ||
         dataJson.tipo_usuario ||
+        dataJson.tipo ||
         dataJson.role ||
         tipo
       );
@@ -425,6 +426,7 @@ export const AppProvider = ({ children }) => {
         dataJson.user?.tipo_usuario ||
         dataJson.user_type ||
         dataJson.tipo_usuario ||
+        dataJson.tipo ||
         dataJson.role ||
         tipo
       );

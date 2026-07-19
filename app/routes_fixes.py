@@ -21,6 +21,22 @@ import uuid
 router = APIRouter(tags=["Fixes"])
 
 
+def _normalizar_path_upload(raw_url: str) -> str:
+    valor = str(raw_url or "").strip()
+    if not valor:
+        return ""
+
+    if valor.startswith("/uploads/"):
+        return valor
+
+    marcador = "/uploads/"
+    idx = valor.find(marcador)
+    if idx >= 0:
+        return valor[idx:]
+
+    return valor
+
+
 def _buscar_assinatura_barbearia(db: Session, barbearia_id: int):
     assinatura_nova = db.query(models.AssinaturaBarbearia).filter(
         models.AssinaturaBarbearia.barbearia_id == barbearia_id
@@ -98,7 +114,7 @@ def get_perfil_completo(db: Session = Depends(get_db), usuario = Depends(get_cur
         "endereco": usuario.endereco,
         "latitude": usuario.latitude,
         "longitude": usuario.longitude,
-        "foto_perfil": usuario.foto_perfil,
+        "foto_perfil": _normalizar_path_upload(usuario.foto_perfil),
         "cpf": usuario.cpf,
         "cnpj": usuario.cnpj,
         "email_verificado": usuario.email_verificado,
@@ -152,16 +168,16 @@ def atualizar_foto_perfil(
     usuario = Depends(get_current_user)
 ):
     """Atualiza a foto de perfil do usuário atual (URL)."""
-    url = payload.get("url")
+    url = payload.get("url") or payload.get("path")
     if not url:
         raise HTTPException(status_code=400, detail="URL da foto é obrigatória")
     u = db.query(models.Usuario).filter(models.Usuario.id == usuario.id).first()
     if not u:
         raise HTTPException(status_code=404, detail="Usuário não encontrado")
-    u.foto_perfil = url
+    u.foto_perfil = _normalizar_path_upload(url)
     db.commit()
     db.refresh(u)
-    return {"message": "Foto atualizada", "foto_perfil": u.foto_perfil}
+    return {"message": "Foto atualizada", "foto_perfil": _normalizar_path_upload(u.foto_perfil)}
 
 
 @router.patch("/usuarios/me")
@@ -186,6 +202,9 @@ def atualizar_perfil_usuario(
         if field in payload:
             setattr(u, field, payload.get(field))
 
+    if "foto_perfil" in payload:
+        u.foto_perfil = _normalizar_path_upload(payload.get("foto_perfil"))
+
     db.commit()
     db.refresh(u)
     return {
@@ -196,7 +215,7 @@ def atualizar_perfil_usuario(
         "endereco": u.endereco,
         "cpf": u.cpf,
         "cnpj": u.cnpj,
-        "foto_perfil": u.foto_perfil,
+        "foto_perfil": _normalizar_path_upload(u.foto_perfil),
         "disponivel": u.disponivel,
     }
 

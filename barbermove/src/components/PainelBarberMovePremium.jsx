@@ -125,11 +125,38 @@ export default function PainelBarberMovePremium({ token: tokenProp, logout: logo
   const handleStatusAtualizado = useCallback((novoPerfil) => {
     if (!novoPerfil || typeof novoPerfil !== 'object') return;
 
+    const statusAtualNormalizado = String(novoPerfil.status_atual || '').trim().toLowerCase();
+    const isPresente = statusAtualNormalizado
+      ? statusAtualNormalizado === 'presente'
+      : Boolean(novoPerfil.presente_em_local);
+    const isOnline = statusAtualNormalizado
+      ? statusAtualNormalizado === 'online' || statusAtualNormalizado === 'presente'
+      : Boolean(novoPerfil.online_regiao || novoPerfil.disponivel || novoPerfil.presente_em_local);
+
     setPerfil((atual) => ({
       ...(atual || {}),
       ...novoPerfil,
+      presente_em_local: isPresente,
+      online_regiao: isOnline,
+      disponivel: isOnline,
+      barbearia_atual_nome: isPresente ? (novoPerfil.barbearia_atual_nome || atual?.barbearia_atual_nome || '') : '',
+      barbearia_atual_id: isPresente ? (novoPerfil.barbearia_atual_id || atual?.barbearia_atual_id || null) : null,
     }));
   }, []);
+
+  const textoStatusTopo = (() => {
+    if (perfil?.presente_em_local) {
+      return perfil?.barbearia_atual_nome
+        ? `Presente em ${perfil.barbearia_atual_nome}`
+        : 'Presente em barbearia';
+    }
+
+    if (perfil?.online_regiao || perfil?.disponivel) {
+      return 'Disponível na região';
+    }
+
+    return 'Offline';
+  })();
   
   // Buscar perfil completo
   useEffect(() => {
@@ -635,9 +662,7 @@ export default function PainelBarberMovePremium({ token: tokenProp, logout: logo
               <div className="rounded-2xl border border-zinc-800 bg-zinc-900 p-3">
                 <p className="text-[11px] text-zinc-400 uppercase tracking-wide">Status atual</p>
                 <p className="text-sm font-bold text-white mt-1">
-                  {perfil?.presente_em_local && perfil?.barbearia_atual_nome
-                    ? `Presente em ${perfil.barbearia_atual_nome}`
-                    : 'Disponível na região'}
+                  {textoStatusTopo}
                 </p>
               </div>
 
@@ -789,9 +814,7 @@ export default function PainelBarberMovePremium({ token: tokenProp, logout: logo
                 <div className="rounded-2xl border border-zinc-800 bg-zinc-900 p-3">
                   <p className="text-[11px] text-zinc-400 uppercase tracking-wide">Status atual</p>
                   <p className="text-sm font-bold text-white mt-1">
-                    {perfil?.presente_em_local && perfil?.barbearia_atual_nome
-                      ? `Presente em ${perfil.barbearia_atual_nome}`
-                      : 'Disponível na região'}
+                    {textoStatusTopo}
                   </p>
                 </div>
                 <TelaPerfilUsuario userType="barbeiro" token={token} API_URL={API_URL} onLogout={handleLogout} onNotify={notify} onStatusAtualizado={handleStatusAtualizado} />

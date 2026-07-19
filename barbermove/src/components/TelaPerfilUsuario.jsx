@@ -610,8 +610,9 @@ export function TelaPerfilUsuario({
 
     if (!res.ok) throw new Error('Falha no upload');
     const data = await res.json();
-    if (!data?.url) throw new Error('Upload sem URL');
-    return data.url;
+    const mediaPath = String(data?.path || data?.url || '').trim();
+    if (!mediaPath) throw new Error('Upload sem URL');
+    return mediaPath;
   };
 
   const handleFotoPerfil = async (event) => {
@@ -742,7 +743,7 @@ export function TelaPerfilUsuario({
       if (!res.ok) throw new Error('Falha ao atualizar foto');
 
       const payload = await safeReadJson(res, {});
-      const persistedUrl = String(payload?.foto_perfil || payload?.url || url || '').trim();
+      const persistedUrl = String(payload?.foto_perfil || payload?.path || payload?.url || url || '').trim();
       setFotoPerfil(persistedUrl);
       setFotoPerfilFalhou(false);
       cancelarDraftAvatar();
