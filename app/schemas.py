@@ -512,8 +512,8 @@ class DisponibilidadeResponse(BaseModel):
 class DocumentoUpload(BaseModel):
     rg: str
     documento_frente_url: str
-    documento_verso_url: str
-    selfie_documento_url: str
+    documento_verso_url: Optional[str] = None
+    selfie_documento_url: Optional[str] = None
 
 
 class DocumentoResponse(BaseModel):

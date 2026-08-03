@@ -46,7 +46,7 @@ const emptyPhotos = {
   rgCpf: null
 }
 
-function buildPayload(tipo, form, photos) {
+function buildPayload(tipo, form) {
   const base = {
     nome: form.nome.trim(),
     email: form.email.trim().toLowerCase(),
@@ -68,8 +68,6 @@ function buildPayload(tipo, form, photos) {
       endereco: form.endereco.trim(),
       latitude: form.latitude.trim() ? Number(form.latitude) : undefined,
       longitude: form.longitude.trim() ? Number(form.longitude) : undefined,
-      portfolio_photos: photos.portfolio.map(p => p.file),
-      rg_cpf_photo: photos.rgCpf?.file,
     }
   }
 
@@ -85,7 +83,7 @@ function buildPayload(tipo, form, photos) {
 }
 
 export default function Cadastro({ initialType = 'cliente', onBack, onSuccess }) {
-  const { register, loading } = useApp()
+  const { register, loading, notify, API_URL } = useApp()
   const [selectedType, setSelectedType] = useState(initialType || 'cliente')
   const [form, setForm] = useState(emptyForm)
   const [photos, setPhotos] = useState(emptyPhotos)
@@ -213,6 +211,66 @@ export default function Cadastro({ initialType = 'cliente', onBack, onSuccess })
     }))
   }
 
+  // Envia ao servidor as fotos de portfólio + documento coletadas no cadastro do freelancer.
+  // Roda depois que a conta já existe, usando o token recém-emitido, e reaproveita os mesmos
+  // endpoints que a tela de perfil usa (upload multipart -> registrar no barbeiro).
+  const enviarFotosFreelancer = async (token) => {
+    const uploadArquivo = async (file, pasta) => {
+      const formData = new FormData()
+      formData.append('file', file)
+
+      const res = await fetch(`${API_URL}/api/v1/upload/imagem?pasta=${encodeURIComponent(pasta)}`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+        body: formData,
+      })
+
+      if (!res.ok) throw new Error('Falha no upload da imagem')
+      const data = await res.json()
+      const url = String(data?.path || data?.url || '').trim()
+      if (!url) throw new Error('Upload sem URL')
+      return url
+    }
+
+    let falhas = 0
+
+    for (const foto of photos.portfolio) {
+      try {
+        const url = await uploadArquivo(foto.file, 'portfolio')
+        const res = await fetch(`${API_URL}/api/v1/barbeiro/portfolio`, {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ url_imagem: url, tipo_servico: 'corte', descricao: 'Portfólio inicial' }),
+        })
+        if (!res.ok) falhas += 1
+      } catch (_err) {
+        falhas += 1
+      }
+    }
+
+    if (photos.rgCpf?.file) {
+      try {
+        const url = await uploadArquivo(photos.rgCpf.file, 'perfil')
+        const res = await fetch(`${API_URL}/api/v1/documentos/upload`, {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ rg: form.cpf.trim(), documento_frente_url: url }),
+        })
+        if (!res.ok) falhas += 1
+      } catch (_err) {
+        falhas += 1
+      }
+    }
+
+    return falhas
+  }
+
   const handleSubmit = async (event) => {
     event.preventDefault()
     setLocalError('')
@@ -259,12 +317,19 @@ export default function Cadastro({ initialType = 'cliente', onBack, onSuccess })
       }
     }
 
-    const payload = buildPayload(selectedType, form, photos)
+    const payload = buildPayload(selectedType, form)
     if (positionFromSubmit) {
       payload.latitude = Number(positionFromSubmit.latitude)
       payload.longitude = Number(positionFromSubmit.longitude)
     }
     const result = await register(selectedType, payload)
+
+    if (result && selectedType === 'barbeiro' && result.access_token) {
+      const falhas = await enviarFotosFreelancer(result.access_token)
+      if (falhas > 0) {
+        notify('Conta criada, mas algumas fotos não foram enviadas. Você pode reenviá-las depois em Meu Perfil.', 'error')
+      }
+    }
 
     if (result && onSuccess) {
       onSuccess(result)

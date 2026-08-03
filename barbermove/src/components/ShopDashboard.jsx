@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import ScreenWrapper from './ScreenWrapper';
 import { getWsBaseUrl } from '../utils/api';
-import { Store, LogOut, CheckCircle, AlertCircle, User, CreditCard, Calendar, Search, Star, TrendingUp, Users, Bell } from 'lucide-react';
+import { Store, LogOut, CheckCircle, AlertCircle, User, CreditCard, Calendar, Search, Star, TrendingUp, Users, Bell, Pencil, Trash2, X, Check } from 'lucide-react';
 import PaymentSection from './PaymentSection';
 import AbaPadronizadaAvaliacoes from './AbaPadronizadaAvaliacoes';
 import TelaPerfilUsuario from './TelaPerfilUsuario';
@@ -11,6 +11,9 @@ export default function ShopDashboard({ token, logout, notify, API_URL }) {
     const TABS_VALIDAS = ['inicio', 'barbeiros', 'freelancers', 'agenda', 'avaliar', 'assinatura', 'perfil', 'pagamento'];
     const [services, setServices] = useState([]);
     const [newService, setNewService] = useState({ nome: '', valor: '', duracao_minutos: '30', categoria: 'outros', descricao: '' });
+    const [editingServiceId, setEditingServiceId] = useState(null);
+    const [editServiceForm, setEditServiceForm] = useState({ nome: '', valor: '', duracao_minutos: '' });
+    const [savingServiceEdit, setSavingServiceEdit] = useState(false);
     const [user, setUser] = useState(null);
     const [userData, setUserData] = useState(null);
     const [tab, setTab] = useState(() => {
@@ -564,6 +567,79 @@ export default function ShopDashboard({ token, logout, notify, API_URL }) {
         }
     };
 
+    const iniciarEdicaoServico = (servico) => {
+        setEditingServiceId(servico.id);
+        setEditServiceForm({
+            nome: servico.nome || '',
+            valor: String(servico.valor ?? ''),
+            duracao_minutos: String(servico.duracao_minutos ?? '30'),
+        });
+    };
+
+    const cancelarEdicaoServico = () => {
+        setEditingServiceId(null);
+        setEditServiceForm({ nome: '', valor: '', duracao_minutos: '' });
+    };
+
+    const salvarEdicaoServico = async (servicoId) => {
+        if (!editServiceForm.nome.trim() || !editServiceForm.valor) {
+            notify('Preencha nome e valor', 'error');
+            return;
+        }
+
+        setSavingServiceEdit(true);
+        try {
+            const res = await fetch(`${API_URL}/api/v1/servicos/${servicoId}`, {
+                method: 'PUT',
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    nome: editServiceForm.nome.trim(),
+                    valor: Number(editServiceForm.valor),
+                    duracao_minutos: Number(editServiceForm.duracao_minutos) || 30,
+                })
+            });
+
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) {
+                throw new Error(data.detail || 'Não foi possível atualizar o serviço');
+            }
+
+            cancelarEdicaoServico();
+            await carregarServicosBarbearia();
+            notify(data.mensagem || 'Serviço atualizado!', 'success');
+        } catch (err) {
+            notify(err.message || 'Erro ao atualizar serviço', 'error');
+        } finally {
+            setSavingServiceEdit(false);
+        }
+    };
+
+    const excluirServico = async (servico) => {
+        if (!confirm(`Excluir o serviço "${servico.nome}"? Essa ação não pode ser desfeita.`)) {
+            return;
+        }
+
+        try {
+            const res = await fetch(`${API_URL}/api/v1/servicos/${servico.id}`, {
+                method: 'DELETE',
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+
+            if (!res.ok) {
+                const data = await res.json().catch(() => ({}));
+                throw new Error(data.detail || 'Não foi possível excluir o serviço');
+            }
+
+            await carregarServicosBarbearia();
+            notify('Serviço excluído!', 'success');
+        } catch (err) {
+            notify(err.message || 'Erro ao excluir serviço', 'error');
+        }
+    };
+
     return (
         <ScreenWrapper>
         <div className="min-h-[100dvh] w-full bg-[#050505] text-white font-sans flex justify-center overflow-x-hidden">
@@ -812,13 +888,74 @@ export default function ShopDashboard({ token, logout, notify, API_URL }) {
                             <div className="space-y-2">
                                 {services.length > 0 ? (
                                   services.map(s => (
-                                    <div key={s.id} className="flex justify-between items-center bg-black/60 p-3 rounded-lg border border-purple-600/20 hover:border-purple-600/40 transition-colors">
-                                      <span className="text-sm font-medium text-white">{s.nome}</span>
-                                      <div className="text-right flex gap-3">
-                                        <span className="text-green-400 font-bold text-sm">R$ {parseFloat(s.valor).toFixed(2)}</span>
-                                                                                <span className="text-purple-400 font-bold text-sm">{Number(s.duracao_minutos) || 30} min</span>
+                                    editingServiceId === s.id ? (
+                                      <div key={s.id} className="bg-black/60 p-3 rounded-lg border border-purple-500 space-y-2">
+                                        <input
+                                          className="w-full bg-black rounded-lg p-2 border border-zinc-800 text-sm outline-none focus:border-purple-500 text-white"
+                                          placeholder="Nome do serviço"
+                                          value={editServiceForm.nome}
+                                          onChange={e => setEditServiceForm({ ...editServiceForm, nome: e.target.value })}
+                                        />
+                                        <div className="grid grid-cols-2 gap-2">
+                                          <input
+                                            className="bg-black rounded-lg p-2 border border-zinc-800 text-sm outline-none focus:border-purple-500 text-white"
+                                            type="number"
+                                            placeholder="Valor R$"
+                                            value={editServiceForm.valor}
+                                            onChange={e => setEditServiceForm({ ...editServiceForm, valor: e.target.value })}
+                                          />
+                                          <input
+                                            className="bg-black rounded-lg p-2 border border-zinc-800 text-sm outline-none focus:border-purple-500 text-white"
+                                            type="number"
+                                            placeholder="Duração (min)"
+                                            value={editServiceForm.duracao_minutos}
+                                            onChange={e => setEditServiceForm({ ...editServiceForm, duracao_minutos: e.target.value })}
+                                          />
+                                        </div>
+                                        <div className="flex gap-2">
+                                          <button
+                                            type="button"
+                                            disabled={savingServiceEdit}
+                                            onClick={() => salvarEdicaoServico(s.id)}
+                                            className="flex-1 flex items-center justify-center gap-1 bg-green-600 hover:bg-green-700 disabled:opacity-60 text-white px-3 py-2 rounded-lg text-xs font-bold"
+                                          >
+                                            <Check size={14} /> Salvar
+                                          </button>
+                                          <button
+                                            type="button"
+                                            disabled={savingServiceEdit}
+                                            onClick={cancelarEdicaoServico}
+                                            className="flex-1 flex items-center justify-center gap-1 bg-zinc-800 hover:bg-zinc-700 disabled:opacity-60 text-white px-3 py-2 rounded-lg text-xs font-bold"
+                                          >
+                                            <X size={14} /> Cancelar
+                                          </button>
+                                        </div>
                                       </div>
-                                    </div>
+                                    ) : (
+                                      <div key={s.id} className="flex justify-between items-center bg-black/60 p-3 rounded-lg border border-purple-600/20 hover:border-purple-600/40 transition-colors">
+                                        <span className="text-sm font-medium text-white truncate mr-2">{s.nome}</span>
+                                        <div className="text-right flex items-center gap-3 shrink-0">
+                                          <span className="text-green-400 font-bold text-sm">R$ {parseFloat(s.valor).toFixed(2)}</span>
+                                          <span className="text-purple-400 font-bold text-sm">{Number(s.duracao_minutos) || 30} min</span>
+                                          <button
+                                            type="button"
+                                            onClick={() => iniciarEdicaoServico(s)}
+                                            aria-label="Editar serviço"
+                                            className="h-8 w-8 flex items-center justify-center rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white"
+                                          >
+                                            <Pencil size={14} />
+                                          </button>
+                                          <button
+                                            type="button"
+                                            onClick={() => excluirServico(s)}
+                                            aria-label="Excluir serviço"
+                                            className="h-8 w-8 flex items-center justify-center rounded-lg bg-red-900/40 hover:bg-red-700 text-red-300 hover:text-white"
+                                          >
+                                            <Trash2 size={14} />
+                                          </button>
+                                        </div>
+                                      </div>
+                                    )
                                   ))
                                 ) : (
                                   <div className="text-center text-zinc-500 text-xs py-4">Nenhum serviço cadastrado ainda</div>
