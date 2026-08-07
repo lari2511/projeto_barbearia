@@ -101,6 +101,22 @@ export default function Cadastro({ initialType = 'cliente', onBack, onSuccess })
     setForm((current) => ({ ...current, [field]: value }))
   }
 
+  // Geocodifica o endereço do CEP para lat/long reais, em vez de depender só do GPS bruto do device
+  // (GPS de emulador/dispositivo sem fix cai no default do sistema e engana o cálculo de distância)
+  const geocodificarEndereco = async (enderecoTexto) => {
+    try {
+      const query = encodeURIComponent(`${enderecoTexto}, Brasil`)
+      const response = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=br&q=${query}`)
+      const data = await response.json()
+      if (Array.isArray(data) && data.length > 0) {
+        return { latitude: Number(data[0].lat), longitude: Number(data[0].lon) }
+      }
+    } catch (error) {
+      // Falha silenciosa: mantém o lat/long já preenchido (GPS ou manual) e não bloqueia o cadastro
+    }
+    return null
+  }
+
   // Buscar endereço por CEP
   const buscarCep = async () => {
     const cep = form.cep.replace(/\D/g, '')
@@ -113,16 +129,26 @@ export default function Cadastro({ initialType = 'cliente', onBack, onSuccess })
     try {
       const response = await fetch(`https://viacep.com.br/ws/${cep}/json/`)
       const data = await response.json()
-      
+
       if (data.erro) {
         setLocalError('CEP não encontrado')
         return
       }
 
+      const enderecoCompleto = `${data.logradouro}, ${data.bairro}, ${data.localidade} - ${data.uf}`
       setForm((current) => ({
         ...current,
-        endereco: `${data.logradouro}, ${data.bairro}, ${data.localidade} - ${data.uf}`
+        endereco: enderecoCompleto
       }))
+
+      const posicao = await geocodificarEndereco(`${enderecoCompleto}, ${data.cep}`)
+      if (posicao) {
+        setForm((current) => ({
+          ...current,
+          latitude: String(posicao.latitude),
+          longitude: String(posicao.longitude)
+        }))
+      }
     } catch (error) {
       setLocalError('Erro ao buscar CEP')
     } finally {
