@@ -1,6 +1,7 @@
 // Contexto de autenticação e estado global do BarberMove
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { getApiBaseUrl } from '../utils/api';
+import { obterLocalizacaoAtual } from '../utils/location';
 
 const API_URL = getApiBaseUrl();
 const FRONTEND_CRASH_ENDPOINT = `${API_URL}/api/v1/notificacoes/frontend-crash`;
@@ -287,6 +288,33 @@ export const AppProvider = ({ children }) => {
 
     return undefined;
   }, [configurarPushNativo, token]);
+
+  // Atualiza a localização (GPS do device) sempre que o usuário entra no app,
+  // para cliente, barbeiro e barbearia. Best-effort: não bloqueia o app se
+  // a permissão for negada ou o GPS falhar.
+  useEffect(() => {
+    if (!token) {
+      return undefined;
+    }
+
+    (async () => {
+      try {
+        const posicao = await obterLocalizacaoAtual();
+        await fetch(`${API_URL}/api/v1/atualizar-localizacao`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({ latitude: posicao.latitude, longitude: posicao.longitude }),
+        });
+      } catch (_error) {
+        // Silencioso: localização é best-effort, não deve travar o login/app.
+      }
+    })();
+
+    return undefined;
+  }, [token]);
 
   const login = async (email, senha, tipo) => {
     setLoading(true);
