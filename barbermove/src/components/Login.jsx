@@ -76,7 +76,7 @@ export default function Login({ onLoginSuccess }) {
       <div className="bg-[#0b0b0d] text-white flex flex-col justify-start px-1 pt-2 pb-4">
         <div className="w-full min-w-0">
           <div className="text-center mb-4">
-            <div className="mx-auto mb-3 w-28 h-28 rounded-3xl border border-orange-500/30 bg-zinc-950 flex items-center justify-center shadow-[0_0_40px_rgba(249,115,22,0.25),0_12px_30px_rgba(0,0,0,0.5)] overflow-hidden">
+            <div className="mx-auto mb-3 w-28 h-28 rounded-3xl border border-orange-500/30 bg-zinc-950 flex items-center justify-center shadow-[0_8px_16px_rgba(0,0,0,0.4)] overflow-hidden">
               <img src="/logo.jpeg" alt="BarberMove" className="h-full w-full object-cover" />
             </div>
             <h1 className="mt-2 text-xl font-black tracking-[0.22em] uppercase">

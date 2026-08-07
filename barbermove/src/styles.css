@@ -64,7 +64,7 @@ img, svg, picture {
   padding-left: 0.75rem;
   padding-right: 0.75rem;
   background: linear-gradient(180deg, rgba(15, 15, 16, 0.96), rgba(5, 5, 5, 1)) !important;
-  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.45);
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.4);
 }
 
 .bm-app-frame {
