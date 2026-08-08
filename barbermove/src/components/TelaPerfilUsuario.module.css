@@ -28,11 +28,12 @@
 .statusBtn{border:1px solid #3f3f46;background:#111827;color:#e4e4e7;border-radius:10px;padding:8px 10px;font-size:12px;font-weight:800}
 .statusBtnActive{border-color:#f59e0b;background:#27272a;color:#fbbf24}
 .counterRow{display:flex;align-items:center;justify-content:space-between;gap:10px;background:#0b1220;border:1px solid #374151;border-radius:12px;padding:12px}
+.counterRow>div{min-width:0}
 .counterLabel{font-size:11px;color:#9ca3af;text-transform:uppercase;letter-spacing:.06em}
-.counterValue{font-size:28px;font-weight:900;color:#f97316;line-height:1.1}
-.counterButtons{display:flex;gap:8px}
-.counterBtn{width:42px;height:42px;border-radius:10px;border:1px solid #374151;background:#1f2937;color:#fff;font-size:22px;font-weight:900}
-.counterMoney{font-size:34px;font-weight:900;color:#22c55e;line-height:1.1}
+.counterValue{font-size:28px;font-weight:900;color:#f97316;line-height:1.1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.counterButtons{display:flex;gap:8px;flex-shrink:0}
+.counterBtn{width:42px;height:42px;border-radius:10px;border:1px solid #374151;background:#1f2937;color:#fff;font-size:22px;font-weight:900;flex-shrink:0}
+.counterMoney{font-size:34px;font-weight:900;color:#22c55e;line-height:1.1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .planInfoCard{background:#2c120a;border:1px solid #ea580c;border-radius:12px;padding:10px}
 .sectionHeader{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
 .labelStrong{font-size:12px;color:#d1d5db;font-weight:800;text-transform:uppercase;letter-spacing:.08em}
