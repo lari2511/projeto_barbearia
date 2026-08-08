@@ -225,53 +225,14 @@ export const AppProvider = ({ children }) => {
     }
   }, [reportFrontendCrash]);
 
-  const configurarPushNativo = useCallback(async (jwtToken) => {
-    if (!isNativeApp || !jwtToken) {
-      return;
-    }
-
-    authTokenRef.current = jwtToken;
-
-    try {
-      const { PushNotifications } = await import('@capacitor/push-notifications');
-
-      if (!pushSetupRef.current.initialized) {
-        const registrationListener = await PushNotifications.addListener('registration', async (tokenInfo) => {
-          await sincronizarDeviceToken(authTokenRef.current, tokenInfo?.value);
-        });
-
-        const errorListener = await PushNotifications.addListener('registrationError', (error) => {
-          reportFrontendCrash({
-            contexto: 'push-registration',
-            mensagem: error,
-          });
-        });
-
-        pushSetupRef.current = {
-          initialized: true,
-          listeners: [registrationListener, errorListener],
-        };
-      }
-
-      let permissao = await PushNotifications.checkPermissions();
-      if (permissao.receive !== 'granted') {
-        permissao = await PushNotifications.requestPermissions();
-      }
-
-      if (permissao.receive === 'granted') {
-        await PushNotifications.register();
-      } else if (permissao.receive === 'denied') {
-        // Android nao mostra o dialogo de novo apos uma negacao; so reativando
-        // manualmente nas configuracoes do celular.
-        notify('Notificações estão bloqueadas. Ative em Configurações > Apps > BarberMove > Notificações.', 'info');
-      }
-    } catch (error) {
-      reportFrontendCrash({
-        contexto: 'push-bootstrap',
-        mensagem: error,
-      });
-    }
-  }, [isNativeApp, reportFrontendCrash, sincronizarDeviceToken]);
+  // Desativado: o APK nao tem google-services.json (Firebase nunca inicializa
+  // nesse processo). PushNotifications.register() tenta buscar um token via
+  // FCM contra um FirebaseApp inexistente e derruba o app nativamente - sem
+  // excecao capturavel em JS, sem stack, sem aviso. Reativar (restaurando o
+  // fluxo de checkPermissions/requestPermissions/register do
+  // @capacitor/push-notifications) quando o Firebase estiver configurado de
+  // verdade no projeto Android.
+  const configurarPushNativo = useCallback(async () => {}, []);
 
   // Verificar se tem token ao carregar
   useEffect(() => {
