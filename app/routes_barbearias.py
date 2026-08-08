@@ -57,7 +57,7 @@ def listar_barbearias_proximas(
             Barbearia.usuario_id == user.id
         ).first()
 
-        if barbearia and user.latitude and user.longitude:
+        if barbearia and barbearia.latitude and barbearia.longitude:
             cadeira_disponivel = db.query(Cadeira).filter(
                 Cadeira.barbearia_id == barbearia.id,
                 or_(
@@ -69,17 +69,18 @@ def listar_barbearias_proximas(
                 )
             ).first()
 
-            # Calcular distância usando Haversine
+            # Calcular distância usando Haversine (usa o endereco fixo da
+            # barbearia, nao a localizacao pessoal de quem esta logado na conta)
             lat1, lon1 = radians(usuario_atual.latitude), radians(usuario_atual.longitude)
-            lat2, lon2 = radians(user.latitude), radians(user.longitude)
-            
+            lat2, lon2 = radians(barbearia.latitude), radians(barbearia.longitude)
+
             dlat = lat2 - lat1
             dlon = lon2 - lon1
-            
+
             a = sin(dlat/2)**2 + cos(lat1) * cos(lat2) * sin(dlon/2)**2
             c = 2 * atan2(sqrt(a), sqrt(1-a))
             distancia_km = 6371 * c  # Raio da Terra em km
-            
+
             # Apenas adicionar se está dentro do raio
             if distancia_km <= raio_km:
                 barbearias_proximas.append({
@@ -91,8 +92,8 @@ def listar_barbearias_proximas(
                     "endereco": barbearia.endereco,
                     "cidade": getattr(barbearia, "cidade", None),
                     "bairro": getattr(barbearia, "bairro", None),
-                    "latitude": user.latitude,
-                    "longitude": user.longitude,
+                    "latitude": barbearia.latitude,
+                    "longitude": barbearia.longitude,
                     "distancia_km": round(distancia_km, 2),
                     "logo_url": getattr(barbearia, "logo_url", None),
                     "descricao": getattr(barbearia, "descricao", None),
@@ -157,18 +158,21 @@ def listar_todas_barbearias_aprovadas(
             ).first()
 
             # Calcular distância se ambas têm localização
+            # Usa barbearia.latitude/longitude (endereco fixo da loja, geocodificado
+            # via CEP), NAO user.latitude/longitude (localizacao pessoal de quem
+            # esta logado na conta, que muda conforme o dono abre o app de outro lugar).
             distancia_km = None
-            if usuario_atual.latitude and usuario_atual.longitude and user.latitude and user.longitude:
+            if usuario_atual.latitude and usuario_atual.longitude and barbearia.latitude and barbearia.longitude:
                 lat1, lon1 = radians(usuario_atual.latitude), radians(usuario_atual.longitude)
-                lat2, lon2 = radians(user.latitude), radians(user.longitude)
-                
+                lat2, lon2 = radians(barbearia.latitude), radians(barbearia.longitude)
+
                 dlat = lat2 - lat1
                 dlon = lon2 - lon1
-                
+
                 a = sin(dlat/2)**2 + cos(lat1) * cos(lat2) * sin(dlon/2)**2
                 c = 2 * atan2(sqrt(a), sqrt(1-a))
                 distancia_km = round(6371 * c, 2)
-            
+
             barbearias.append({
                 "id": barbearia.id,
                 "usuario_id": user.id,
@@ -178,8 +182,8 @@ def listar_todas_barbearias_aprovadas(
                 "endereco": barbearia.endereco,
                 "cidade": getattr(barbearia, "cidade", None),
                 "bairro": getattr(barbearia, "bairro", None),
-                "latitude": user.latitude,
-                "longitude": user.longitude,
+                "latitude": barbearia.latitude,
+                "longitude": barbearia.longitude,
                 "distancia_km": distancia_km,
                 "logo_url": getattr(barbearia, "logo_url", None),
                 "descricao": getattr(barbearia, "descricao", None),
@@ -229,19 +233,20 @@ def obter_detalhes_barbearia(
             detail="Barbearia não está aprovada"
         )
     
-    # Calcular distância
+    # Calcular distância (endereco fixo da barbearia, nao a localizacao
+    # pessoal de quem esta logado na conta)
     distancia_km = None
-    if usuario_atual.latitude and usuario_atual.longitude and user.latitude and user.longitude:
+    if usuario_atual.latitude and usuario_atual.longitude and barbearia.latitude and barbearia.longitude:
         lat1, lon1 = radians(usuario_atual.latitude), radians(usuario_atual.longitude)
-        lat2, lon2 = radians(user.latitude), radians(user.longitude)
-        
+        lat2, lon2 = radians(barbearia.latitude), radians(barbearia.longitude)
+
         dlat = lat2 - lat1
         dlon = lon2 - lon1
-        
+
         a = sin(dlat/2)**2 + cos(lat1) * cos(lat2) * sin(dlon/2)**2
         c = 2 * atan2(sqrt(a), sqrt(1-a))
         distancia_km = round(6371 * c, 2)
-    
+
     return {
         "id": barbearia.id,
         "usuario_id": user.id,
@@ -252,8 +257,8 @@ def obter_detalhes_barbearia(
         "cidade": getattr(barbearia, "cidade", None),
         "bairro": getattr(barbearia, "bairro", None),
         "distancia_km": distancia_km,
-        "latitude": user.latitude,
-        "longitude": user.longitude,
+        "latitude": barbearia.latitude,
+        "longitude": barbearia.longitude,
         "logo_url": getattr(barbearia, "logo_url", None),
         "descricao": getattr(barbearia, "descricao", None),
         "categoria": getattr(barbearia, "categoria", None),
