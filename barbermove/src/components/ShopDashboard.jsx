@@ -7,6 +7,27 @@ import AbaPadronizadaAvaliacoes from './AbaPadronizadaAvaliacoes';
 import TelaPerfilUsuario from './TelaPerfilUsuario';
 import TelaMensalidadeAssinatura from './TelaMensalidadeAssinatura';
 
+const confirmarAcao = (mensagem) => {
+    if (typeof window === 'undefined') return true;
+
+    try {
+        const userAgent = String(window.navigator?.userAgent || '').toLowerCase();
+        const ambienteMobile = /android|iphone|ipad|ipod|wv|webview|capacitor/.test(userAgent);
+
+        // Em webviews mobile, dialogos nativos (window.confirm) podem falhar
+        // silenciosamente (retornar false sem mostrar nada); segue direto.
+        if (ambienteMobile) return true;
+
+        if (typeof window.confirm === 'function') {
+            return window.confirm(mensagem);
+        }
+
+        return true;
+    } catch (_err) {
+        return true;
+    }
+};
+
 export default function ShopDashboard({ token, logout, notify, API_URL }) {
     const TABS_VALIDAS = ['inicio', 'barbeiros', 'freelancers', 'agenda', 'avaliar', 'assinatura', 'perfil', 'pagamento'];
     const [services, setServices] = useState([]);
@@ -618,7 +639,7 @@ export default function ShopDashboard({ token, logout, notify, API_URL }) {
     };
 
     const excluirServico = async (servico) => {
-        if (!confirm(`Excluir o serviço "${servico.nome}"? Essa ação não pode ser desfeita.`)) {
+        if (!confirmarAcao(`Excluir o serviço "${servico.nome}"? Essa ação não pode ser desfeita.`)) {
             return;
         }
 
