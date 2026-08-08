@@ -343,6 +343,8 @@ export function TelaPerfilUsuario({
 
   const [barbeariaId, setBarbeariaId] = useState(null);
   const [enderecoBarbearia, setEnderecoBarbearia] = useState('');
+  const [cepBarbearia, setCepBarbearia] = useState('');
+  const [loadingCepBarbearia, setLoadingCepBarbearia] = useState(false);
   const [latitudeBarbearia, setLatitudeBarbearia] = useState(null);
   const [longitudeBarbearia, setLongitudeBarbearia] = useState(null);
   const [locationLoading, setLocationLoading] = useState(false);
@@ -1219,6 +1221,50 @@ export function TelaPerfilUsuario({
     }
   };
 
+  const buscarCepBarbearia = async () => {
+    if (!token || !apiBase || perfilTipo !== 'barbearia') return;
+
+    const cepLimpo = String(cepBarbearia || '').replace(/\D/g, '');
+    if (cepLimpo.length !== 8) {
+      onNotify?.('CEP deve ter 8 digitos', 'error');
+      return;
+    }
+
+    try {
+      setLoadingCepBarbearia(true);
+      const viaCepRes = await fetch(`https://viacep.com.br/ws/${cepLimpo}/json/`);
+      const viaCepData = await viaCepRes.json();
+      if (viaCepData.erro) {
+        throw new Error('CEP nao encontrado');
+      }
+
+      const enderecoCompleto = `${viaCepData.logradouro}, ${viaCepData.bairro}, ${viaCepData.localidade} - ${viaCepData.uf}, ${viaCepData.cep}`;
+
+      const res = await fetch(`${apiBase}/api/v1/barbearia/minha/configurar-endereco`, {
+        method: 'PATCH',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ endereco_texto: enderecoCompleto }),
+      });
+
+      const data = await safeReadJson(res, {});
+      if (!res.ok) {
+        throw new Error(data?.detail || 'Falha ao atualizar endereco pelo CEP');
+      }
+
+      setEnderecoBarbearia(String(data?.endereco || enderecoCompleto).trim());
+      setLatitudeBarbearia(Number.isFinite(Number(data?.coordenadas?.[0])) ? Number(data.coordenadas[0]) : latitudeBarbearia);
+      setLongitudeBarbearia(Number.isFinite(Number(data?.coordenadas?.[1])) ? Number(data.coordenadas[1]) : longitudeBarbearia);
+      onNotify?.('Endereco atualizado a partir do CEP', 'success');
+    } catch (err) {
+      onNotify?.(err?.message || 'Nao foi possivel buscar o CEP', 'error');
+    } finally {
+      setLoadingCepBarbearia(false);
+    }
+  };
+
   const mapaBarbeariaSrc =
     Number.isFinite(Number(latitudeBarbearia)) && Number.isFinite(Number(longitudeBarbearia))
       ? `https://www.google.com/maps?q=${Number(latitudeBarbearia)},${Number(longitudeBarbearia)}&z=16&output=embed`
@@ -1572,6 +1618,30 @@ export function TelaPerfilUsuario({
             <div>
               <label className={styles.label}>Telefone / WhatsApp</label>
               <input type="text" value={telefone} onChange={(e) => setTelefone(e.target.value)} className={styles.input + ' mt-2'} />
+            </div>
+
+            <div>
+              <label className={styles.label}>CEP da barbearia</label>
+              <div className="mt-2 flex gap-2">
+                <input
+                  type="text"
+                  value={cepBarbearia}
+                  onChange={(e) => setCepBarbearia(e.target.value)}
+                  className={styles.input}
+                  placeholder="00000-000"
+                />
+                <button
+                  type="button"
+                  onClick={buscarCepBarbearia}
+                  disabled={saving || loadingCepBarbearia}
+                  className="whitespace-nowrap rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-xs font-bold text-zinc-200 disabled:opacity-60"
+                >
+                  {loadingCepBarbearia ? 'Buscando...' : 'Buscar CEP'}
+                </button>
+              </div>
+              <p className="mt-1 text-[11px] text-zinc-500">
+                Preenche o endereco e a localizacao certa da barbearia sem depender do GPS do celular.
+              </p>
             </div>
 
             <div>

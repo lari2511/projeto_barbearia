@@ -235,6 +235,7 @@ export default function ClientDashboard({ token, logout, API_URL: apiUrlProp, no
     const [barbeiroInfo, setBarbeiroInfo] = useState(null);
     const [userLocation, setUserLocation] = useState(null);
     const [loadingLocation, setLoadingLocation] = useState(false);
+    const isFetchingLocationRef = useRef(false);
     const [step, setStep] = useState('inicio'); // 'inicio' -> 'barbearias' -> 'barbeiros' -> 'servicos'
     const [activeChamado, setActiveChamado] = useState(null); // chamado retornado após booking
     const [userData, setUserData] = useState(null); // Dados do usuário logado
@@ -562,6 +563,8 @@ export default function ClientDashboard({ token, logout, API_URL: apiUrlProp, no
     }, [activeChamado?.id, activeChamado?.horario_match, isChamadoVisivel(activeChamado), isPerfilTab]);
 
     const requestUserLocation = () => {
+        if (isFetchingLocationRef.current) return;
+        isFetchingLocationRef.current = true;
         setLoadingLocation(true);
         obterLocalizacaoAtual()
             .then((location) => {
@@ -577,6 +580,7 @@ export default function ClientDashboard({ token, logout, API_URL: apiUrlProp, no
             })
             .finally(() => {
                 setLoadingLocation(false);
+                isFetchingLocationRef.current = false;
             });
     };
 
@@ -752,7 +756,7 @@ export default function ClientDashboard({ token, logout, API_URL: apiUrlProp, no
         requestUserLocation();
         const interval = window.setInterval(() => {
             requestUserLocation();
-        }, 15000);
+        }, 60000);
         return () => window.clearInterval(interval);
     }, [gpsPreference, isPerfilTab]);
 
