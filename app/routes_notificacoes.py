@@ -5,7 +5,8 @@ Sistema de notificações em tempo real para barbeiros quando há novos chamados
 
 import logging
 
-from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
+from fastapi import APIRouter, Depends, Header, HTTPException, status, BackgroundTasks
+from jose import jwt
 from sqlalchemy.orm import Session
 from datetime import datetime
 from typing import Optional
@@ -13,10 +14,22 @@ from pydantic import BaseModel, EmailStr
 
 from app.database import get_db
 from app.models import Usuario, Chamado, Notificacao
-from app.routes import get_current_user
+from app.routes import get_current_user, SECRET_KEY, ALGORITHM
 
 router = APIRouter(prefix="/api/v1/notificacoes", tags=["Notificações"])
 logger = logging.getLogger(__name__)
+
+
+def _get_current_user_optional(authorization: Optional[str] = Header(None), db: Session = Depends(get_db)):
+    """Resolve o usuario se houver token valido, sem exigir login (usado em diagnostico)."""
+    if not authorization or not authorization.lower().startswith("bearer "):
+        return None
+    try:
+        payload = jwt.decode(authorization.split(" ", 1)[1].strip(), SECRET_KEY, algorithms=[ALGORITHM])
+        user_id = int(payload.get("sub"))
+    except Exception:
+        return None
+    return db.query(Usuario).filter(Usuario.id == user_id).first()
 
 # ============================================================================
 # SCHEMAS
@@ -153,7 +166,7 @@ def contar_nao_lidas(
 @router.post("/frontend-crash", status_code=202)
 def registrar_crash_frontend(
     payload: FrontendCrashReportRequest,
-    usuario = Depends(get_current_user),
+    usuario = Depends(_get_current_user_optional),
 ):
     """Registra erros críticos do frontend no log do servidor para diagnóstico remoto."""
     logger.error(
