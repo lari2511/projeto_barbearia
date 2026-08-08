@@ -3,6 +3,7 @@ import './index.css'
 import App from './App.jsx'
 import ErrorBoundary from './components/ErrorBoundary.jsx'
 import { AppProvider } from './contexts/AppContext.jsx'
+import { reportCrashDirect } from './utils/crashReport'
 
 // Em app nativo e em desenvolvimento, evita cache antigo de service worker
 // que pode manter bundle velho mesmo após instalar um APK novo.
@@ -38,6 +39,7 @@ if (isNativeApp && typeof window !== 'undefined') {
   window.addEventListener('unhandledrejection', (event) => {
     try {
       console.error('[unhandledrejection]', event?.reason);
+      reportCrashDirect('unhandledrejection', event?.reason);
       event.preventDefault();
     } catch (_err) {
       // ignore
@@ -47,6 +49,7 @@ if (isNativeApp && typeof window !== 'undefined') {
   window.addEventListener('error', (event) => {
     try {
       console.error('[window.error]', event?.error || event?.message);
+      reportCrashDirect('window.error', event?.error || event?.message);
       if (event?.preventDefault) {
         event.preventDefault();
       }
@@ -58,6 +61,7 @@ if (isNativeApp && typeof window !== 'undefined') {
   window.onerror = (_message, _source, _lineno, _colno, error) => {
     try {
       console.error('[onerror]', error || _message);
+      reportCrashDirect('window.onerror', error || _message);
     } catch (_err) {
       // ignore
     }
@@ -67,6 +71,7 @@ if (isNativeApp && typeof window !== 'undefined') {
   window.onunhandledrejection = (event) => {
     try {
       console.error('[onunhandledrejection]', event?.reason);
+      reportCrashDirect('window.onunhandledrejection', event?.reason);
       if (event?.preventDefault) {
         event.preventDefault();
       }
@@ -109,6 +114,12 @@ try {
   }
 } catch (e) {}
 
+if (isNativeApp) {
+  // Beacon de boot: se isso nao chegar no servidor mas o usuario reportar
+  // fechamento, o problema esta antes do JS rodar (nativo), nao em React/fetch.
+  reportCrashDirect('boot', 'app iniciou main.jsx', { isDev })
+}
+
 createRoot(document.getElementById('root')).render(
   <ErrorBoundary>
     <AppProvider>
@@ -116,3 +127,7 @@ createRoot(document.getElementById('root')).render(
     </AppProvider>
   </ErrorBoundary>,
 )
+
+if (isNativeApp) {
+  reportCrashDirect('boot', 'React montou a arvore raiz', { isDev })
+}

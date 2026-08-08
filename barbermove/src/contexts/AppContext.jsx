@@ -260,6 +260,10 @@ export const AppProvider = ({ children }) => {
 
       if (permissao.receive === 'granted') {
         await PushNotifications.register();
+      } else if (permissao.receive === 'denied') {
+        // Android nao mostra o dialogo de novo apos uma negacao; so reativando
+        // manualmente nas configuracoes do celular.
+        notify('Notificações estão bloqueadas. Ative em Configurações > Apps > BarberMove > Notificações.', 'info');
       }
     } catch (error) {
       reportFrontendCrash({

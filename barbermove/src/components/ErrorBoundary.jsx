@@ -1,4 +1,5 @@
 import React from 'react';
+import { reportCrashDirect } from '../utils/crashReport';
 
 export default class ErrorBoundary extends React.Component {
   constructor(props) {
@@ -12,10 +13,10 @@ export default class ErrorBoundary extends React.Component {
 
   componentDidCatch(error, info) {
     this.setState({ info });
-    // Log do erro para monitoramento em desenvolvimento
     if (import.meta.env.DEV) {
       console.error('🐞 Erro capturado:', error, info);
     }
+    reportCrashDirect('react-error-boundary', error, { componentStack: info?.componentStack || null });
   }
 
   handleReload = () => {
