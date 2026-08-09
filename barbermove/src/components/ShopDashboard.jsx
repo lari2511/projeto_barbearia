@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import ScreenWrapper from './ScreenWrapper';
 import { getWsBaseUrl } from '../utils/api';
 import { Store, LogOut, CheckCircle, AlertCircle, User, CreditCard, Calendar, Search, Star, TrendingUp, Users, Bell, Pencil, Trash2, X, Check } from 'lucide-react';
 import PaymentSection from './PaymentSection';
@@ -30,7 +29,7 @@ const confirmarAcao = (mensagem) => {
 };
 
 export default function ShopDashboard({ token, logout, notify, API_URL }) {
-    const TABS_VALIDAS = ['inicio', 'barbeiros', 'freelancers', 'agenda', 'avaliar', 'assinatura', 'perfil', 'pagamento'];
+    const TABS_VALIDAS = ['inicio', 'barbeiros', 'servicos', 'freelancers', 'agenda', 'avaliar', 'assinatura', 'perfil', 'pagamento'];
     const [services, setServices] = useState([]);
     const [newService, setNewService] = useState({ nome: '', valor: '', duracao_minutos: '30', categoria: 'outros', descricao: '' });
     const [editingServiceId, setEditingServiceId] = useState(null);
@@ -44,7 +43,7 @@ export default function ShopDashboard({ token, logout, notify, API_URL }) {
         return TABS_VALIDAS.includes(tabSalva) ? tabSalva : 'inicio';
     });
     useBackHandler(() => {
-        if (tab === 'freelancers') { setTab('barbeiros'); return true; }
+        if (tab === 'freelancers' || tab === 'servicos') { setTab('barbeiros'); return true; }
         if (tab === 'avaliar') { setTab('agenda'); return true; }
         if (tab === 'pagamento') { setTab('perfil'); return true; }
         if (tab === 'assinatura') { setTab('barbeiros'); return true; }
@@ -672,7 +671,6 @@ export default function ShopDashboard({ token, logout, notify, API_URL }) {
     };
 
     return (
-        <ScreenWrapper>
         <div className="min-h-[100dvh] w-full bg-[#050505] text-white font-sans flex justify-center overflow-x-hidden">
             <div className="app-container w-full min-h-[100dvh] max-w-[430px] flex flex-col overflow-x-hidden bg-[#050505] shadow-[0_0_0_1px_rgba(255,255,255,0.04)]">
             <div className="sticky top-0 z-20 px-3 pt-3 pb-2 bg-[#050505]/95 backdrop-blur-xl flex-shrink-0">
@@ -706,14 +704,47 @@ export default function ShopDashboard({ token, logout, notify, API_URL }) {
                             </div>
                             <p className="text-sm text-zinc-400">Gerencie seus freelancers, agendamentos, avaliações e financeiro.</p>
                         </div>
+                        <div className="grid grid-cols-2 gap-3">
+                            <button onClick={() => setTab('barbeiros')} className="bm-card bg-zinc-900 rounded-2xl p-4 border border-zinc-800/60 flex flex-col items-center gap-2 hover:border-orange-500 transition-colors">
+                                <Store size={22} className="text-orange-400" />
+                                <span className="text-sm font-bold">Minha Loja</span>
+                                <span className="text-xs text-zinc-500">Serviços e cadeiras</span>
+                            </button>
+                            <button onClick={() => setTab('freelancers')} className="bm-card bg-zinc-900 rounded-2xl p-4 border border-zinc-800/60 flex flex-col items-center gap-2 hover:border-orange-500 transition-colors">
+                                <Users size={22} className="text-blue-400" />
+                                <span className="text-sm font-bold">Freelancers</span>
+                                <span className="text-xs text-zinc-500">Controle de presentes</span>
+                            </button>
+                            <button onClick={() => setTab('agenda')} className="bm-card bg-zinc-900 rounded-2xl p-4 border border-zinc-800/60 flex flex-col items-center gap-2 hover:border-orange-500 transition-colors">
+                                <Calendar size={22} className="text-green-400" />
+                                <span className="text-sm font-bold">Chamadas</span>
+                                <span className="text-xs text-zinc-500">Agendamentos</span>
+                            </button>
+                            <button onClick={() => setTab('avaliar')} className="bm-card bg-zinc-900 rounded-2xl p-4 border border-zinc-800/60 flex flex-col items-center gap-2 hover:border-orange-500 transition-colors">
+                                <Star size={22} className="text-yellow-400" />
+                                <span className="text-sm font-bold">Avaliar</span>
+                                <span className="text-xs text-zinc-500">Avaliações recebidas</span>
+                            </button>
+                            <button onClick={() => setTab('perfil')} className="bm-card bg-zinc-900 rounded-2xl p-4 border border-zinc-800/60 flex flex-col items-center gap-2 hover:border-orange-500 transition-colors">
+                                <User size={22} className="text-purple-400" />
+                                <span className="text-sm font-bold">Perfil</span>
+                                <span className="text-xs text-zinc-500">Seus dados</span>
+                            </button>
+                            <button onClick={() => setTab('pagamento')} className="bm-card bg-zinc-900 rounded-2xl p-4 border border-zinc-800/60 flex flex-col items-center gap-2 hover:border-orange-500 transition-colors">
+                                <CreditCard size={22} className="text-emerald-400" />
+                                <span className="text-sm font-bold">Carteira</span>
+                                <span className="text-xs text-zinc-500">Financeiro</span>
+                            </button>
+                        </div>
                     </div>
                 )}
-                
+
                 {tab === 'barbeiros' && (
                     <div className="p-2 sm:p-4 space-y-3 pb-20 max-w-3xl mx-auto w-full">
-                        <div className="grid grid-cols-2 gap-2">
-                            <button type="button" onClick={() => setTab('barbeiros')} className="rounded-xl px-3 py-2 text-xs font-bold bg-orange-500 text-white">Loja</button>
-                            <button type="button" onClick={() => setTab('freelancers')} className="rounded-xl px-3 py-2 text-xs font-bold bg-zinc-800 text-zinc-300 hover:bg-zinc-700">Freelancers</button>
+                        <div className="grid grid-cols-3 gap-2">
+                            <button type="button" onClick={() => setTab('barbeiros')} className="rounded-xl px-2 py-2 text-xs font-bold bg-orange-500 text-white">Cadeiras</button>
+                            <button type="button" onClick={() => setTab('servicos')} className="rounded-xl px-2 py-2 text-xs font-bold bg-zinc-800 text-zinc-300 hover:bg-zinc-700">Serviços</button>
+                            <button type="button" onClick={() => setTab('freelancers')} className="rounded-xl px-2 py-2 text-xs font-bold bg-zinc-800 text-zinc-300 hover:bg-zinc-700">Freelancers</button>
                         </div>
                         {user && !user.documento_verificado && (
                             <div className="bg-yellow-600/10 border border-yellow-600/30 p-2 rounded-lg flex items-center gap-2">
@@ -863,31 +894,43 @@ export default function ShopDashboard({ token, logout, notify, API_URL }) {
                           </div>
                         </div>
 
-                        <div className="bg-zinc-900/60 p-5 rounded-2xl border border-purple-600/30 mb-6">
+                    </div>
+                )}
+
+                {/* ABA: CADASTRAR SERVIÇO */}
+                {tab === 'servicos' && (
+                    <div className="p-2 sm:p-4 space-y-3 pb-20 max-w-3xl mx-auto w-full">
+                        <div className="grid grid-cols-3 gap-2">
+                            <button type="button" onClick={() => setTab('barbeiros')} className="rounded-xl px-2 py-2 text-xs font-bold bg-zinc-800 text-zinc-300 hover:bg-zinc-700">Cadeiras</button>
+                            <button type="button" onClick={() => setTab('servicos')} className="rounded-xl px-2 py-2 text-xs font-bold bg-orange-500 text-white">Serviços</button>
+                            <button type="button" onClick={() => setTab('freelancers')} className="rounded-xl px-2 py-2 text-xs font-bold bg-zinc-800 text-zinc-300 hover:bg-zinc-700">Freelancers</button>
+                        </div>
+
+                        <div className="bg-zinc-900/60 p-5 rounded-2xl border border-purple-600/30">
                             <h3 className="font-bold mb-4 text-sm flex items-center gap-2 text-purple-400">⚙️ Cadastrar Serviço</h3>
                             <form onSubmit={addService} className="space-y-3 mb-4">
-                              <input 
-                                className="w-full bg-black rounded-lg p-3 border border-zinc-800 text-sm outline-none focus:border-purple-500 text-white" 
-                                placeholder="Nome do serviço (ex: Corte Degradê)" 
-                                value={newService.nome} 
-                                onChange={e => setNewService({...newService, nome: e.target.value})} 
+                              <input
+                                className="w-full bg-black rounded-lg p-3 border border-zinc-800 text-sm outline-none focus:border-purple-500 text-white"
+                                placeholder="Nome do serviço (ex: Corte Degradê)"
+                                value={newService.nome}
+                                onChange={e => setNewService({...newService, nome: e.target.value})}
                                 required
                               />
                               <div className="grid grid-cols-2 gap-3">
-                                <input 
-                                  className="bg-black rounded-lg p-3 border border-zinc-800 text-sm outline-none focus:border-purple-500 text-white" 
-                                  type="number" 
-                                  placeholder="Valor R$" 
-                                  value={newService.valor} 
-                                  onChange={e => setNewService({...newService, valor: e.target.value})} 
+                                <input
+                                  className="bg-black rounded-lg p-3 border border-zinc-800 text-sm outline-none focus:border-purple-500 text-white"
+                                  type="number"
+                                  placeholder="Valor R$"
+                                  value={newService.valor}
+                                  onChange={e => setNewService({...newService, valor: e.target.value})}
                                   required
                                 />
-                                <input 
-                                  className="bg-black rounded-lg p-3 border border-zinc-800 text-sm outline-none focus:border-purple-500 text-white" 
-                                  type="number" 
-                                  placeholder="Duração (min)" 
-                                                                value={newService.duracao_minutos} 
-                                                                onChange={e => setNewService({...newService, duracao_minutos: e.target.value})} 
+                                <input
+                                  className="bg-black rounded-lg p-3 border border-zinc-800 text-sm outline-none focus:border-purple-500 text-white"
+                                  type="number"
+                                  placeholder="Duração (min)"
+                                                                value={newService.duracao_minutos}
+                                                                onChange={e => setNewService({...newService, duracao_minutos: e.target.value})}
                                   required
                                 />
                               </div>
@@ -970,16 +1013,16 @@ export default function ShopDashboard({ token, logout, notify, API_URL }) {
                                 )}
                             </div>
                         </div>
-
                     </div>
                 )}
 
                 {/* ABA: FREELANCERS */}
                 {tab === 'freelancers' && (
                     <div className="p-2 sm:p-4 space-y-3 pb-20 max-w-3xl mx-auto w-full">
-                        <div className="grid grid-cols-2 gap-2">
-                            <button type="button" onClick={() => setTab('barbeiros')} className="rounded-xl px-3 py-2 text-xs font-bold bg-zinc-800 text-zinc-300 hover:bg-zinc-700">Loja</button>
-                            <button type="button" onClick={() => setTab('freelancers')} className="rounded-xl px-3 py-2 text-xs font-bold bg-orange-500 text-white">Freelancers</button>
+                        <div className="grid grid-cols-3 gap-2">
+                            <button type="button" onClick={() => setTab('barbeiros')} className="rounded-xl px-2 py-2 text-xs font-bold bg-zinc-800 text-zinc-300 hover:bg-zinc-700">Cadeiras</button>
+                            <button type="button" onClick={() => setTab('servicos')} className="rounded-xl px-2 py-2 text-xs font-bold bg-zinc-800 text-zinc-300 hover:bg-zinc-700">Serviços</button>
+                            <button type="button" onClick={() => setTab('freelancers')} className="rounded-xl px-2 py-2 text-xs font-bold bg-orange-500 text-white">Freelancers</button>
                         </div>
                         <h2 className="text-sm font-bold text-zinc-300 uppercase tracking-wide">Controle de Freelancers</h2>
 
@@ -1258,12 +1301,11 @@ export default function ShopDashboard({ token, logout, notify, API_URL }) {
 
             <div className="bm-bottom-nav sticky bottom-0 left-0 w-full h-[calc(5.1rem+env(safe-area-inset-bottom))] pb-[env(safe-area-inset-bottom)] grid grid-cols-4 gap-1 items-stretch z-40 px-2 sm:px-3">
                 <button data-active={tab === 'inicio'} onClick={() => setTab('inicio')} className={`bm-bottom-nav-btn flex flex-col items-center justify-center gap-0.5 h-full text-center rounded-xl ${tab === 'inicio' ? 'text-orange-500 bg-orange-500/5' : 'text-zinc-400 hover:text-zinc-200'}`}><span className="text-sm">🏠</span><span className="text-[10px] leading-none">Início</span></button>
-                <button data-active={tab === 'barbeiros' || tab === 'freelancers'} onClick={() => setTab('barbeiros')} className={`bm-bottom-nav-btn flex flex-col items-center justify-center gap-0.5 h-full text-center rounded-xl ${tab === 'barbeiros' || tab === 'freelancers' ? 'text-orange-500 bg-orange-500/5' : 'text-zinc-400 hover:text-zinc-200'}`}><Store size={14} /><span className="text-[10px] leading-none">Loja</span></button>
+                <button data-active={tab === 'barbeiros' || tab === 'servicos' || tab === 'freelancers'} onClick={() => setTab('barbeiros')} className={`bm-bottom-nav-btn flex flex-col items-center justify-center gap-0.5 h-full text-center rounded-xl ${tab === 'barbeiros' || tab === 'servicos' || tab === 'freelancers' ? 'text-orange-500 bg-orange-500/5' : 'text-zinc-400 hover:text-zinc-200'}`}><Store size={14} /><span className="text-[10px] leading-none">Loja</span></button>
                 <button data-active={tab === 'agenda' || tab === 'avaliar'} onClick={() => setTab('agenda')} className={`bm-bottom-nav-btn flex flex-col items-center justify-center gap-0.5 h-full text-center rounded-xl ${tab === 'agenda' || tab === 'avaliar' ? 'text-orange-500 bg-orange-500/5' : 'text-zinc-400 hover:text-zinc-200'}`}><Calendar size={14} /><span className="text-[10px] leading-none">Chamadas</span></button>
                 <button data-active={tab === 'perfil' || tab === 'pagamento'} onClick={() => setTab('perfil')} className={`bm-bottom-nav-btn flex flex-col items-center justify-center gap-0.5 h-full text-center rounded-xl ${tab === 'perfil' || tab === 'pagamento' ? 'text-orange-500 bg-orange-500/5' : 'text-zinc-400 hover:text-zinc-200'}`}><User size={14} /><span className="text-[10px] leading-none">Perfil</span></button>
             </div>
             </div>
         </div>
-        </ScreenWrapper>
     );
 }
