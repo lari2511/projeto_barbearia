@@ -847,18 +847,42 @@ export default function ClientDashboard({ token, logout, API_URL: apiUrlProp, no
         setStep('barbearias');
         
         try {
-            // Buscar barbearias onde este barbeiro pode atender.
-            // Essa lista ja vem com distancia calculada a partir do CEP/presenca
-            // confirmada do barbeiro (nao do GPS ao vivo do cliente) - nao
-            // refiltrar por GPS aqui, senao a distancia mostrada nao bate com
-            // a que veio da API e pode sumir com a barbearia da lista por causa
-            // de imprecisao do GPS do proprio celular do cliente.
+            // Buscar barbearias onde este barbeiro pode atender
             const res = await fetch(`${API_URL}/api/v1/barbeiro/${barber.id}/barbearias`, {
                 headers: {'Authorization': `Bearer ${token}`}
             });
-            const data = await res.json();
+            let data = await res.json();
+            const barbeariasDoBarbeiro = Array.isArray(data) ? data : [];
 
-            setBarbearias(Array.isArray(data) ? data : []);
+            // 📍 Se temos localização, FILTRAR barbearias dentro de 10km
+            if (userLocation) {
+                const barbeariaUrl = new URL(`${API_URL}/api/v1/barbearias/proximas`);
+                barbeariaUrl.searchParams.append('latitude', userLocation.latitude);
+                barbeariaUrl.searchParams.append('longitude', userLocation.longitude);
+                barbeariaUrl.searchParams.append('raio_km', '10.0');
+
+                try {
+                    const proxRes = await fetch(barbeariaUrl.toString());
+                    const proxBarbearias = await proxRes.json();
+
+                    // Manter apenas barbearias que o barbeiro trabalha E que estão próximas.
+                    // Se nada cair no raio, mantém as barbearias válidas do barbeiro para não bloquear o agendamento.
+                    const barbeariaIds = new Set(barbeariasDoBarbeiro.map(b => b.id));
+                    const filtradasPorRaio = proxBarbearias.filter(b => barbeariaIds.has(b.id));
+
+                    if (filtradasPorRaio.length > 0) {
+                        data = filtradasPorRaio;
+                        notifySafe(`${filtradasPorRaio.length} barbearia(s) próxima(s) encontrada(s)!`, "success");
+                    } else {
+                        data = barbeariasDoBarbeiro;
+                    }
+                } catch (_err) {
+                    // Continuar com barbearias do barbeiro mesmo que a busca de proximas falhe
+                    data = barbeariasDoBarbeiro;
+                }
+            }
+
+            setBarbearias(data);
 
             // Se só existir uma opção, já avança para os serviços para não travar o fluxo
             if (Array.isArray(data) && data.length === 1) {
