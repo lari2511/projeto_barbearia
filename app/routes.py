@@ -3042,7 +3042,13 @@ def listar_barbearias_do_barbeiro(barbeiro_id: int, db: Session = Depends(get_db
                 "latitude": barbearia_atual.latitude,
                 "longitude": barbearia_atual.longitude,
                 "cadeira_livre": cadeira_disponivel is not None,
-                "cadeira_disponivel": cadeira_disponivel is not None
+                "cadeira_disponivel": cadeira_disponivel is not None,
+                "foto_perfil": barbearia_atual.usuario.foto_perfil if barbearia_atual.usuario else None,
+                "distancia_km": (
+                    round(calcular_distancia_km(barbeiro.latitude, barbeiro.longitude, barbearia_atual.latitude, barbearia_atual.longitude), 2)
+                    if barbeiro.latitude and barbeiro.longitude and barbearia_atual.latitude and barbearia_atual.longitude
+                    else None
+                ),
             }]
 
     # Por enquanto retorna todas as barbearias com cadeira disponível
@@ -3073,7 +3079,13 @@ def listar_barbearias_do_barbeiro(barbeiro_id: int, db: Session = Depends(get_db
             "latitude": b.latitude,
             "longitude": b.longitude,
             "cadeira_livre": True,
-            "cadeira_disponivel": True
+            "cadeira_disponivel": True,
+            "foto_perfil": b.usuario.foto_perfil if b.usuario else None,
+            "distancia_km": (
+                round(calcular_distancia_km(barbeiro.latitude, barbeiro.longitude, b.latitude, b.longitude), 2)
+                if barbeiro.latitude and barbeiro.longitude and b.latitude and b.longitude
+                else None
+            ),
         })
 
     return resultado
