@@ -30,6 +30,7 @@ router = APIRouter()
 class ConfigurarEnderecoBarbeariaRequest(BaseModel):
     endereco_texto: Optional[str] = None
     cep_texto: Optional[str] = None
+    numero: Optional[str] = None
 
 
 class ConfigurarEnderecoPorGpsRequest(BaseModel):
@@ -37,7 +38,7 @@ class ConfigurarEnderecoPorGpsRequest(BaseModel):
     longitude: float
 
 
-def _buscar_endereco_via_cep(cep_texto: str) -> str:
+def _buscar_endereco_via_cep(cep_texto: str, numero: str = None) -> str:
     cep_limpo = ''.join([c for c in (cep_texto or '') if c.isdigit()])
     if len(cep_limpo) != 8:
         raise HTTPException(status_code=400, detail='CEP deve ter 8 dígitos')
@@ -63,7 +64,10 @@ def _buscar_endereco_via_cep(cep_texto: str) -> str:
     if not logradouro or not localidade or not uf:
         raise HTTPException(status_code=400, detail='CEP não retornou endereço completo')
 
-    return f'{logradouro}{f", {bairro}" if bairro else ""}, {localidade}/{uf}'
+    numero_limpo = str(numero or '').strip()
+    logradouro_com_numero = f'{logradouro}, {numero_limpo}' if numero_limpo else logradouro
+
+    return f'{logradouro_com_numero}{f", {bairro}" if bairro else ""}, {localidade}/{uf}'
 
 
 def _geocodificar_endereco_nominatim(endereco_texto: str) -> tuple[float, float, str]:
@@ -164,7 +168,7 @@ def configurar_endereco_minha_barbearia(payload: ConfigurarEnderecoBarbeariaRequ
     endereco_texto = payload.endereco_texto
     origem = 'endereco'
     if not endereco_texto and payload.cep_texto:
-        endereco_texto = _buscar_endereco_via_cep(payload.cep_texto)
+        endereco_texto = _buscar_endereco_via_cep(payload.cep_texto, payload.numero)
         origem = 'cep'
 
     if not endereco_texto:
@@ -189,7 +193,7 @@ def configurar_endereco_barbearia(barbearia_id: int, payload: ConfigurarEndereco
     endereco_texto = payload.endereco_texto
     origem = 'endereco'
     if not endereco_texto and payload.cep_texto:
-        endereco_texto = _buscar_endereco_via_cep(payload.cep_texto)
+        endereco_texto = _buscar_endereco_via_cep(payload.cep_texto, payload.numero)
         origem = 'cep'
 
     if not endereco_texto:

@@ -345,6 +345,7 @@ export function TelaPerfilUsuario({
   const [barbeariaId, setBarbeariaId] = useState(null);
   const [enderecoBarbearia, setEnderecoBarbearia] = useState('');
   const [cepBarbearia, setCepBarbearia] = useState('');
+  const [numeroBarbearia, setNumeroBarbearia] = useState('');
   const [loadingCepBarbearia, setLoadingCepBarbearia] = useState(false);
   const [latitudeBarbearia, setLatitudeBarbearia] = useState(null);
   const [longitudeBarbearia, setLongitudeBarbearia] = useState(null);
@@ -1171,7 +1172,9 @@ export function TelaPerfilUsuario({
         throw new Error('CEP não encontrado');
       }
 
-      const enderecoCompleto = `${logradouro}${bairro ? `, ${bairro}` : ''}, ${localidade}/${uf}`;
+      const numeroLimpo = String(numeroBarbearia || '').trim();
+      const logradouroComNumero = numeroLimpo ? `${logradouro}, ${numeroLimpo}` : logradouro;
+      const enderecoCompleto = `${logradouroComNumero}${bairro ? `, ${bairro}` : ''}, ${localidade}/${uf}`;
       const cepFormatado = String(viaCepData.cep || cepLimpo).replace(/^(\d{5})(\d{3})$/, '$1-$2');
 
       const res = await fetch(`${apiBase}/api/v1/barbearia/minha/configurar-endereco`, {
@@ -1180,7 +1183,7 @@ export function TelaPerfilUsuario({
           Authorization: `Bearer ${token}`,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ cep_texto: cepFormatado }),
+        body: JSON.stringify({ cep_texto: cepFormatado, numero: numeroLimpo || undefined }),
       });
 
       const data = await safeReadJson(res, {});
@@ -1585,6 +1588,20 @@ export function TelaPerfilUsuario({
               </div>
               <p className="mt-1 text-[11px] text-zinc-500">
                 Preenche o endereco e a localizacao certa da barbearia sem depender do GPS do celular.
+              </p>
+            </div>
+
+            <div>
+              <label className={styles.label}>Número</label>
+              <input
+                type="text"
+                value={numeroBarbearia}
+                onChange={(e) => setNumeroBarbearia(e.target.value)}
+                className={styles.input + ' mt-2'}
+                placeholder="Ex: 123"
+              />
+              <p className="mt-1 text-[11px] text-zinc-500">
+                O CEP não traz o número — preencha aqui e clique em "Buscar CEP" de novo pra incluir no endereço.
               </p>
             </div>
 
