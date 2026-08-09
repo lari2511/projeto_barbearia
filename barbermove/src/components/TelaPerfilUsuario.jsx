@@ -1150,7 +1150,8 @@ export function TelaPerfilUsuario({
 
     const cepLimpo = String(cepBarbearia || '').replace(/\D/g, '');
     if (cepLimpo.length !== 8) {
-      onNotify?.('CEP deve ter 8 digitos', 'error');
+      setEnderecoBarbearia('');
+      onNotify?.('CEP deve ter 8 dígitos', 'error');
       return;
     }
 
@@ -1158,11 +1159,20 @@ export function TelaPerfilUsuario({
       setLoadingCepBarbearia(true);
       const viaCepRes = await fetch(`https://viacep.com.br/ws/${cepLimpo}/json/`);
       const viaCepData = await viaCepRes.json();
-      if (viaCepData.erro) {
-        throw new Error('CEP nao encontrado');
+      if (!viaCepRes.ok || viaCepData.erro) {
+        throw new Error('CEP não encontrado');
       }
 
-      const enderecoCompleto = `${viaCepData.logradouro}, ${viaCepData.bairro}, ${viaCepData.localidade} - ${viaCepData.uf}, ${viaCepData.cep}`;
+      const logradouro = String(viaCepData.logradouro || '').trim();
+      const bairro = String(viaCepData.bairro || '').trim();
+      const localidade = String(viaCepData.localidade || '').trim();
+      const uf = String(viaCepData.uf || '').trim();
+      if (!logradouro || !localidade || !uf) {
+        throw new Error('CEP não encontrado');
+      }
+
+      const enderecoCompleto = `${logradouro}${bairro ? `, ${bairro}` : ''}, ${localidade}/${uf}`;
+      const cepFormatado = String(viaCepData.cep || cepLimpo).replace(/^(\d{5})(\d{3})$/, '$1-$2');
 
       const res = await fetch(`${apiBase}/api/v1/barbearia/minha/configurar-endereco`, {
         method: 'PATCH',
@@ -1178,12 +1188,14 @@ export function TelaPerfilUsuario({
         throw new Error(data?.detail || 'Falha ao atualizar endereco pelo CEP');
       }
 
+      setCepBarbearia(cepFormatado);
       setEnderecoBarbearia(String(data?.endereco || enderecoCompleto).trim());
-      setLatitudeBarbearia(Number.isFinite(Number(data?.coordenadas?.[0])) ? Number(data.coordenadas[0]) : latitudeBarbearia);
-      setLongitudeBarbearia(Number.isFinite(Number(data?.coordenadas?.[1])) ? Number(data.coordenadas[1]) : longitudeBarbearia);
-      onNotify?.('Endereco atualizado a partir do CEP', 'success');
+      setLatitudeBarbearia(Number.isFinite(Number(data?.coordenadas?.[0])) ? Number(data.coordenadas[0]) : NaN);
+      setLongitudeBarbearia(Number.isFinite(Number(data?.coordenadas?.[1])) ? Number(data.coordenadas[1]) : NaN);
+      onNotify?.('Endereço atualizado a partir do CEP', 'success');
     } catch (err) {
-      onNotify?.(err?.message || 'Nao foi possivel buscar o CEP', 'error');
+      setEnderecoBarbearia('');
+      onNotify?.(err?.message || 'Não foi possível buscar o CEP', 'error');
     } finally {
       setLoadingCepBarbearia(false);
     }

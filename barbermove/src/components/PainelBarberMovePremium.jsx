@@ -13,11 +13,13 @@ export default function PainelBarberMovePremium({ token: tokenProp, logout: logo
   const notify = notifyProp || ctxNotify || ((msg, type) => console.log(`[${type}]`, msg));
   const API_URL = apiUrlProp || getApiBaseUrl();
 
-  const TABS = ['inicio', 'chamados', 'avaliar', 'perfil', 'carteira'];
+  const TABS = ['inicio', 'chamados', 'perfil'];
+  const PERFIL_SECTIONS = ['dados', 'carteira', 'avaliacoes'];
   const [tab, setTab] = useState(() => {
     const s = localStorage.getItem('barbeiro_dashboard_tab') || 'inicio';
     return TABS.includes(s) ? s : 'inicio';
   });
+  const [perfilSection, setPerfilSection] = useState('dados');
   const [chamados, setChamados] = useState([]);
   const [chamadoAtivo, setChamadoAtivo] = useState(null);
   const [minhaPosicao, setMinhaPosicao] = useState(null);
@@ -163,13 +165,19 @@ export default function PainelBarberMovePremium({ token: tokenProp, logout: logo
     carregarPerfil();
   }, [carregarPerfil]);
 
+  const abrirPerfil = useCallback((section = 'dados') => {
+    setPerfilSection(PERFIL_SECTIONS.includes(section) ? section : 'dados');
+    setTab('perfil');
+    if (section === 'carteira') carregarGanhos();
+  }, [carregarGanhos]);
+
   useEffect(() => { localStorage.setItem('barbeiro_dashboard_tab', tab); }, [tab]);
 
   useEffect(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollTo({ top: 0, behavior: 'auto' });
     }
-  }, [tab]);
+  }, [tab, perfilSection]);
 
   useEffect(() => {
     if (isPaused) return undefined;
@@ -591,20 +599,20 @@ export default function PainelBarberMovePremium({ token: tokenProp, logout: logo
                   <span className="text-sm font-bold">Chamados</span>
                   <span className="text-xs text-zinc-500">{chamados.length} no histórico</span>
                 </button>
-                <button onClick={() => setTab('avaliar')} className="rounded-2xl border border-zinc-800 bg-zinc-900 p-4 flex flex-col items-center gap-2 hover:border-orange-500 transition-colors">
-                  <Star size={22} className="text-yellow-400" />
-                  <span className="text-sm font-bold">Avaliar</span>
-                  <span className="text-xs text-zinc-500">Suas avaliações</span>
-                </button>
-                <button onClick={() => setTab('perfil')} className="rounded-2xl border border-zinc-800 bg-zinc-900 p-4 flex flex-col items-center gap-2 hover:border-orange-500 transition-colors">
+                <button onClick={() => abrirPerfil('dados')} className="rounded-2xl border border-zinc-800 bg-zinc-900 p-4 flex flex-col items-center gap-2 hover:border-orange-500 transition-colors">
                   <User size={22} className="text-purple-400" />
                   <span className="text-sm font-bold">Perfil</span>
                   <span className="text-xs text-zinc-500">Seus dados</span>
                 </button>
-                <button onClick={() => { setTab('carteira'); carregarGanhos(); }} className="rounded-2xl border border-zinc-800 bg-zinc-900 p-4 flex flex-col items-center gap-2 hover:border-orange-500 transition-colors">
+                <button onClick={() => abrirPerfil('carteira')} className="rounded-2xl border border-zinc-800 bg-zinc-900 p-4 flex flex-col items-center gap-2 hover:border-orange-500 transition-colors">
                   <CreditCard size={22} className="text-emerald-400" />
                   <span className="text-sm font-bold">Carteira</span>
                   <span className="text-xs text-zinc-500">Ganhos e comissões</span>
+                </button>
+                <button onClick={() => abrirPerfil('avaliacoes')} className="rounded-2xl border border-zinc-800 bg-zinc-900 p-4 flex flex-col items-center gap-2 hover:border-orange-500 transition-colors">
+                  <Star size={22} className="text-yellow-400" />
+                  <span className="text-sm font-bold">Avaliações</span>
+                  <span className="text-xs text-zinc-500">Reputação do perfil</span>
                 </button>
               </div>
 
@@ -791,159 +799,167 @@ export default function PainelBarberMovePremium({ token: tokenProp, logout: logo
             </div>
           )}
 
-          {/* AVALIAR */}
-          {tab === 'avaliar' && (
-            <div className="p-4">
-              {perfil ? (
-                <AbaPadronizadaAvaliacoes
-                  usuarioId={perfil.id}
-                  tipoUsuario="barbeiro"
-                  nomeUsuario={perfil.nome}
-                  API_URL={API_URL}
-                  token={token}
-                  notify={notify}
-                />
-              ) : (
-                <p className="text-center text-zinc-500 text-sm py-12">Carregando...</p>
-              )}
-            </div>
-          )}
-
           {/* PERFIL */}
           {tab === 'perfil' && (
-            <div className="p-4">
-              <div className="space-y-4">
-                <div className="rounded-2xl border border-zinc-800 bg-zinc-900 p-3">
-                  <p className="text-[11px] text-zinc-400 uppercase tracking-wide">Status atual</p>
-                  <p className="text-sm font-bold text-white mt-1">
-                    {textoStatusTopo}
-                  </p>
-                </div>
-                <TelaPerfilUsuario userType="barbeiro" token={token} API_URL={API_URL} onLogout={handleLogout} onNotify={notify} onStatusAtualizado={handleStatusAtualizado} />
-              </div>
-            </div>
-          )}
-
-          {/* CARTEIRA */}
-          {tab === 'carteira' && (
             <div className="p-4 space-y-4">
-              <h2 className="text-xs font-black text-zinc-500 uppercase tracking-widest">Carteira</h2>
-              {(() => {
-                const saldoCarteira = Number(ganhos?.saldo_carteira || 0);
-                const limiteNegativo = Number(ganhos?.limite_negativo ?? -50);
-                const bloqueado = Boolean(ganhos?.bloqueado_financeiro) || saldoCarteira <= limiteNegativo;
-                const alerta = saldoCarteira < 0 && !bloqueado;
-                const positivo = saldoCarteira > 0;
-
-                return (
-                  <div className={`rounded-2xl border p-5 text-center ${bloqueado ? 'border-red-500/40 bg-red-500/10' : alerta ? 'border-amber-500/40 bg-amber-500/10' : positivo ? 'border-emerald-500/40 bg-emerald-500/10' : 'border-zinc-800 bg-zinc-900'}`}>
-                    <p className="text-xs uppercase tracking-wide text-zinc-400 mb-1">Saldo da carteira</p>
-                    <p className={`text-3xl font-black ${bloqueado ? 'text-red-400' : alerta ? 'text-amber-300' : positivo ? 'text-emerald-400' : 'text-white'}`}>
-                      R$ {saldoCarteira.toFixed(2)}
-                    </p>
-                    {positivo && <p className="text-xs text-emerald-200 mt-2">Você pode solicitar saque via PIX.</p>}
-                    {alerta && <p className="text-xs text-amber-200 mt-2">Sua comissão pendente será descontada nos próximos atendimentos via Pix/Cartão.</p>}
-                    {bloqueado && <p className="text-xs text-red-200 mt-2">Saldo devedor no limite. Novos chamados estão bloqueados até a quitação.</p>}
-                  </div>
-                );
-              })()}
-
-              <div className="grid grid-cols-2 gap-3">
-                <div className="rounded-2xl border border-zinc-800 bg-zinc-900 p-4">
-                  <p className="text-xs text-zinc-500 uppercase tracking-wide mb-1">Ganhos brutos</p>
-                  <p className="text-xl font-black text-white">R$ {Number(ganhos?.ganhos_brutos||0).toFixed(2)}</p>
-                </div>
-                <div className="rounded-2xl border border-zinc-800 bg-zinc-900 p-4">
-                  <p className="text-xs text-zinc-500 uppercase tracking-wide mb-1">Comissões</p>
-                  <p className="text-xl font-black text-red-400">R$ {Number(ganhos?.total_comissoes||0).toFixed(2)}</p>
-                </div>
-              </div>
-              <div className="rounded-2xl border border-green-500/30 bg-green-500/10 p-5 text-center">
-                <p className="text-xs text-zinc-400 uppercase tracking-wide mb-1">Ganhos líquidos</p>
-                <p className="text-3xl font-black text-green-400">R$ {Number(ganhos?.ganhos_liquidos||0).toFixed(2)}</p>
-              </div>
-              <div className="rounded-2xl border border-zinc-800 bg-zinc-900 p-4 space-y-2 text-sm">
-                <div className="flex justify-between"><span className="text-zinc-400">Atendimentos</span><span className="font-bold">{ganhos?.total_atendimentos||0}</span></div>
-                <div className="flex justify-between"><span className="text-zinc-400">Via app</span><span className="font-bold">{ganhos?.total_atendimentos_app||0}</span></div>
-                    <div className="flex justify-between"><span className="text-zinc-400">Taxa app</span><span className="font-bold text-orange-400">10%</span></div>
+              <div className="rounded-2xl border border-zinc-800 bg-zinc-900 p-3">
+                <p className="text-[11px] text-zinc-400 uppercase tracking-wide">Status atual</p>
+                <p className="text-sm font-bold text-white mt-1">
+                  {textoStatusTopo}
+                </p>
               </div>
 
-              {Number(ganhos?.saldo_carteira || 0) > 0 && (
+              <div className="grid grid-cols-3 gap-2">
                 <button
-                  onClick={solicitarSaquePix}
-                  disabled={processandoSaque}
-                  className="w-full rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:bg-emerald-800/60 py-3 text-sm font-black"
-                >
-                  {processandoSaque ? 'Solicitando saque...' : 'Solicitar Saque via Pix'}
+                  onClick={() => setPerfilSection('dados')}
+                  className={`rounded-2xl px-3 py-3 text-center text-xs font-bold ${perfilSection === 'dados' ? 'bg-orange-500 text-white' : 'bg-zinc-950 text-zinc-400 hover:bg-zinc-900'}`}>
+                  Dados
                 </button>
+                <button
+                  onClick={() => { setPerfilSection('carteira'); carregarGanhos(); }}
+                  className={`rounded-2xl px-3 py-3 text-center text-xs font-bold ${perfilSection === 'carteira' ? 'bg-orange-500 text-white' : 'bg-zinc-950 text-zinc-400 hover:bg-zinc-900'}`}>
+                  Carteira
+                </button>
+                <button
+                  onClick={() => setPerfilSection('avaliacoes')}
+                  className={`rounded-2xl px-3 py-3 text-center text-xs font-bold ${perfilSection === 'avaliacoes' ? 'bg-orange-500 text-white' : 'bg-zinc-950 text-zinc-400 hover:bg-zinc-900'}`}>
+                  Avaliações
+                </button>
+              </div>
+
+              {perfilSection === 'dados' && (
+                <div className="space-y-4">
+                  <TelaPerfilUsuario userType="barbeiro" token={token} API_URL={API_URL} onLogout={handleLogout} onNotify={notify} onStatusAtualizado={handleStatusAtualizado} />
+                </div>
               )}
 
-              {Boolean(ganhos?.bloqueado_financeiro) && (
-                <div className="rounded-2xl border border-red-500/40 bg-red-500/10 p-4 space-y-3">
-                  <button
-                    onClick={gerarPixQuitacao}
-                    disabled={processandoQuitacao}
-                    className="w-full rounded-xl bg-red-600 hover:bg-red-500 disabled:bg-red-800/60 py-3 text-sm font-black"
-                  >
-                    {processandoQuitacao ? 'Gerando PIX...' : 'Pagar Saldo Devedor para Liberar App'}
-                  </button>
+              {perfilSection === 'carteira' && (
+                <div className="space-y-4">
+                  <div className="rounded-2xl border border-zinc-800 bg-zinc-900 p-5 text-center">
+                    <p className="text-xs uppercase tracking-wide text-zinc-400 mb-1">Saldo da carteira</p>
+                    <p className={`text-3xl font-black ${bloqueadoFinanceiro ? 'text-red-400' : Number(ganhos?.saldo_carteira || 0) < 0 ? 'text-amber-300' : 'text-emerald-400'}`}>
+                      R$ {Number(ganhos?.saldo_carteira || 0).toFixed(2)}
+                    </p>
+                    {Number(ganhos?.saldo_carteira || 0) > 0 && <p className="text-xs text-emerald-200 mt-2">Você pode solicitar saque via PIX.</p>}
+                    {Number(ganhos?.saldo_carteira || 0) < 0 && !bloqueadoFinanceiro && <p className="text-xs text-amber-200 mt-2">Comissão pendente será ajustada nos próximos atendimentos.</p>}
+                    {bloqueadoFinanceiro && <p className="text-xs text-red-200 mt-2">Saldo devedor no limite. Chamados bloqueados até a quitação.</p>}
+                  </div>
 
-                  {pixQuitacao && (
-                    <div className="space-y-3">
-                      <p className="text-xs text-red-100">Valor devedor: <span className="font-bold">R$ {Number(pixQuitacao.valor_devedor || 0).toFixed(2)}</span></p>
-                      {pixQuitacao.qrcode_base64 && (
-                        <div className="bg-white p-2 rounded-lg inline-block">
-                          <img src={`data:image/png;base64,${pixQuitacao.qrcode_base64}`} alt="QR PIX quitação" className="w-44 h-44" />
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="rounded-2xl border border-zinc-800 bg-zinc-900 p-4">
+                      <p className="text-xs text-zinc-500 uppercase tracking-wide mb-1">Ganhos brutos</p>
+                      <p className="text-xl font-black text-white">R$ {Number(ganhos?.ganhos_brutos||0).toFixed(2)}</p>
+                    </div>
+                    <div className="rounded-2xl border border-zinc-800 bg-zinc-900 p-4">
+                      <p className="text-xs text-zinc-500 uppercase tracking-wide mb-1">Comissões</p>
+                      <p className="text-xl font-black text-red-400">R$ {Number(ganhos?.total_comissoes||0).toFixed(2)}</p>
+                    </div>
+                  </div>
+                  <div className="rounded-2xl border border-green-500/30 bg-green-500/10 p-5 text-center">
+                    <p className="text-xs text-zinc-400 uppercase tracking-wide mb-1">Ganhos líquidos</p>
+                    <p className="text-3xl font-black text-green-400">R$ {Number(ganhos?.ganhos_liquidos||0).toFixed(2)}</p>
+                  </div>
+                  <div className="rounded-2xl border border-zinc-800 bg-zinc-900 p-4 space-y-2 text-sm">
+                    <div className="flex justify-between"><span className="text-zinc-400">Atendimentos</span><span className="font-bold">{ganhos?.total_atendimentos||0}</span></div>
+                    <div className="flex justify-between"><span className="text-zinc-400">Via app</span><span className="font-bold">{ganhos?.total_atendimentos_app||0}</span></div>
+                    <div className="flex justify-between"><span className="text-zinc-400">Taxa app</span><span className="font-bold text-orange-400">10%</span></div>
+                  </div>
+
+                  {Number(ganhos?.saldo_carteira || 0) > 0 && (
+                    <button
+                      onClick={solicitarSaquePix}
+                      disabled={processandoSaque}
+                      className="w-full rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:bg-emerald-800/60 py-3 text-sm font-black"
+                    >
+                      {processandoSaque ? 'Solicitando saque...' : 'Solicitar Saque via Pix'}
+                    </button>
+                  )}
+
+                  {Boolean(ganhos?.bloqueado_financeiro) && (
+                    <div className="rounded-2xl border border-red-500/40 bg-red-500/10 p-4 space-y-3">
+                      <button
+                        onClick={gerarPixQuitacao}
+                        disabled={processandoQuitacao}
+                        className="w-full rounded-xl bg-red-600 hover:bg-red-500 disabled:bg-red-800/60 py-3 text-sm font-black"
+                      >
+                        {processandoQuitacao ? 'Gerando PIX...' : 'Pagar Saldo Devedor para Liberar App'}
+                      </button>
+
+                      {pixQuitacao && (
+                        <div className="space-y-3">
+                          <p className="text-xs text-red-100">Valor devedor: <span className="font-bold">R$ {Number(pixQuitacao.valor_devedor || 0).toFixed(2)}</span></p>
+                          {pixQuitacao.qrcode_base64 && (
+                            <div className="bg-white p-2 rounded-lg inline-block">
+                              <img src={`data:image/png;base64,${pixQuitacao.qrcode_base64}`} alt="QR PIX quitação" className="w-44 h-44" />
+                            </div>
+                          )}
+                          <div className="flex gap-2">
+                            <input
+                              value={pixQuitacao.pix_copia_cola || ''}
+                              readOnly
+                              className="flex-1 bg-zinc-950 border border-zinc-700 rounded-lg px-3 py-2 text-[11px] text-zinc-200"
+                            />
+                            <button
+                              onClick={() => copiarTexto(pixQuitacao.pix_copia_cola)}
+                              className="px-3 py-2 rounded-lg bg-zinc-800 hover:bg-zinc-700"
+                              type="button"
+                            >
+                              <Copy size={14} />
+                            </button>
+                          </div>
+                          <button
+                            onClick={confirmarQuitacao}
+                            disabled={processandoQuitacao}
+                            className="w-full rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:bg-emerald-800/60 py-2 text-sm font-black"
+                          >
+                            {processandoQuitacao ? 'Confirmando...' : 'Já paguei, confirmar quitação'}
+                          </button>
                         </div>
                       )}
-                      <div className="flex gap-2">
-                        <input
-                          value={pixQuitacao.pix_copia_cola || ''}
-                          readOnly
-                          className="flex-1 bg-zinc-950 border border-zinc-700 rounded-lg px-3 py-2 text-[11px] text-zinc-200"
-                        />
-                        <button
-                          onClick={() => copiarTexto(pixQuitacao.pix_copia_cola)}
-                          className="px-3 py-2 rounded-lg bg-zinc-800 hover:bg-zinc-700"
-                          type="button"
-                        >
-                          <Copy size={14} />
-                        </button>
-                      </div>
-                      <button
-                        onClick={confirmarQuitacao}
-                        disabled={processandoQuitacao}
-                        className="w-full rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:bg-emerald-800/60 py-2 text-sm font-black"
-                      >
-                        {processandoQuitacao ? 'Confirmando...' : 'Já paguei, confirmar quitação'}
-                      </button>
                     </div>
+                  )}
+
+                  {Array.isArray(ganhos?.historico_movimentacoes) && ganhos.historico_movimentacoes.length > 0 && (
+                    <div className="rounded-2xl border border-zinc-800 bg-zinc-900 p-4 space-y-2">
+                      <p className="text-xs font-black text-zinc-500 uppercase tracking-widest">Histórico de movimentações</p>
+                      <div className="space-y-2 max-h-72 overflow-y-auto">
+                        {ganhos.historico_movimentacoes.map((mov) => (
+                          <div key={mov.id} className="rounded-xl border border-zinc-800 bg-zinc-950 p-3">
+                            <p className="text-xs text-zinc-300 font-bold">{mov.descricao}</p>
+                            <div className="flex justify-between text-[11px] mt-1">
+                              <span className="text-zinc-500">{mov.criado_em ? new Date(mov.criado_em).toLocaleString('pt-BR') : '-'}</span>
+                              <span className={Number(mov.valor) >= 0 ? 'text-emerald-400 font-bold' : 'text-red-400 font-bold'}>
+                                {Number(mov.valor) >= 0 ? '+' : '-'}R$ {Math.abs(Number(mov.valor || 0)).toFixed(2)}
+                              </span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  <button onClick={carregarGanhos} className="w-full rounded-xl border border-zinc-800 bg-zinc-900 py-3 text-sm font-bold hover:bg-zinc-800 transition-colors">
+                    🔄 Atualizar
+                  </button>
+                </div>
+              )}
+
+              {perfilSection === 'avaliacoes' && (
+                <div className="p-0">
+                  {perfil ? (
+                    <AbaPadronizadaAvaliacoes
+                      usuarioId={perfil.id}
+                      tipoUsuario="barbeiro"
+                      nomeUsuario={perfil.nome}
+                      API_URL={API_URL}
+                      token={token}
+                      notify={notify}
+                    />
+                  ) : (
+                    <p className="text-center text-zinc-500 text-sm py-12">Carregando...</p>
                   )}
                 </div>
               )}
-
-              {Array.isArray(ganhos?.historico_movimentacoes) && ganhos.historico_movimentacoes.length > 0 && (
-                <div className="rounded-2xl border border-zinc-800 bg-zinc-900 p-4 space-y-2">
-                  <p className="text-xs font-black text-zinc-500 uppercase tracking-widest">Histórico de movimentações</p>
-                  <div className="space-y-2 max-h-72 overflow-y-auto">
-                    {ganhos.historico_movimentacoes.map((mov) => (
-                      <div key={mov.id} className="rounded-xl border border-zinc-800 bg-zinc-950 p-3">
-                        <p className="text-xs text-zinc-300 font-bold">{mov.descricao}</p>
-                        <div className="flex justify-between text-[11px] mt-1">
-                          <span className="text-zinc-500">{mov.criado_em ? new Date(mov.criado_em).toLocaleString('pt-BR') : '-'}</span>
-                          <span className={Number(mov.valor) >= 0 ? 'text-emerald-400 font-bold' : 'text-red-400 font-bold'}>
-                            {Number(mov.valor) >= 0 ? '+' : '-'}R$ {Math.abs(Number(mov.valor || 0)).toFixed(2)}
-                          </span>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              <button onClick={carregarGanhos} className="w-full rounded-xl border border-zinc-800 bg-zinc-900 py-3 text-sm font-bold hover:bg-zinc-800 transition-colors">
-                🔄 Atualizar
-              </button>
             </div>
           )}
         </div>

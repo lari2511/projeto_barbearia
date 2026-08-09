@@ -112,45 +112,64 @@ export default function Cadastro({ initialType = 'cliente', onBack, onSuccess })
         return { latitude: Number(data[0].lat), longitude: Number(data[0].lon) }
       }
     } catch (error) {
-      // Falha silenciosa: mantém o lat/long já preenchido (GPS ou manual) e não bloqueia o cadastro
+      console.error('Erro geocodificando endereço:', error)
     }
     return null
   }
 
   // Buscar endereço por CEP
   const buscarCep = async () => {
-    const cep = form.cep.replace(/\D/g, '')
-    if (cep.length !== 8) {
+    const cepLimpo = String(form.cep || '').replace(/\D/g, '')
+    if (cepLimpo.length !== 8) {
       setLocalError('CEP deve ter 8 dígitos')
+      setForm((current) => ({ ...current, endereco: '', latitude: '', longitude: '' }))
       return
     }
 
     setLoadingCep(true)
+    setLocalError('')
     try {
-      const response = await fetch(`https://viacep.com.br/ws/${cep}/json/`)
+      const response = await fetch(`https://viacep.com.br/ws/${cepLimpo}/json/`)
       const data = await response.json()
 
-      if (data.erro) {
+      if (!response.ok || data.erro) {
         setLocalError('CEP não encontrado')
+        setForm((current) => ({ ...current, endereco: '', latitude: '', longitude: '' }))
         return
       }
 
-      const enderecoCompleto = `${data.logradouro}, ${data.bairro}, ${data.localidade} - ${data.uf}`
+      const logradouro = String(data.logradouro || '').trim()
+      const bairro = String(data.bairro || '').trim()
+      const localidade = String(data.localidade || '').trim()
+      const uf = String(data.uf || '').trim()
+      if (!logradouro || !localidade || !uf) {
+        setLocalError('CEP não encontrado')
+        setForm((current) => ({ ...current, endereco: '', latitude: '', longitude: '' }))
+        return
+      }
+
+      const enderecoCompleto = `${logradouro}${bairro ? `, ${bairro}` : ''}, ${localidade}/${uf}`
+      const cepFormatado = String(data.cep || cepLimpo).replace(/^(\d{5})(\d{3})$/, '$1-$2')
+
       setForm((current) => ({
         ...current,
-        endereco: enderecoCompleto
+        endereco: enderecoCompleto,
+        cep: cepFormatado
       }))
 
-      const posicao = await geocodificarEndereco(`${enderecoCompleto}, ${data.cep}`)
+      const posicao = await geocodificarEndereco(enderecoCompleto)
       if (posicao) {
         setForm((current) => ({
           ...current,
           latitude: String(posicao.latitude),
           longitude: String(posicao.longitude)
         }))
+      } else {
+        setForm((current) => ({ ...current, latitude: '', longitude: '' }))
       }
     } catch (error) {
       setLocalError('Erro ao buscar CEP')
+      setForm((current) => ({ ...current, endereco: '', latitude: '', longitude: '' }))
     } finally {
       setLoadingCep(false)
     }
