@@ -1429,15 +1429,17 @@ export function TelaPerfilUsuario({
             <p className={styles.labelStrong}>Plano da barbearia por cadeira</p>
 
             <div className={styles.counterRow}>
-              <div>
-                <p className={styles.counterLabel}>Quantidade de cadeiras</p>
-                <p className={styles.counterValue}>{cadeirasPlano}</p>
+              <div className={styles.counterTopRow}>
+                <div>
+                  <p className={styles.counterLabel}>Quantidade de cadeiras</p>
+                  <p className={styles.counterValue}>{cadeirasPlano}</p>
+                </div>
+                <div className={styles.counterButtons}>
+                  <button type="button" onClick={() => setCadeirasPlano((v) => Math.max(1, v - 1))} className={styles.counterBtn}>-</button>
+                  <button type="button" onClick={() => setCadeirasPlano((v) => Math.min(50, v + 1))} className={styles.counterBtn}>+</button>
+                </div>
               </div>
-              <div className={styles.counterButtons}>
-                <button type="button" onClick={() => setCadeirasPlano((v) => Math.max(1, v - 1))} className={styles.counterBtn}>-</button>
-                <button type="button" onClick={() => setCadeirasPlano((v) => Math.min(50, v + 1))} className={styles.counterBtn}>+</button>
-              </div>
-              <div>
+              <div className={styles.counterMoneyRow}>
                 <p className={styles.counterLabel}>Mensalidade</p>
                 <p className={styles.counterMoney}>{moneyBRL(mensalidadeTotal)}</p>
               </div>
