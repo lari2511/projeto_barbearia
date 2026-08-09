@@ -211,14 +211,48 @@ export default function PainelBarberMovePremium({ token: tokenProp, logout: logo
 
   // GPS contínuo
   useEffect(() => {
-    if (!navigator.geolocation) return;
-    const id = navigator.geolocation.watchPosition(
-      (pos) => setMinhaPosicao({ latitude: pos.coords.latitude, longitude: pos.coords.longitude }),
-      () => {},
-      { enableHighAccuracy: true, maximumAge: 5000 }
-    );
-    return () => navigator.geolocation.clearWatch(id);
-  }, []);
+    if (!navigator.geolocation) return undefined;
+    let watchId = null;
+    let cancelled = false;
+
+    const iniciarWatch = () => {
+      if (cancelled) return;
+      watchId = navigator.geolocation.watchPosition(
+        (pos) => setMinhaPosicao({ latitude: pos.coords.latitude, longitude: pos.coords.longitude }),
+        (err) => {
+          console.error('[GPS freelancer] falha no watchPosition', err);
+        },
+        { enableHighAccuracy: true, maximumAge: 5000 }
+      );
+    };
+
+    // No app nativo, o navigator.geolocation cru so funciona depois que a
+    // permissao foi pedida via plugin do Capacitor - sem isso, o watchPosition
+    // fica preso sem nunca chamar sucesso nem erro (GPS "parado" pra sempre).
+    if (typeof window !== 'undefined' && window.Capacitor?.isNativePlatform?.()) {
+      import('@capacitor/geolocation')
+        .then(async ({ Geolocation }) => {
+          try {
+            const permissao = await Geolocation.requestPermissions();
+            if (permissao?.location === 'denied' && permissao?.coarseLocation === 'denied') {
+              notify?.('Permissão de localização negada. Ative nas configurações do celular pra aparecer disponível.', 'error');
+              return;
+            }
+          } catch (err) {
+            console.error('[GPS freelancer] falha ao pedir permissao via Capacitor', err);
+          }
+          iniciarWatch();
+        })
+        .catch(() => iniciarWatch());
+    } else {
+      iniciarWatch();
+    }
+
+    return () => {
+      cancelled = true;
+      if (watchId != null) navigator.geolocation.clearWatch(watchId);
+    };
+  }, [notify]);
 
   useEffect(() => {
     if (!token) return;
