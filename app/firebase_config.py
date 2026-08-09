@@ -190,16 +190,20 @@ def enviar_notificacao_novo_chamado(
     token_dispositivo: str,
     nome_cliente: str,
     nome_servico: str,
-    nome_barbearia: str = None
+    nome_barbearia: str = None,
+    title: str = None,
+    body: str = None
 ) -> bool:
     """
-    Notificar barbeiro quando um novo chamado o procura.
+    Notificar barbeiro ou cliente sobre um chamado.
     
     Args:
-        token_dispositivo: Device token do barbeiro
-        nome_cliente: Nome do cliente que solicitou
-        nome_servico: Nome do serviço
+        token_dispositivo: Device token do destinatário
+        nome_cliente: Nome do cliente que solicitou ou mensagem de contexto
+        nome_servico: Nome do serviço ou texto de contexto
         nome_barbearia: Nome da barbearia
+        title: Título customizado da notificação
+        body: Texto customizado da notificação
     
     Returns:
         True/False
@@ -215,8 +219,8 @@ def enviar_notificacao_novo_chamado(
     try:
         mensagem = messaging.Message(
             notification=messaging.Notification(
-                title="📞 Novo Chamado!",
-                body=f"{nome_cliente} solicitou {nome_servico} em {nome_barbearia or 'sua barbearia'}"
+                title=title or "📞 Novo Chamado!",
+                body=body or f"{nome_cliente} solicitou {nome_servico} em {nome_barbearia or 'sua barbearia'}"
             ),
             data={
                 "tipo": "novo_chamado",

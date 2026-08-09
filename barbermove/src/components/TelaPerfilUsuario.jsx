@@ -5,6 +5,7 @@ import AppCard from './AppCard';
 import Header from './Header';
 import styles from './TelaPerfilUsuario.module.css';
 import { getApiBaseUrl, resolveMediaUrl } from '../utils/api';
+import { formatarEndereco } from '../utils/address';
 import { gerarQrDataUrl, salvarMetodoPreferidoCliente, validarCartaoBasico } from './checkout/core';
 
 const PERFIL_META = {
@@ -347,7 +348,6 @@ export function TelaPerfilUsuario({
   const [loadingCepBarbearia, setLoadingCepBarbearia] = useState(false);
   const [latitudeBarbearia, setLatitudeBarbearia] = useState(null);
   const [longitudeBarbearia, setLongitudeBarbearia] = useState(null);
-  const [locationLoading, setLocationLoading] = useState(false);
   const [perfilBarbeariaTeste, setPerfilBarbeariaTeste] = useState(false);
   const [cadeirasPlano, setCadeirasPlano] = useState(1);
   const [cadeirasPlanoSalvas, setCadeirasPlanoSalvas] = useState(1);
@@ -364,6 +364,7 @@ export function TelaPerfilUsuario({
   const [barbeariasDisponiveis, setBarbeariasDisponiveis] = useState([]);
   const [barbeariaAtualNome, setBarbeariaAtualNome] = useState('');
   const [barbeariaAtualEndereco, setBarbeariaAtualEndereco] = useState('');
+  const barbeariaAtualEnderecoFormatado = formatarEndereco(barbeariaAtualEndereco);
 
   const [saving, setSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
@@ -1142,84 +1143,7 @@ export function TelaPerfilUsuario({
 
   const pixPlanoQrSrc = getPixQrSrcPerfil(pixPlano?.qrcode_base64);
 
-  const obterCoordenadasAtuais = async () => {
-    // Em app nativo, prioriza plugin do Capacitor para evitar inconsistência no navigator.geolocation.
-    const isNativeApp = typeof window !== 'undefined' && (
-      window.location.protocol === 'capacitor:' ||
-      window.location.protocol === 'ionic:' ||
-      window.Capacitor?.isNativePlatform?.() === true
-    );
 
-    if (isNativeApp) {
-      try {
-        const module = await import('@capacitor/geolocation');
-        const Geolocation = module?.Geolocation;
-        if (Geolocation?.requestPermissions) {
-          await Geolocation.requestPermissions();
-        }
-        if (Geolocation?.getCurrentPosition) {
-          const position = await Geolocation.getCurrentPosition({
-            enableHighAccuracy: true,
-            timeout: 15000,
-            maximumAge: 0,
-          });
-          return position?.coords || null;
-        }
-      } catch (_error) {
-        // Se plugin falhar, tenta fallback web.
-      }
-    }
-
-    if (typeof navigator === 'undefined' || !navigator.geolocation) {
-      return null;
-    }
-
-    return new Promise((resolve, reject) => {
-      navigator.geolocation.getCurrentPosition(
-        (position) => resolve(position.coords),
-        (error) => reject(error),
-        { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
-      );
-    });
-  };
-
-  const capturarGpsBarbearia = async () => {
-    if (!token || !apiBase || perfilTipo !== 'barbearia') return;
-
-    try {
-      setLocationLoading(true);
-      const coords = await obterCoordenadasAtuais();
-      if (!coords) {
-        throw new Error('Geolocalizacao nao disponivel neste aparelho');
-      }
-
-      const latitude = Number(coords.latitude);
-      const longitude = Number(coords.longitude);
-
-      const res = await fetch(`${apiBase}/api/v1/barbearia/minha/configurar-endereco-por-gps`, {
-        method: 'PATCH',
-        headers: {
-          Authorization: `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ latitude, longitude }),
-      });
-
-      const data = await safeReadJson(res, {});
-      if (!res.ok) {
-        throw new Error(data?.detail || 'Falha ao atualizar localizacao via GPS');
-      }
-
-      setLatitudeBarbearia(Number.isFinite(Number(data?.coordenadas?.[0])) ? Number(data.coordenadas[0]) : latitude);
-      setLongitudeBarbearia(Number.isFinite(Number(data?.coordenadas?.[1])) ? Number(data.coordenadas[1]) : longitude);
-      setEnderecoBarbearia(String(data?.endereco || enderecoBarbearia || '').trim());
-      onNotify?.('Localizacao atualizada com sucesso via GPS', 'success');
-    } catch (err) {
-      onNotify?.(err?.message || 'Nao foi possivel capturar localizacao via GPS', 'error');
-    } finally {
-      setLocationLoading(false);
-    }
-  };
 
   const buscarCepBarbearia = async () => {
     if (!token || !apiBase || perfilTipo !== 'barbearia') return;
@@ -1354,7 +1278,7 @@ export function TelaPerfilUsuario({
               <div className="rounded-xl border border-orange-500/30 bg-orange-500/10 p-3 text-xs text-zinc-300">
                 <p className="font-bold text-orange-300 mb-1">Barbearia atual</p>
                 <p className="text-sm font-bold text-white">{barbeariaAtualNome}</p>
-                <p className="text-zinc-400 mt-1">{barbeariaAtualEndereco || 'Endereco nao informado'}</p>
+                <p className="text-zinc-400 mt-1">{barbeariaAtualEnderecoFormatado || 'Endereco nao informado'}</p>
               </div>
             )}
           </div>
@@ -1657,14 +1581,6 @@ export function TelaPerfilUsuario({
             </div>
 
             <div className="flex flex-wrap gap-2">
-              <button
-                type="button"
-                onClick={capturarGpsBarbearia}
-                disabled={saving || locationLoading}
-                className="rounded-lg border border-emerald-500/40 bg-emerald-500/20 px-3 py-2 text-xs font-bold text-emerald-200 disabled:opacity-60"
-              >
-                {locationLoading ? 'Capturando GPS...' : 'Usar minha localizacao atual'}
-              </button>
               {Number.isFinite(Number(latitudeBarbearia)) && Number.isFinite(Number(longitudeBarbearia)) && (
                 <span className="rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-[11px] text-zinc-300">
                   {Number(latitudeBarbearia).toFixed(6)}, {Number(longitudeBarbearia).toFixed(6)}

@@ -29,7 +29,7 @@ export default function PainelBarberMovePremium({ token: tokenProp, logout: logo
   const [vagasRelampago, setVagasRelampago] = useState([]);
   const [aceitandoVagaId, setAceitandoVagaId] = useState(null);
   const [agoraMs, setAgoraMs] = useState(Date.now());
-  const [timerPausado, setTimerPausado] = useState(false);
+  const [isPaused, setIsPaused] = useState(false);
   const [pausadoEmMs, setPausadoEmMs] = useState(null);
   const [pausaAcumuladaMs, setPausaAcumuladaMs] = useState(0);
   const [alternandoPausa, setAlternandoPausa] = useState(false);
@@ -75,9 +75,9 @@ export default function PainelBarberMovePremium({ token: tokenProp, logout: logo
     const fim = chamado.data_hora_fim ? new Date(chamado.data_hora_fim).getTime() : NaN;
     if (!Number.isFinite(fim)) return null;
 
-    const pausaAtualMs = timerPausado && pausadoEmMs ? (agoraMs - pausadoEmMs) : 0;
+    const pausaAtualMs = isPaused && pausadoEmMs ? (agoraMs - pausadoEmMs) : 0;
     return fim - agoraMs + pausaAcumuladaMs + pausaAtualMs;
-  }, [agoraMs, timerPausado, pausadoEmMs, pausaAcumuladaMs]);
+  }, [agoraMs, isPaused, pausadoEmMs, pausaAcumuladaMs]);
 
   const renderCronometro = useCallback((chamado, compacto = false) => {
     if (!chamado) return null;
@@ -89,7 +89,7 @@ export default function PainelBarberMovePremium({ token: tokenProp, logout: logo
     if (!Number.isFinite(fim)) return null;
 
     const isChamadoAtivo = Number(chamadoAtivo?.id) === Number(chamado.id);
-    const pausaAtualMs = isChamadoAtivo && timerPausado && pausadoEmMs ? (agoraMs - pausadoEmMs) : 0;
+    const pausaAtualMs = isChamadoAtivo && isPaused && pausadoEmMs ? (agoraMs - pausadoEmMs) : 0;
     const acumuladoMs = isChamadoAtivo ? pausaAcumuladaMs : 0;
     const restanteMs = fim - agoraMs + acumuladoMs + pausaAtualMs;
     const restanteSegundos = Math.ceil(Math.max(0, restanteMs) / 1000);
@@ -106,7 +106,7 @@ export default function PainelBarberMovePremium({ token: tokenProp, logout: logo
         <p className={`${compacto ? 'text-lg' : 'text-2xl'} font-black text-white`}>{formatarDuracao(restanteSegundos)}</p>
       </div>
     );
-  }, [agoraMs, chamadoAtivo?.id, formatarDuracao, pausaAcumuladaMs, pausadoEmMs, timerPausado]);
+  }, [agoraMs, chamadoAtivo?.id, formatarDuracao, pausaAcumuladaMs, pausadoEmMs, isPaused]);
 
   const carregarPerfil = useCallback(async () => {
     if (!token) return;
@@ -172,9 +172,11 @@ export default function PainelBarberMovePremium({ token: tokenProp, logout: logo
   }, [tab]);
 
   useEffect(() => {
+    if (isPaused) return undefined;
+
     const t = setInterval(() => setAgoraMs(Date.now()), 1000);
     return () => clearInterval(t);
-  }, []);
+  }, [isPaused]);
 
   // GPS contínuo
   useEffect(() => {
@@ -441,7 +443,7 @@ export default function PainelBarberMovePremium({ token: tokenProp, logout: logo
 
   useEffect(() => {
     if (!chamadoAtivo?.id) {
-      setTimerPausado(false);
+      setIsPaused(false);
       setPausadoEmMs(null);
       setPausaAcumuladaMs(0);
       return;
@@ -450,7 +452,7 @@ export default function PainelBarberMovePremium({ token: tokenProp, logout: logo
     try {
       const raw = localStorage.getItem(obterChavePausa(chamadoAtivo.id));
       if (!raw) {
-        setTimerPausado(false);
+        setIsPaused(false);
         setPausadoEmMs(null);
         setPausaAcumuladaMs(0);
         return;
@@ -461,11 +463,11 @@ export default function PainelBarberMovePremium({ token: tokenProp, logout: logo
       const pausadoEm = Number(parsed?.pausadoEmMs);
       const acumulado = Number(parsed?.pausaAcumuladaMs);
 
-      setTimerPausado(pausado);
+      setIsPaused(pausado);
       setPausadoEmMs(Number.isFinite(pausadoEm) ? pausadoEm : null);
       setPausaAcumuladaMs(Number.isFinite(acumulado) ? acumulado : 0);
     } catch (_err) {
-      setTimerPausado(false);
+      setIsPaused(false);
       setPausadoEmMs(null);
       setPausaAcumuladaMs(0);
     }
@@ -475,20 +477,20 @@ export default function PainelBarberMovePremium({ token: tokenProp, logout: logo
     if (!chamadoAtivo?.id) return;
     try {
       localStorage.setItem(obterChavePausa(chamadoAtivo.id), JSON.stringify({
-        timerPausado,
+        timerPausado: isPaused,
         pausadoEmMs,
         pausaAcumuladaMs,
       }));
     } catch (_err) {
       // Sem persistencia, segue fluxo normal.
     }
-  }, [chamadoAtivo?.id, timerPausado, pausadoEmMs, pausaAcumuladaMs, obterChavePausa]);
+  }, [chamadoAtivo?.id, isPaused, pausadoEmMs, pausaAcumuladaMs, obterChavePausa]);
 
   const togglePausaTemporizador = async () => {
     if (!token || !chamadoAtivo?.id || alternandoPausa) return;
     try {
       setAlternandoPausa(true);
-      const pausarAgora = !timerPausado;
+      const pausarAgora = !isPaused;
       const res = await fetch(`${API_URL}/api/v1/freelancer/pausar?pausar=${pausarAgora ? 'true' : 'false'}`, {
         method: 'PATCH',
         headers: { Authorization: `Bearer ${token}` },
@@ -501,14 +503,14 @@ export default function PainelBarberMovePremium({ token: tokenProp, logout: logo
 
       const agoraLocal = Date.now();
       if (pausarAgora) {
-        setTimerPausado(true);
+        setIsPaused(true);
         setPausadoEmMs(agoraLocal);
         notify('Temporizador pausado. Novos chamados ficarão bloqueados até retomar.', 'warning');
       } else {
         const delta = pausadoEmMs ? Math.max(0, agoraLocal - pausadoEmMs) : 0;
         setPausaAcumuladaMs((prev) => prev + delta);
         setPausadoEmMs(null);
-        setTimerPausado(false);
+        setIsPaused(false);
         notify('Temporizador retomado.', 'success');
       }
     } catch (err) {
@@ -712,10 +714,10 @@ export default function PainelBarberMovePremium({ token: tokenProp, logout: logo
                         <button
                           onClick={togglePausaTemporizador}
                           disabled={alternandoPausa}
-                          className={`inline-flex items-center gap-2 rounded-lg px-3 py-2 text-xs font-bold text-white ${timerPausado ? 'bg-emerald-600 hover:bg-emerald-500' : 'bg-amber-600 hover:bg-amber-500'} disabled:opacity-60`}
+                          className={`inline-flex items-center gap-2 rounded-lg px-3 py-2 text-xs font-bold text-white ${isPaused ? 'bg-emerald-600 hover:bg-emerald-500' : 'bg-amber-600 hover:bg-amber-500'} disabled:opacity-60`}
                         >
-                          {timerPausado ? <Play size={12} /> : <Pause size={12} />}
-                          {alternandoPausa ? 'Atualizando...' : (timerPausado ? 'Retomar' : 'Pausar')}
+                          {isPaused ? <Play size={12} /> : <Pause size={12} />}
+                          {alternandoPausa ? 'Atualizando...' : (isPaused ? 'Retomar' : 'Pausar')}
                         </button>
                       </div>
                     )}

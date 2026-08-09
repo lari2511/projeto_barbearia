@@ -190,6 +190,16 @@ export default function ClientDashboard({ token, logout, API_URL: apiUrlProp, no
         return foto || '';
     }, [API_URL]);
 
+    const resolverFotoBarbearia = useCallback((item) => {
+        const url = item?.foto_perfil || item?.foto_url || item?.avatar || item?.imagem || item?.logo;
+        return resolverFoto(url);
+    }, [resolverFoto]);
+
+    const resolverFotoBarbeiro = useCallback((item) => {
+        const url = item?.foto_perfil || item?.foto_url || item?.avatar || item?.imagem || item?.logo;
+        return resolverFoto(url);
+    }, [resolverFoto]);
+
     const notifySafe = useCallback((mensagem, tipo = 'info') => {
         if (typeof notify !== 'function') return;
         try {
@@ -1546,8 +1556,8 @@ export default function ClientDashboard({ token, logout, API_URL: apiUrlProp, no
                                     <div key={barber.id} className="barber-card bm-card bg-zinc-900 rounded-2xl border border-zinc-800/60 hover:border-orange-500 transition-colors p-2 flex gap-3 items-start">
                                         <div className="barber-image relative w-24 h-24 sm:w-28 sm:h-28 md:w-32 md:h-32 shrink-0 rounded-xl overflow-hidden bg-gradient-to-r from-zinc-800 to-zinc-900">
                                             <img
-                                                src={resolverFoto(barber.foto_perfil) || getShopImage(barber.id)}
-                                                alt=""
+                                                src={resolverFotoBarbeiro(barber) || getShopImage(barber.id)}
+                                                alt={barber.nome || 'Barbeiro'}
                                                 className="w-full h-full object-cover"
                                                 onError={(e) => {
                                                     e.currentTarget.onerror = null;
@@ -1637,8 +1647,8 @@ export default function ClientDashboard({ token, logout, API_URL: apiUrlProp, no
                                     <div key={barbearia.id} className="bm-card bg-zinc-900 rounded-2xl border border-zinc-800/60 hover:border-orange-500 transition-colors p-2 flex gap-3 items-start">
                                         <div className="relative w-24 h-24 sm:w-28 sm:h-28 md:w-32 md:h-32 shrink-0 rounded-xl overflow-hidden bg-gradient-to-r from-zinc-800 to-zinc-900">
                                             <img
-                                                src={resolverFoto(barbearia.foto_perfil) || getShopImage(barbearia.id)}
-                                                alt=""
+                                                src={resolverFotoBarbearia(barbearia) || getShopImage(barbearia.id)}
+                                                alt={barbearia.nome || 'Barbearia'}
                                                 className="w-full h-full object-cover"
                                                 onError={(e) => {
                                                     e.currentTarget.onerror = null;

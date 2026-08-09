@@ -301,7 +301,7 @@ def _finalizar_chamado_e_avancar_fila(db: Session, chamado: models.Chamado, barb
         ))
         db.add(models.Notificacao(
             usuario_id=proximo.cliente_id,
-            titulo="Seu atendimento começou",
+            titulo="✂️ Seu atendimento começou! Bom corte!",
             mensagem=f"O barbeiro {barbeiro.nome} começou seu atendimento agora.",
             tipo="chamado",
             referencia_id=proximo.id
@@ -2257,16 +2257,16 @@ async def chegar_chamado(id: int, token: str = Depends(oauth2_scheme), db: Sessi
 
         db.add(models.Notificacao(
             usuario_id=chamado.cliente_id,
-            titulo="Atendimento iniciado",
-            mensagem="Cliente e barbeiro confirmaram chegada. O serviço foi iniciado.",
+            titulo="💈 O barbeiro chegou à barbearia!",
+            mensagem="✂️ Seu atendimento começou! Bom corte!",
             tipo="chamado",
             referencia_id=chamado.id
         ))
         if chamado.barbeiro_id:
             db.add(models.Notificacao(
                 usuario_id=chamado.barbeiro_id,
-                titulo="Atendimento iniciado",
-                mensagem="Cliente e barbeiro confirmaram chegada. O serviço foi iniciado.",
+                titulo="💈 O barbeiro chegou à barbearia!",
+                mensagem="✂️ Seu atendimento começou! Bom corte!",
                 tipo="chamado",
                 referencia_id=chamado.id
             ))
@@ -2486,7 +2486,7 @@ def iniciar_corte(id: int, token: str = Depends(oauth2_scheme), db: Session = De
     ))
     db.add(models.Notificacao(
         usuario_id=chamado.cliente_id,
-        titulo="Atendimento iniciado",
+        titulo="✂️ Seu atendimento começou! Bom corte!",
         mensagem=f"O barbeiro {user.nome} começou seu atendimento.",
         tipo="chamado",
         referencia_id=chamado.id
@@ -2498,7 +2498,7 @@ def iniciar_corte(id: int, token: str = Depends(oauth2_scheme), db: Session = De
             try:
                 msg = firebase_config.messaging.Message(
                     notification=firebase_config.messaging.Notification(
-                        title="Atendimento Iniciado",
+                        title="✂️ Seu atendimento começou! Bom corte!",
                         body=f"O barbeiro {user.nome} iniciou seu atendimento."
                     ),
                     data={"tipo": "atendimento_iniciado", "chamado_id": str(chamado.id)},

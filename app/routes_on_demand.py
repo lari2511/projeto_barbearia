@@ -711,7 +711,9 @@ async def barbeiro_aceitar_solicitacao(
             token_dispositivo=cliente.device_token,
             nome_cliente="Barbeiro encontrado!",
             nome_servico=f"{current_user.nome} está a caminho",
-            nome_barbearia=""
+            nome_barbearia="",
+            title="📍 O barbeiro está a caminho do seu local.",
+            body="Fique pronto: ele chega em breve para começar seu atendimento."
         )
     
     print(f"✅ Barbeiro {current_user.nome} aceitou solicitação #{solicitacao_id}")
@@ -721,7 +723,7 @@ async def barbeiro_aceitar_solicitacao(
         "solicitacao_id": solicitacao.id,
         "cliente_id": solicitacao.cliente_id,
         "barbeiro_id": current_user.id,
-        "mensagem": f"Solicitação aceita! Você está a caminho de {cliente.nome if cliente else 'seu cliente'}"
+        "mensagem": "Solicitação aceita! O barbeiro está a caminho do seu local."
     }
 
 

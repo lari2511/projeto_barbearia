@@ -3,6 +3,7 @@ import { Star, MapPin, Phone, Mail, Award, TrendingUp, MessageCircle } from 'luc
 import ChatRoom from './ChatRoom';
 import { AppContext } from '../contexts/AppContext';
 import { getApiBaseUrl, resolveMediaUrl } from '../utils/api';
+import { formatarEndereco } from '../utils/address';
 
 const DEFAULT_HOST = typeof window !== 'undefined' ? window.location.hostname : 'localhost';
 const DEFAULT_PROTOCOL = typeof window !== 'undefined' && window.location.protocol === 'https:' ? 'https' : 'http';
@@ -98,6 +99,7 @@ export default function ProfileCard({ usuarioId, userType, token, isOwnProfile: 
     profile?.longitude ??
     null;
   const enderecoMapa = String(profile?.endereco || profile?.barbearia_atual_endereco || '').trim();
+  const enderecoPerfilFormatado = formatarEndereco(enderecoMapa);
   const mapaEmbedSrc =
     Number.isFinite(Number(coordenadaLat)) && Number.isFinite(Number(coordenadaLon))
       ? `https://www.google.com/maps?q=${Number(coordenadaLat)},${Number(coordenadaLon)}&z=16&output=embed`
@@ -354,7 +356,7 @@ export default function ProfileCard({ usuarioId, userType, token, isOwnProfile: 
                 <MapPin size={18} className="text-orange-400 shrink-0 mt-1" />
                 <div>
                   <p className="text-xs text-zinc-400">Localização</p>
-                  <p className="text-sm text-white">{profile.endereco}</p>
+                  <p className="text-sm text-white">{enderecoPerfilFormatado}</p>
                 </div>
               </div>
             )}
