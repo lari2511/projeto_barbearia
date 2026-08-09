@@ -1174,8 +1174,13 @@ def listar_todas_barbearias(db: Session = Depends(get_db)):
 
 @router.get("/barbearia/{id}/servicos")
 def listar_servicos_barbearia(id: int, db: Session = Depends(get_db)):
-    # Listar serviços de uma barbearia específica.
-    servicos = db.query(models.Servico).filter(models.Servico.barbearia_id == id).all()
+    # Listar serviços ativos de uma barbearia específica.
+    # Servicos "deletados" sao soft-delete (ativo=False) - continuam no banco
+    # porque agendamentos antigos referenciam eles, mas nao devem aparecer aqui.
+    servicos = db.query(models.Servico).filter(
+        models.Servico.barbearia_id == id,
+        models.Servico.ativo == True
+    ).all()
     return servicos
 
 
