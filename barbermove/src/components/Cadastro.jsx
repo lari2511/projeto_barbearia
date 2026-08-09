@@ -101,28 +101,12 @@ export default function Cadastro({ initialType = 'cliente', onBack, onSuccess })
     setForm((current) => ({ ...current, [field]: value }))
   }
 
-  // Geocodifica o endereço do CEP para lat/long reais, em vez de depender só do GPS bruto do device
-  // (GPS de emulador/dispositivo sem fix cai no default do sistema e engana o cálculo de distância)
-  const geocodificarEndereco = async (enderecoTexto) => {
-    try {
-      const query = encodeURIComponent(`${enderecoTexto}, Brasil`)
-      const response = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=br&q=${query}`)
-      const data = await response.json()
-      if (Array.isArray(data) && data.length > 0) {
-        return { latitude: Number(data[0].lat), longitude: Number(data[0].lon) }
-      }
-    } catch (error) {
-      console.error('Erro geocodificando endereço:', error)
-    }
-    return null
-  }
-
   // Buscar endereço por CEP
   const buscarCep = async () => {
     const cepLimpo = String(form.cep || '').replace(/\D/g, '')
     if (cepLimpo.length !== 8) {
       setLocalError('CEP deve ter 8 dígitos')
-      setForm((current) => ({ ...current, endereco: '', latitude: '', longitude: '' }))
+      setForm((current) => ({ ...current, endereco: '' }))
       return
     }
 
@@ -134,7 +118,7 @@ export default function Cadastro({ initialType = 'cliente', onBack, onSuccess })
 
       if (!response.ok || data.erro) {
         setLocalError('CEP não encontrado')
-        setForm((current) => ({ ...current, endereco: '', latitude: '', longitude: '' }))
+        setForm((current) => ({ ...current, endereco: '' }))
         return
       }
 
@@ -144,7 +128,7 @@ export default function Cadastro({ initialType = 'cliente', onBack, onSuccess })
       const uf = String(data.uf || '').trim()
       if (!logradouro || !localidade || !uf) {
         setLocalError('CEP não encontrado')
-        setForm((current) => ({ ...current, endereco: '', latitude: '', longitude: '' }))
+        setForm((current) => ({ ...current, endereco: '' }))
         return
       }
 
@@ -156,20 +140,9 @@ export default function Cadastro({ initialType = 'cliente', onBack, onSuccess })
         endereco: enderecoCompleto,
         cep: cepFormatado
       }))
-
-      const posicao = await geocodificarEndereco(enderecoCompleto)
-      if (posicao) {
-        setForm((current) => ({
-          ...current,
-          latitude: String(posicao.latitude),
-          longitude: String(posicao.longitude)
-        }))
-      } else {
-        setForm((current) => ({ ...current, latitude: '', longitude: '' }))
-      }
     } catch (error) {
       setLocalError('Erro ao buscar CEP')
-      setForm((current) => ({ ...current, endereco: '', latitude: '', longitude: '' }))
+      setForm((current) => ({ ...current, endereco: '' }))
     } finally {
       setLoadingCep(false)
     }

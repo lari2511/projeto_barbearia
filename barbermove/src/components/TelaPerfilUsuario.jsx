@@ -1190,8 +1190,6 @@ export function TelaPerfilUsuario({
 
       setCepBarbearia(cepFormatado);
       setEnderecoBarbearia(String(data?.endereco || enderecoCompleto).trim());
-      setLatitudeBarbearia(Number.isFinite(Number(data?.coordenadas?.[0])) ? Number(data.coordenadas[0]) : NaN);
-      setLongitudeBarbearia(Number.isFinite(Number(data?.coordenadas?.[1])) ? Number(data.coordenadas[1]) : NaN);
       onNotify?.('Endereço atualizado a partir do CEP', 'success');
     } catch (err) {
       setEnderecoBarbearia('');
