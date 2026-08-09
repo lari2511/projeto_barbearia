@@ -2183,6 +2183,39 @@ def aceitar_chamado(id: int, token: str = Depends(oauth2_scheme), db: Session = 
     }
 
 
+@router.put("/chamados/{id}/recusar")
+def recusar_chamado(id: int, token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
+    # Barbeiro recusa um chamado pendente, liberando para outros barbeiros da região.
+    user = get_current_user(token=token, db=db)
+    if user.tipo != "barbeiro":
+        raise HTTPException(status_code=403, detail="Apenas barbeiros podem recusar chamados")
+
+    chamado = db.query(models.Chamado).filter(models.Chamado.id == id).first()
+    if not chamado:
+        raise HTTPException(status_code=404, detail="Chamado não encontrado")
+
+    if chamado.status != models.StatusAgendamento.PENDENTE.value:
+        raise HTTPException(status_code=400, detail="Este chamado não está mais pendente")
+
+    if chamado.barbeiro_id not in (None, user.id):
+        raise HTTPException(status_code=403, detail="Você não faz parte deste chamado")
+
+    chamado.barbeiro_id = None
+    db.commit()
+
+    historico = models.ChamadoHistorico(
+        chamado_id=chamado.id,
+        status_anterior=chamado.status,
+        status_novo=chamado.status,
+        usuario_id=user.id,
+        observacao=f"Recusado por {user.nome}"
+    )
+    db.add(historico)
+    db.commit()
+
+    return {"id": chamado.id, "status": chamado.status}
+
+
 @router.put("/chamados/{id}/chegar")
 async def chegar_chamado(id: int, token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
     """Registra chegada do cliente/barbeiro e muda para em_atendimento somente quando ambos confirmarem."""

@@ -449,6 +449,19 @@ export default function PainelBarberMovePremium({ token: tokenProp, logout: logo
     } catch (_) { notify('Erro de conexão', 'error'); }
   };
 
+  const recusarChamado = async (id) => {
+    try {
+      const res = await fetch(`${API_URL}/api/v1/chamados/${id}/recusar`, {
+        method: 'PUT', headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) {
+        notify('Chamado recusado', 'info');
+        setChamados((prev) => prev.filter((c) => c.id !== id));
+        setChamadoAtivo((prev) => (prev?.id === id ? null : prev));
+      } else notify('Erro ao recusar', 'error');
+    } catch (_) { notify('Erro de conexão', 'error'); }
+  };
+
   useEffect(() => {
     if (!chamadoAtivo?.id) {
       setIsPaused(false);
@@ -739,13 +752,21 @@ export default function PainelBarberMovePremium({ token: tokenProp, logout: logo
                     minhaPosicao={minhaPosicao}
                   />
                   {['pendente'].includes((chamadoAtivo.status||'').toLowerCase()) && (
-                    <button
-                      onClick={() => !bloqueadoFinanceiro && aceitarChamado(chamadoAtivo.id)}
-                      disabled={bloqueadoFinanceiro}
-                      className="w-full bg-green-600 hover:bg-green-700 disabled:bg-zinc-700 disabled:text-zinc-400 text-white font-black rounded-xl py-3 text-sm"
-                    >
-                      {bloqueadoFinanceiro ? '⛔ Bloqueado por saldo devedor' : '✅ Aceitar Chamado'}
-                    </button>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => !bloqueadoFinanceiro && aceitarChamado(chamadoAtivo.id)}
+                        disabled={bloqueadoFinanceiro}
+                        className="flex-1 bg-green-600 hover:bg-green-700 disabled:bg-zinc-700 disabled:text-zinc-400 text-white font-black rounded-xl py-3 text-sm"
+                      >
+                        {bloqueadoFinanceiro ? '⛔ Bloqueado por saldo devedor' : '✅ Aceitar Chamado'}
+                      </button>
+                      <button
+                        onClick={() => recusarChamado(chamadoAtivo.id)}
+                        className="rounded-xl border border-red-500/60 text-red-400 hover:bg-red-500/10 font-black px-4 py-3 text-sm"
+                      >
+                        ❌ Recusar
+                      </button>
+                    </div>
                   )}
                   {['em_atendimento'].includes((chamadoAtivo.status||'').toLowerCase()) && (
                     <button onClick={() => finalizarChamado(chamadoAtivo.id)} className="w-full bg-blue-600 hover:bg-blue-700 text-white font-black rounded-xl py-3 text-sm">
@@ -779,13 +800,21 @@ export default function PainelBarberMovePremium({ token: tokenProp, logout: logo
                       </div>
                       {renderCronometro(c, true)}
                       {(c.status||'').toLowerCase() === 'pendente' && (
-                        <button
-                          onClick={() => !bloqueadoFinanceiro && aceitarChamado(c.id)}
-                          disabled={bloqueadoFinanceiro}
-                          className="w-full bg-green-600 hover:bg-green-700 disabled:bg-zinc-700 disabled:text-zinc-400 text-white font-black rounded-xl py-2 text-xs"
-                        >
-                          {bloqueadoFinanceiro ? '⛔ Bloqueado' : '✅ Aceitar'}
-                        </button>
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => !bloqueadoFinanceiro && aceitarChamado(c.id)}
+                            disabled={bloqueadoFinanceiro}
+                            className="flex-1 bg-green-600 hover:bg-green-700 disabled:bg-zinc-700 disabled:text-zinc-400 text-white font-black rounded-xl py-2 text-xs"
+                          >
+                            {bloqueadoFinanceiro ? '⛔ Bloqueado' : '✅ Aceitar'}
+                          </button>
+                          <button
+                            onClick={() => recusarChamado(c.id)}
+                            className="rounded-xl border border-red-500/60 text-red-400 hover:bg-red-500/10 font-black px-3 py-2 text-xs"
+                          >
+                            ❌ Recusar
+                          </button>
+                        </div>
                       )}
                       {['em_atendimento'].includes((c.status||'').toLowerCase()) && (
                         <button onClick={() => finalizarChamado(c.id)} className="w-full bg-blue-600 hover:bg-blue-700 text-white font-black rounded-xl py-2 text-xs">
