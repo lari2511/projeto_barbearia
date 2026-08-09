@@ -3049,11 +3049,10 @@ def listar_barbearias_do_barbeiro(barbeiro_id: int, db: Session = Depends(get_db
                 "cadeira_livre": cadeira_disponivel is not None,
                 "cadeira_disponivel": cadeira_disponivel is not None,
                 "foto_perfil": barbearia_atual.usuario.foto_perfil if barbearia_atual.usuario else None,
-                "distancia_km": (
-                    round(calcular_distancia_km(barbeiro.latitude, barbeiro.longitude, barbearia_atual.latitude, barbearia_atual.longitude), 2)
-                    if barbeiro.latitude and barbeiro.longitude and barbearia_atual.latitude and barbearia_atual.longitude
-                    else None
-                ),
+                # Barbeiro ja confirmou presenca nesta barbearia (check-in explicito),
+                # nao faz sentido recalcular por GPS ao vivo - o GPS pode estar impreciso
+                # ou desatualizado mesmo com o barbeiro fisicamente no local.
+                "distancia_km": 0.0,
             }]
 
     # Por enquanto retorna todas as barbearias com cadeira disponível
