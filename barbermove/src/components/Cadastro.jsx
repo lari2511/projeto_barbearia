@@ -1,8 +1,7 @@
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useMemo, useState } from 'react'
 import { ArrowLeft, Building2, Hash, Mail, MapPin, Phone, Scissors, Store, User, Lock, Camera, Upload, X } from 'lucide-react'
 import { useApp } from '../contexts/AppContext'
 import { Button, Input } from './Common'
-import { obterLocalizacaoAtual } from '../utils/location'
 
 const userTypes = [
   {
@@ -37,8 +36,6 @@ const emptyForm = {
   endereco: '',
   cep: '',
   cnpj: '',
-  latitude: '',
-  longitude: '',
 }
 
 const emptyPhotos = {
@@ -66,8 +63,6 @@ function buildPayload(tipo, form) {
       ...base,
       cpf: form.cpf.trim(),
       endereco: form.endereco.trim(),
-      latitude: form.latitude.trim() ? Number(form.latitude) : undefined,
-      longitude: form.longitude.trim() ? Number(form.longitude) : undefined,
     }
   }
 
@@ -77,8 +72,6 @@ function buildPayload(tipo, form) {
     cep: form.cep.trim(),
     cpf: form.cpf.trim(),
     cnpj: form.cnpj.trim(),
-    latitude: form.latitude.trim() ? Number(form.latitude) : undefined,
-    longitude: form.longitude.trim() ? Number(form.longitude) : undefined,
   }
 }
 
@@ -89,7 +82,6 @@ export default function Cadastro({ initialType = 'cliente', onBack, onSuccess })
   const [photos, setPhotos] = useState(emptyPhotos)
   const [localError, setLocalError] = useState('')
   const [loadingCep, setLoadingCep] = useState(false)
-  const [loadingLocation, setLoadingLocation] = useState(false)
 
   const selectedConfig = useMemo(
     () => userTypes.find((item) => item.type === selectedType) || userTypes[0],
@@ -147,38 +139,6 @@ export default function Cadastro({ initialType = 'cliente', onBack, onSuccess })
       setLoadingCep(false)
     }
   }
-
-  // Obter localização automática
-  const obterLocalizacao = async (silent = false) => {
-    setLoadingLocation(true)
-    if (!silent) {
-      setLocalError('')
-    }
-
-    try {
-      const position = await obterLocalizacaoAtual()
-      setForm((current) => ({
-        ...current,
-        latitude: String(position.latitude),
-        longitude: String(position.longitude)
-      }))
-      return position
-    } catch (error) {
-      const msg = 'Permissão de localização negada. Para criar conta, ative a localização do app nas configurações do celular.'
-      if (!silent) {
-        setLocalError(msg)
-      }
-      return null
-    } finally {
-      setLoadingLocation(false)
-    }
-  }
-
-  useEffect(() => {
-    if ((selectedType === 'barbeiro' || selectedType === 'barbearia') && (!form.latitude || !form.longitude)) {
-      void obterLocalizacao(true)
-    }
-  }, [selectedType])
 
   // Upload de foto de portfólio
   const handlePortfolioPhoto = (event) => {
@@ -308,17 +268,6 @@ export default function Cadastro({ initialType = 'cliente', onBack, onSuccess })
       return
     }
 
-    let positionFromSubmit = null
-    if ((selectedType === 'barbeiro' || selectedType === 'barbearia') && (!form.latitude.trim() || !form.longitude.trim())) {
-      // Tenta solicitar permissão/obter GPS no momento do envio para evitar bloqueio silencioso no app nativo.
-      const position = await obterLocalizacao(false)
-      if (!position) {
-        setLocalError('Localização é obrigatória para criar conta. Toque em "Usar minha localização" e permita o acesso.')
-        return
-      }
-      positionFromSubmit = position
-    }
-
     if (selectedType === 'barbearia' && (!form.cep.trim() || !form.cnpj.trim())) {
       setLocalError('CEP e CNPJ são obrigatórios para barbearia')
       return
@@ -336,10 +285,6 @@ export default function Cadastro({ initialType = 'cliente', onBack, onSuccess })
     }
 
     const payload = buildPayload(selectedType, form)
-    if (positionFromSubmit) {
-      payload.latitude = Number(positionFromSubmit.latitude)
-      payload.longitude = Number(positionFromSubmit.longitude)
-    }
     const result = await register(selectedType, payload)
 
     if (result && selectedType === 'barbeiro' && result.access_token) {
@@ -485,33 +430,6 @@ export default function Cadastro({ initialType = 'cliente', onBack, onSuccess })
                   />
                 </div>
               )}
-
-              <div className="grid grid-cols-2 gap-2">
-                <div className="space-y-1">
-                  <Input
-                    label="Latitude"
-                    value={form.latitude}
-                    onChange={handleChange('latitude')}
-                    placeholder="-23.5505"
-                    required
-                  />
-                  <button
-                    type="button"
-                    onClick={obterLocalizacao}
-                    disabled={loadingLocation}
-                    className="w-full rounded-xl border border-zinc-800 bg-black/30 px-3 py-2 text-left text-sm font-semibold text-zinc-200 hover:bg-zinc-800 disabled:opacity-50"
-                  >
-                    {loadingLocation ? 'Obtendo...' : '📍 Usar minha localização'}
-                  </button>
-                </div>
-                <Input
-                  label="Longitude"
-                  value={form.longitude}
-                  onChange={handleChange('longitude')}
-                  placeholder="-46.6333"
-                  required
-                />
-              </div>
             </>
           )}
 
