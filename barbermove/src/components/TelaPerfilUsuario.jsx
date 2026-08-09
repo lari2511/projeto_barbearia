@@ -1180,7 +1180,7 @@ export function TelaPerfilUsuario({
           Authorization: `Bearer ${token}`,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ endereco_texto: enderecoCompleto }),
+        body: JSON.stringify({ cep_texto: cepFormatado }),
       });
 
       const data = await safeReadJson(res, {});

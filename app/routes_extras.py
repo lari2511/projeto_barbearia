@@ -28,12 +28,42 @@ router = APIRouter()
 
 
 class ConfigurarEnderecoBarbeariaRequest(BaseModel):
-    endereco_texto: str
+    endereco_texto: Optional[str] = None
+    cep_texto: Optional[str] = None
 
 
 class ConfigurarEnderecoPorGpsRequest(BaseModel):
     latitude: float
     longitude: float
+
+
+def _buscar_endereco_via_cep(cep_texto: str) -> str:
+    cep_limpo = ''.join([c for c in (cep_texto or '') if c.isdigit()])
+    if len(cep_limpo) != 8:
+        raise HTTPException(status_code=400, detail='CEP deve ter 8 dígitos')
+
+    resposta = requests.get(
+        f'https://viacep.com.br/ws/{cep_limpo}/json/',
+        headers={'User-Agent': 'BarberMoveApp/1.0 (+https://barbermove.local)'},
+        timeout=15,
+    )
+    try:
+        resposta.raise_for_status()
+    except requests.HTTPError as exc:
+        raise HTTPException(status_code=400, detail='Não foi possível consultar o CEP') from exc
+
+    dados = resposta.json()
+    if dados.get('erro'):
+        raise HTTPException(status_code=400, detail='CEP não encontrado')
+
+    logradouro = str(dados.get('logradouro') or '').strip()
+    bairro = str(dados.get('bairro') or '').strip()
+    localidade = str(dados.get('localidade') or '').strip()
+    uf = str(dados.get('uf') or '').strip()
+    if not logradouro or not localidade or not uf:
+        raise HTTPException(status_code=400, detail='CEP não retornou endereço completo')
+
+    return f'{logradouro}{f", {bairro}" if bairro else ""}, {localidade}/{uf}'
 
 
 def _geocodificar_endereco_nominatim(endereco_texto: str) -> tuple[float, float, str]:
@@ -49,7 +79,7 @@ def _geocodificar_endereco_nominatim(endereco_texto: str) -> tuple[float, float,
             'limit': 1,
             'addressdetails': 1,
         },
-        headers={'User-Agent': 'BarberMoveApp/1.0 (+https://barbermove.local)'} ,
+        headers={'User-Agent': 'BarberMoveApp/1.0 (+https://barbermove.local)'},
         timeout=15,
     )
     resposta.raise_for_status()
@@ -67,7 +97,7 @@ def _geocodificar_endereco_nominatim(endereco_texto: str) -> tuple[float, float,
     return lat, lon, endereco_limpo
 
 
-def _salvar_endereco_barbearia(db: Session, barbearia: models.Barbearia, endereco_texto: str) -> dict:
+def _salvar_endereco_barbearia(db: Session, barbearia: models.Barbearia, endereco_texto: str, origem: str = 'endereco') -> dict:
     lat, lon, endereco_normalizado = _geocodificar_endereco_nominatim(endereco_texto)
 
     barbearia.latitude = lat
@@ -85,6 +115,7 @@ def _salvar_endereco_barbearia(db: Session, barbearia: models.Barbearia, enderec
         'latitude': barbearia.latitude,
         'longitude': barbearia.longitude,
         'coordenadas': [barbearia.latitude, barbearia.longitude],
+        'origem': origem,
     }
 
 
@@ -126,7 +157,16 @@ def configurar_endereco_barbearia(barbearia_id: int, payload: ConfigurarEndereco
     if not barbearia:
         raise HTTPException(status_code=404, detail='Barbearia não encontrada ou acesso negado')
 
-    return _salvar_endereco_barbearia(db, barbearia, payload.endereco_texto)
+    endereco_texto = payload.endereco_texto
+    origem = 'endereco'
+    if not endereco_texto and payload.cep_texto:
+        endereco_texto = _buscar_endereco_via_cep(payload.cep_texto)
+        origem = 'cep'
+
+    if not endereco_texto:
+        raise HTTPException(status_code=400, detail='Endereço ou CEP são obrigatórios')
+
+    return _salvar_endereco_barbearia(db, barbearia, endereco_texto, origem=origem)
 
 
 @router.patch('/barbearia/minha/configurar-endereco')
@@ -139,7 +179,16 @@ def configurar_endereco_minha_barbearia(payload: ConfigurarEnderecoBarbeariaRequ
     if not barbearia:
         raise HTTPException(status_code=404, detail='Sua barbearia não foi encontrada')
 
-    return _salvar_endereco_barbearia(db, barbearia, payload.endereco_texto)
+    endereco_texto = payload.endereco_texto
+    origem = 'endereco'
+    if not endereco_texto and payload.cep_texto:
+        endereco_texto = _buscar_endereco_via_cep(payload.cep_texto)
+        origem = 'cep'
+
+    if not endereco_texto:
+        raise HTTPException(status_code=400, detail='Endereço ou CEP são obrigatórios')
+
+    return _salvar_endereco_barbearia(db, barbearia, endereco_texto, origem=origem)
 
 
 def _haversine_km(lat1, lon1, lat2, lon2) -> float:
