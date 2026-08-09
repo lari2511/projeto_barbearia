@@ -251,51 +251,71 @@ export default function Cadastro({ initialType = 'cliente', onBack, onSuccess })
 
   const handleSubmit = async (event) => {
     event.preventDefault()
-    setLocalError('')
+    console.log('[Cadastro] handleSubmit disparado', { selectedType })
+    setLocalError('Processando cadastro...')
 
-    if (!selectedType) {
-      setLocalError('Selecione um tipo de cadastro')
-      return
-    }
-
-    if (!form.nome.trim() || !form.email.trim() || !form.senha || !form.cpf.trim() || !form.telefone.trim()) {
-      setLocalError('Preencha todos os campos obrigatórios')
-      return
-    }
-
-    if ((selectedType === 'barbeiro' || selectedType === 'barbearia') && !form.endereco.trim()) {
-      setLocalError('Endereço é obrigatório')
-      return
-    }
-
-    if (selectedType === 'barbearia' && (!form.cep.trim() || !form.cnpj.trim())) {
-      setLocalError('CEP e CNPJ são obrigatórios para barbearia')
-      return
-    }
-
-    if (selectedType === 'barbeiro') {
-      if (photos.portfolio.length < 3) {
-        setLocalError('Barbeiro deve ter no mínimo 3 fotos de portfólio')
+    try {
+      if (!selectedType) {
+        setLocalError('Selecione um tipo de cadastro')
         return
       }
-      if (!photos.rgCpf) {
-        setLocalError('Barbeiro deve enviar foto do RG/CPF para validação')
+
+      if (!form.nome.trim() || !form.email.trim() || !form.senha || !form.cpf.trim() || !form.telefone.trim()) {
+        console.log('[Cadastro] falhou validacao de campos obrigatorios', form)
+        setLocalError('Preencha todos os campos obrigatórios')
         return
       }
-    }
 
-    const payload = buildPayload(selectedType, form)
-    const result = await register(selectedType, payload)
-
-    if (result && selectedType === 'barbeiro' && result.access_token) {
-      const falhas = await enviarFotosFreelancer(result.access_token)
-      if (falhas > 0) {
-        notify('Conta criada, mas algumas fotos não foram enviadas. Você pode reenviá-las depois em Meu Perfil.', 'error')
+      if ((selectedType === 'barbeiro' || selectedType === 'barbearia') && !form.endereco.trim()) {
+        setLocalError('Endereço é obrigatório')
+        return
       }
-    }
 
-    if (result && onSuccess) {
-      onSuccess(result)
+      if (selectedType === 'barbearia' && (!form.cep.trim() || !form.cnpj.trim())) {
+        setLocalError('CEP e CNPJ são obrigatórios para barbearia')
+        return
+      }
+
+      if (selectedType === 'barbeiro') {
+        if (photos.portfolio.length < 3) {
+          setLocalError('Barbeiro deve ter no mínimo 3 fotos de portfólio')
+          return
+        }
+        if (!photos.rgCpf) {
+          setLocalError('Barbeiro deve enviar foto do RG/CPF para validação')
+          return
+        }
+      }
+
+      const payload = buildPayload(selectedType, form)
+      console.log('[Cadastro] enviando payload', payload)
+      setLocalError('Enviando dados para o servidor...')
+
+      const result = await register(selectedType, payload)
+      console.log('[Cadastro] resultado do register()', result)
+
+      if (!result) {
+        setLocalError('O servidor recusou o cadastro. Veja o aviso no topo da tela para o motivo.')
+        return
+      }
+
+      if (selectedType === 'barbeiro' && result.access_token) {
+        setLocalError('Conta criada, enviando fotos...')
+        const falhas = await enviarFotosFreelancer(result.access_token)
+        console.log('[Cadastro] falhas no envio de fotos', falhas)
+        if (falhas > 0) {
+          notify('Conta criada, mas algumas fotos não foram enviadas. Você pode reenviá-las depois em Meu Perfil.', 'error')
+        }
+      }
+
+      setLocalError('')
+      if (onSuccess) {
+        onSuccess(result)
+      }
+    } catch (err) {
+      console.error('[Cadastro] erro inesperado no handleSubmit', err)
+      setLocalError(`Erro inesperado: ${err?.message || err}`)
+      notify(`❌ Erro inesperado ao cadastrar: ${err?.message || err}`, 'error')
     }
   }
 
@@ -521,6 +541,12 @@ export default function Cadastro({ initialType = 'cliente', onBack, onSuccess })
             {selectedType === 'barbeiro' && 'Freelancers recebem token e seguem o fluxo de verificação de email.'}
             {selectedType === 'barbearia' && 'Barbearias são vinculadas ao cadastro da empresa e podem entrar no painel após o registro.'}
           </div>
+
+          {localError && (
+            <div className="rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-200">
+              {localError}
+            </div>
+          )}
 
           <Button type="submit" fullWidth disabled={loading} className="mt-2">
             {loading ? 'Criando conta...' : 'Criar conta'}
