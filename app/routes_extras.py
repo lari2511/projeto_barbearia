@@ -978,7 +978,8 @@ def listar_barbearias_do_barbeiro(barbeiro_id: int, db: Session = Depends(get_db
                 "longitude": barbearia.longitude,
                 "distancia_km": round(distancia, 2),
                 "cadeira_livre": True,
-                "cadeira_disponivel": True
+                "cadeira_disponivel": True,
+                "foto_perfil": barbearia.usuario.foto_perfil if barbearia.usuario else None
             })
         
         barbearias_com_distancia.sort(key=lambda x: x["distancia_km"])
@@ -1002,7 +1003,8 @@ def listar_barbearias_do_barbeiro(barbeiro_id: int, db: Session = Depends(get_db
                 "latitude": b.latitude,
                 "longitude": b.longitude,
                 "cadeira_livre": True,
-                "cadeira_disponivel": True
+                "cadeira_disponivel": True,
+                "foto_perfil": b.usuario.foto_perfil if b.usuario else None
             })
         return resultado
 
