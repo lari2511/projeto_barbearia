@@ -334,17 +334,28 @@ def download_apk(filename: str):
         },
     )
 
+_INDEX_NO_CACHE_HEADERS = {
+    "Cache-Control": "no-cache, no-store, must-revalidate, max-age=0",
+    "Pragma": "no-cache",
+    "Expires": "0",
+}
+
+
 @app.get("/")
 def read_root():
     # Se a SPA foi construída e copiada para `app/static`, sirva o index.html
+    # Sem Cache-Control, o WebView do app (Android) fica livre pra decidir
+    # sozinho quando revalidar - na pratica, prende usuarios num bundle JS
+    # antigo por horas mesmo apos um deploy novo. index.html forca sempre
+    # revalidar; os assets JS/CSS com hash no nome continuam com cache livre.
     try:
         index_path = spa_dir / "index.html"
         if index_path.exists():
-            return FileResponse(str(index_path), media_type="text/html")
+            return FileResponse(str(index_path), media_type="text/html", headers=_INDEX_NO_CACHE_HEADERS)
         # Fallback: verifica caminho relativo ao cwd (caso uvicorn tenha mudado o cwd)
         alt = pathlib.Path.cwd() / "app" / "static" / "index.html"
         if alt.exists():
-            return FileResponse(str(alt), media_type="text/html")
+            return FileResponse(str(alt), media_type="text/html", headers=_INDEX_NO_CACHE_HEADERS)
     except Exception:
         pass
 
