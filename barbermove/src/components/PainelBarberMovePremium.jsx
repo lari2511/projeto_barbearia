@@ -165,6 +165,16 @@ export default function PainelBarberMovePremium({ token: tokenProp, logout: logo
     carregarPerfil();
   }, [carregarPerfil]);
 
+  const carregarGanhos = useCallback(async () => {
+    if (!token) return;
+    try {
+      const res = await fetch(`${API_URL}/api/v1/freelancer/comissoes/relatorio`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) setGanhos(await res.json());
+    } catch (_) {}
+  }, [token, API_URL]);
+
   const abrirPerfil = useCallback((section = 'dados') => {
     setPerfilSection(PERFIL_SECTIONS.includes(section) ? section : 'dados');
     setTab('perfil');
@@ -249,16 +259,6 @@ export default function PainelBarberMovePremium({ token: tokenProp, logout: logo
       setChamados(lista);
       const ativo = lista.find(c => !['concluido','concluído','cancelado'].includes((c.status||'').toLowerCase()));
       setChamadoAtivo(ativo || null);
-    } catch (_) {}
-  }, [token, API_URL]);
-
-  const carregarGanhos = useCallback(async () => {
-    if (!token) return;
-    try {
-      const res = await fetch(`${API_URL}/api/v1/freelancer/comissoes/relatorio`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (res.ok) setGanhos(await res.json());
     } catch (_) {}
   }, [token, API_URL]);
 
