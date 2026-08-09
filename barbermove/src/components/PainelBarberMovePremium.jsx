@@ -5,6 +5,7 @@ import { getApiBaseUrl, getWsBaseUrl } from '../utils/api';
 import AbaPadronizadaAvaliacoes from './AbaPadronizadaAvaliacoes';
 import TelaPerfilUsuario from './TelaPerfilUsuario';
 import TrackingPanel from './TrackingPanel';
+import { useBackHandler } from '../utils/useBackHandler';
 
 export default function PainelBarberMovePremium({ token: tokenProp, logout: logoutProp, API_URL: apiUrlProp, notify: notifyProp }) {
   const { user, logout: ctxLogout, token: ctxToken, notify: ctxNotify } = useApp();
@@ -164,6 +165,18 @@ export default function PainelBarberMovePremium({ token: tokenProp, logout: logo
   useEffect(() => {
     carregarPerfil();
   }, [carregarPerfil]);
+
+  useBackHandler(() => {
+    if (tab === 'perfil' && perfilSection !== 'dados') {
+      setPerfilSection('dados');
+      return true;
+    }
+    if (tab !== 'inicio') {
+      setTab('inicio');
+      return true;
+    }
+    return false;
+  }, [tab, perfilSection]);
 
   const carregarGanhos = useCallback(async () => {
     if (!token) return;

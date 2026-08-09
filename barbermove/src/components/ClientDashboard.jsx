@@ -11,6 +11,7 @@ import TelaRotasAtivos from './TelaRotasAtivos';
 import MapaBarbeiros from './MapaBarbeiros';
 import { obterLocalizacaoAtual, obterPosicaoAltaPrecisa } from '../utils/location';
 import { getApiBaseUrl, getWsBaseUrl, resolveMediaUrl } from '../utils/api';
+import { useBackHandler } from '../utils/useBackHandler';
 const getShopImage = (id) => `https://images.unsplash.com/photo-${id % 2 === 0 ? '1521590832874-552721032d00' : '1503951914290-d20607416905'}?auto=format&fit=crop&w=800&q=80`;
 const BARBEIROS_CACHE_KEY = 'barbermove.client.barbeiros_cache';
 const GPS_PREFERENCE_KEY = 'barbermove.client.gps_preference';
@@ -976,6 +977,17 @@ export default function ClientDashboard({ token, logout, API_URL: apiUrlProp, no
         setSelectedServices([]);
         setDataHoraInicio('');
     };
+
+    useBackHandler(() => {
+        if (cancelModalOpen) { setCancelModalOpen(false); return true; }
+        if (perfilModal) { setPerfilModal(null); return true; }
+        if (chamadoParaPagar) { setChamadoParaPagar(null); return true; }
+        if (tab === 'buscar' && step === 'servicos') { voltarParaBarbearias(); return true; }
+        if (tab === 'buscar' && step === 'barbearias') { voltarParaBarbeiros(); return true; }
+        if (tab === 'buscar' && step === 'barbeiros') { setStep('inicio'); return true; }
+        if (tab !== 'inicio') { setTab('inicio'); return true; }
+        return false;
+    }, [tab, step, cancelModalOpen, perfilModal, chamadoParaPagar]);
 
     const toggleServiceSelection = (service) => {
         setSelectedServices((prev) => {

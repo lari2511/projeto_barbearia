@@ -6,6 +6,7 @@ import PaymentSection from './PaymentSection';
 import AbaPadronizadaAvaliacoes from './AbaPadronizadaAvaliacoes';
 import TelaPerfilUsuario from './TelaPerfilUsuario';
 import TelaMensalidadeAssinatura from './TelaMensalidadeAssinatura';
+import { useBackHandler } from '../utils/useBackHandler';
 
 const confirmarAcao = (mensagem) => {
     if (typeof window === 'undefined') return true;
@@ -42,6 +43,15 @@ export default function ShopDashboard({ token, logout, notify, API_URL }) {
         const tabSalva = localStorage.getItem('barbearia_dashboard_tab') || 'inicio';
         return TABS_VALIDAS.includes(tabSalva) ? tabSalva : 'inicio';
     });
+    useBackHandler(() => {
+        if (tab === 'freelancers') { setTab('barbeiros'); return true; }
+        if (tab === 'avaliar') { setTab('agenda'); return true; }
+        if (tab === 'pagamento') { setTab('perfil'); return true; }
+        if (tab === 'assinatura') { setTab('barbeiros'); return true; }
+        if (tab !== 'inicio') { setTab('inicio'); return true; }
+        return false;
+    }, [tab]);
+
     const [agendamentos, setAgendamentos] = useState([]);
     const [freelancersPresentes, setFreelancersPresentes] = useState([]);
     const [freelancersDisponiveis, setFreelancersDisponiveis] = useState([]);

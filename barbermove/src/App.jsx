@@ -7,6 +7,7 @@ import Login from './components/Login'
 import AppUpdateModal from './components/AppUpdateModal'
 import { useApp } from './contexts/AppContext.jsx'
 import { getWsBaseUrl } from './utils/api'
+import { handleBackButton } from './utils/backButtonStack'
 
 let localNotificationsModulePromise = null
 let appPluginModulePromise = null
@@ -387,6 +388,47 @@ export default function App() {
       if (cleanup) cleanup()
     }
   }, [startUpdateDownload])
+
+  React.useEffect(() => {
+    if (!isNativeApp) return undefined
+
+    let cleanup = null
+
+    const attachBackButtonHandler = async () => {
+      try {
+        const module = await getAppPlugin()
+        const AppPlugin = module?.App || module?.default || module
+        if (!AppPlugin?.addListener) return
+
+        const listener = await AppPlugin.addListener('backButton', () => {
+          const handled = handleBackButton()
+          if (!handled) {
+            if (AppPlugin.minimizeApp) {
+              AppPlugin.minimizeApp()
+            } else if (AppPlugin.exitApp) {
+              AppPlugin.exitApp()
+            }
+          }
+        })
+
+        cleanup = () => {
+          try {
+            listener?.remove?.()
+          } catch (_error) {
+            // Ignora falhas de cleanup de listener.
+          }
+        }
+      } catch (_error) {
+        // Sem plugin/permissao: botao fisico segue com o comportamento padrao do sistema.
+      }
+    }
+
+    attachBackButtonHandler()
+
+    return () => {
+      if (cleanup) cleanup()
+    }
+  }, [])
 
   React.useEffect(() => {
     if (isNativeApp) {
