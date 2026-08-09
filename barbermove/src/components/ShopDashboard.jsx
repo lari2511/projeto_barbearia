@@ -779,11 +779,16 @@ export default function ShopDashboard({ token, logout, notify, API_URL }) {
                                                                 ));
                                 const statusConfig = {
                                   disponivel: { bg: 'bg-black/40', border: 'border-green-600/30', label: '🟢 Disponível', labelColor: 'text-green-400', labelBg: 'bg-green-600/20' },
-                                  ocupada: { bg: 'bg-black/40', border: 'border-blue-600/30', label: '🔵 Ocupada', labelColor: 'text-blue-400', labelBg: 'bg-blue-600/20' },
+                                  ocupada: { bg: 'bg-black/40', border: 'border-orange-600/30', label: '🔴 Ocupada', labelColor: 'text-orange-300', labelBg: 'bg-orange-600/20' },
                                   bloqueada: { bg: 'bg-black/40', border: 'border-red-600/30', label: '🔒 Bloqueada', labelColor: 'text-red-400', labelBg: 'bg-red-600/20' }
                                 };
-                                                                const config = statusConfig[status] || (disponivel ? statusConfig.disponivel : statusConfig.ocupada);
-                                                                const numeroExibido = index + 1;
+                                const config = statusConfig[status] || (disponivel ? statusConfig.disponivel : statusConfig.ocupada);
+                                const numeroExibido = index + 1;
+                                const badgeText = disponivel
+                                  ? '● Disponível agora'
+                                  : status === 'ocupada' && cadeira.freelancer_nome
+                                    ? `🔴 Ocupada por ${cadeira.freelancer_nome}`
+                                    : config.label;
                                 
                                 return (
                                   <div key={cadeira.id} className={`${config.bg} border ${config.border} p-3 rounded-lg transition-all hover:border-purple-600/50`}>
@@ -792,7 +797,7 @@ export default function ShopDashboard({ token, logout, notify, API_URL }) {
                                                                                 <p className="font-bold text-sm text-white">Cadeira {numeroExibido}</p>
                                                                                 <div className="mt-1 flex flex-wrap items-center gap-2">
                                                                                     <span className={`inline-flex items-center gap-1 rounded-full px-2 py-1 text-[11px] font-extrabold border ${disponivel ? 'bg-green-500/15 text-green-300 border-green-500/30' : config.labelBg + ' ' + config.labelColor + ' border-transparent'}`}>
-                                                                                        {disponivel ? '● Disponível agora' : config.label}
+                                                                                        {badgeText}
                                                                                     </span>
                                                                                 </div>
                                                                                 <p className="text-[11px] text-zinc-500 mt-1">Essa é a cadeira paga do plano. O número interno do banco não muda a ordem exibida.</p>

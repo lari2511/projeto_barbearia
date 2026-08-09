@@ -500,6 +500,10 @@ class Cadeira(Base):
     chamado = relationship("Chamado", foreign_keys=[chamado_id])
     chamado = relationship("Chamado", foreign_keys=[chamado_id])
 
+    @property
+    def freelancer_nome(self) -> str | None:
+        return self.freelancer.nome if self.freelancer else None
+
 
 class Assinatura(Base):
     """Assinatura mensal da barbearia com cálculo progressivo por cadeira"""

@@ -22,7 +22,7 @@ from urllib.request import urlopen
 
 from app.database import get_db
 from app.routes import get_current_user
-from app.models import Usuario, RadarFreelancer, SolicitacaoBarbeiro, NotificacaoBarbeiro, RequestView, Barbearia, CadeiraAcionada
+from app.models import Usuario, RadarFreelancer, SolicitacaoBarbeiro, NotificacaoBarbeiro, RequestView, Barbearia, CadeiraAcionada, Cadeira, StatusCadeira
 from app.firebase_config import enviar_notificacao_novo_chamado
 from app.realtime import broadcast_event
 
@@ -1077,6 +1077,15 @@ async def aceitar_cadeira_acionada_como_barbeiro(
 
     if atualizado == 0:
         raise HTTPException(status_code=409, detail="Outro usuario aceitou esta vaga primeiro")
+
+    # Atualizar o registro da cadeira física também, se houver uma cadeira vinculada.
+    if vaga.cadeira_id:
+        cadeira_atual = db.query(Cadeira).filter(Cadeira.id == vaga.cadeira_id).first()
+        if cadeira_atual:
+            cadeira_atual.status = StatusCadeira.OCUPADA
+            cadeira_atual.freelancer_id = current_user.id
+            cadeira_atual.ocupada_em = datetime.utcnow()
+            cadeira_atual.liberada_em = None
 
     # Ao assumir a vaga relampago, o barbeiro passa a ser considerado
     # presente no local da barbearia vinculada.
