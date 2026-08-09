@@ -82,6 +82,8 @@ def _salvar_endereco_barbearia(db: Session, barbearia: models.Barbearia, enderec
         'barbearia_id': barbearia.id,
         'nome': barbearia.nome,
         'endereco': barbearia.endereco,
+        'latitude': barbearia.latitude,
+        'longitude': barbearia.longitude,
         'coordenadas': [barbearia.latitude, barbearia.longitude],
     }
 

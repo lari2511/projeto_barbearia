@@ -1190,9 +1190,23 @@ export function TelaPerfilUsuario({
 
       setCepBarbearia(cepFormatado);
       setEnderecoBarbearia(String(data?.endereco || enderecoCompleto).trim());
+
+      const coordenadas = Array.isArray(data?.coordenadas) ? data.coordenadas : [];
+      const latitude = Number.isFinite(Number(data?.latitude ?? coordenadas[0]))
+        ? Number(data?.latitude ?? coordenadas[0])
+        : null;
+      const longitude = Number.isFinite(Number(data?.longitude ?? coordenadas[1]))
+        ? Number(data?.longitude ?? coordenadas[1])
+        : null;
+
+      setLatitudeBarbearia(latitude);
+      setLongitudeBarbearia(longitude);
+
       onNotify?.('Endereço atualizado a partir do CEP', 'success');
     } catch (err) {
       setEnderecoBarbearia('');
+      setLatitudeBarbearia(null);
+      setLongitudeBarbearia(null);
       onNotify?.(err?.message || 'Não foi possível buscar o CEP', 'error');
     } finally {
       setLoadingCepBarbearia(false);
