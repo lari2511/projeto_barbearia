@@ -98,10 +98,17 @@ def _geocodificar_endereco_nominatim(endereco_texto: str) -> tuple[float, float,
 
 
 def _salvar_endereco_barbearia(db: Session, barbearia: models.Barbearia, endereco_texto: str, origem: str = 'endereco') -> dict:
-    lat, lon, endereco_normalizado = _geocodificar_endereco_nominatim(endereco_texto)
+    # O endereco (vindo do CEP ou digitado) e sempre salvo. A geocodificacao
+    # e um complemento best-effort: se o Nominatim falhar/bloquear, o salvamento
+    # nao pode travar por causa disso - mantem as coordenadas anteriores.
+    endereco_normalizado = endereco_texto.strip()
+    try:
+        lat, lon, endereco_normalizado = _geocodificar_endereco_nominatim(endereco_texto)
+        barbearia.latitude = lat
+        barbearia.longitude = lon
+    except HTTPException:
+        pass
 
-    barbearia.latitude = lat
-    barbearia.longitude = lon
     barbearia.endereco = endereco_normalizado
     db.add(barbearia)
     db.commit()

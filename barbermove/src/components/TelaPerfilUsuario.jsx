@@ -1213,12 +1213,6 @@ export function TelaPerfilUsuario({
     }
   };
 
-  const mapaBarbeariaSrc =
-    Number.isFinite(Number(latitudeBarbearia)) && Number.isFinite(Number(longitudeBarbearia))
-      ? `https://www.google.com/maps?q=${Number(latitudeBarbearia)},${Number(longitudeBarbearia)}&z=16&output=embed`
-      : String(enderecoBarbearia || '').trim()
-        ? `https://www.google.com/maps?q=${encodeURIComponent(String(enderecoBarbearia || '').trim())}&z=16&output=embed`
-        : '';
 
   return (
     <ScreenWrapper>
@@ -1604,25 +1598,6 @@ export function TelaPerfilUsuario({
               />
             </div>
 
-            <div className="flex flex-wrap gap-2">
-              {Number.isFinite(Number(latitudeBarbearia)) && Number.isFinite(Number(longitudeBarbearia)) && (
-                <span className="rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-[11px] text-zinc-300">
-                  {Number(latitudeBarbearia).toFixed(6)}, {Number(longitudeBarbearia).toFixed(6)}
-                </span>
-              )}
-            </div>
-
-            {mapaBarbeariaSrc && (
-              <div className="bm-map-surface overflow-hidden rounded-xl border border-zinc-800 bg-zinc-950/80">
-                <iframe
-                  title="Mapa da minha barbearia"
-                  src={mapaBarbeariaSrc}
-                  loading="lazy"
-                  referrerPolicy="no-referrer-when-downgrade"
-                  className="h-44 w-full"
-                />
-              </div>
-            )}
           </div>
         </AppCard>
       )}
