@@ -101,17 +101,46 @@ def _geocodificar_endereco_nominatim(endereco_texto: str) -> tuple[float, float,
     return lat, lon, endereco_limpo
 
 
-def _salvar_endereco_barbearia(db: Session, barbearia: models.Barbearia, endereco_texto: str, origem: str = 'endereco') -> dict:
-    # O endereco (vindo do CEP ou digitado) e sempre salvo. A geocodificacao
-    # e um complemento best-effort: se o Nominatim falhar/bloquear, o salvamento
-    # nao pode travar por causa disso - mantem as coordenadas anteriores.
-    endereco_normalizado = endereco_texto.strip()
+def _obter_coordenadas_por_cep(cep_texto: str) -> tuple[float, float] | None:
+    # Nominatim busca por texto de rua e falha com frequencia pra enderecos
+    # brasileiros (ruas pequenas/pouco mapeadas no OSM). A BrasilAPI devolve
+    # coordenadas direto a partir do CEP (base do IBGE), muito mais confiavel
+    # pro fluxo de "buscar por CEP".
+    cep_limpo = ''.join([c for c in (cep_texto or '') if c.isdigit()])
+    if len(cep_limpo) != 8:
+        return None
+
     try:
-        lat, lon, endereco_normalizado = _geocodificar_endereco_nominatim(endereco_texto)
-        barbearia.latitude = lat
-        barbearia.longitude = lon
-    except HTTPException:
-        pass
+        resposta = requests.get(
+            f'https://brasilapi.com.br/api/cep/v2/{cep_limpo}',
+            timeout=10,
+        )
+        resposta.raise_for_status()
+        dados = resposta.json()
+        coords = (dados.get('location') or {}).get('coordinates') or {}
+        lat = coords.get('latitude')
+        lon = coords.get('longitude')
+        if lat is None or lon is None:
+            return None
+        return float(lat), float(lon)
+    except Exception:
+        return None
+
+
+def _salvar_endereco_barbearia(db: Session, barbearia: models.Barbearia, endereco_texto: str, origem: str = 'endereco', coordenadas_conhecidas: tuple[float, float] = None) -> dict:
+    # O endereco (vindo do CEP ou digitado) e sempre salvo. A geocodificacao
+    # e um complemento best-effort: se falhar/bloquear, o salvamento nao pode
+    # travar por causa disso - mantem as coordenadas anteriores.
+    endereco_normalizado = endereco_texto.strip()
+    if coordenadas_conhecidas:
+        barbearia.latitude, barbearia.longitude = coordenadas_conhecidas
+    else:
+        try:
+            lat, lon, endereco_normalizado = _geocodificar_endereco_nominatim(endereco_texto)
+            barbearia.latitude = lat
+            barbearia.longitude = lon
+        except HTTPException:
+            pass
 
     barbearia.endereco = endereco_normalizado
     db.add(barbearia)
@@ -167,14 +196,16 @@ def configurar_endereco_minha_barbearia(payload: ConfigurarEnderecoBarbeariaRequ
 
     endereco_texto = payload.endereco_texto
     origem = 'endereco'
+    coordenadas_cep = None
     if not endereco_texto and payload.cep_texto:
         endereco_texto = _buscar_endereco_via_cep(payload.cep_texto, payload.numero)
         origem = 'cep'
+        coordenadas_cep = _obter_coordenadas_por_cep(payload.cep_texto)
 
     if not endereco_texto:
         raise HTTPException(status_code=400, detail='Endereço ou CEP são obrigatórios')
 
-    return _salvar_endereco_barbearia(db, barbearia, endereco_texto, origem=origem)
+    return _salvar_endereco_barbearia(db, barbearia, endereco_texto, origem=origem, coordenadas_conhecidas=coordenadas_cep)
 
 
 @router.patch('/barbearia/{barbearia_id}/configurar-endereco')
@@ -192,14 +223,16 @@ def configurar_endereco_barbearia(barbearia_id: int, payload: ConfigurarEndereco
 
     endereco_texto = payload.endereco_texto
     origem = 'endereco'
+    coordenadas_cep = None
     if not endereco_texto and payload.cep_texto:
         endereco_texto = _buscar_endereco_via_cep(payload.cep_texto, payload.numero)
         origem = 'cep'
+        coordenadas_cep = _obter_coordenadas_por_cep(payload.cep_texto)
 
     if not endereco_texto:
         raise HTTPException(status_code=400, detail='Endereço ou CEP são obrigatórios')
 
-    return _salvar_endereco_barbearia(db, barbearia, endereco_texto, origem=origem)
+    return _salvar_endereco_barbearia(db, barbearia, endereco_texto, origem=origem, coordenadas_conhecidas=coordenadas_cep)
 
 
 def _haversine_km(lat1, lon1, lat2, lon2) -> float:
