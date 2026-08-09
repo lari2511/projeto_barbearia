@@ -696,38 +696,6 @@ export default function ShopDashboard({ token, logout, notify, API_URL }) {
                             </div>
                             <p className="text-sm text-zinc-400">Gerencie seus freelancers, agendamentos, avaliações e financeiro.</p>
                         </div>
-                        <div className="grid grid-cols-2 gap-3">
-                            <button onClick={() => setTab('barbeiros')} className="bm-card bg-zinc-900 rounded-2xl p-4 border border-zinc-800/60 flex flex-col items-center gap-2 hover:border-orange-500 transition-colors">
-                                <Store size={22} className="text-orange-400" />
-                                <span className="text-sm font-bold">Minha Loja</span>
-                                <span className="text-xs text-zinc-500">Serviços e cadeiras</span>
-                            </button>
-                            <button onClick={() => setTab('freelancers')} className="bm-card bg-zinc-900 rounded-2xl p-4 border border-zinc-800/60 flex flex-col items-center gap-2 hover:border-orange-500 transition-colors">
-                                <Users size={22} className="text-blue-400" />
-                                <span className="text-sm font-bold">Freelancers</span>
-                                <span className="text-xs text-zinc-500">Controle de presentes</span>
-                            </button>
-                            <button onClick={() => setTab('agenda')} className="bm-card bg-zinc-900 rounded-2xl p-4 border border-zinc-800/60 flex flex-col items-center gap-2 hover:border-orange-500 transition-colors">
-                                <Calendar size={22} className="text-green-400" />
-                                <span className="text-sm font-bold">Chamadas</span>
-                                <span className="text-xs text-zinc-500">Agendamentos</span>
-                            </button>
-                            <button onClick={() => setTab('avaliar')} className="bm-card bg-zinc-900 rounded-2xl p-4 border border-zinc-800/60 flex flex-col items-center gap-2 hover:border-orange-500 transition-colors">
-                                <Star size={22} className="text-yellow-400" />
-                                <span className="text-sm font-bold">Avaliar</span>
-                                <span className="text-xs text-zinc-500">Avaliações recebidas</span>
-                            </button>
-                            <button onClick={() => setTab('perfil')} className="bm-card bg-zinc-900 rounded-2xl p-4 border border-zinc-800/60 flex flex-col items-center gap-2 hover:border-orange-500 transition-colors">
-                                <User size={22} className="text-purple-400" />
-                                <span className="text-sm font-bold">Perfil</span>
-                                <span className="text-xs text-zinc-500">Seus dados</span>
-                            </button>
-                            <button onClick={() => setTab('pagamento')} className="bm-card bg-zinc-900 rounded-2xl p-4 border border-zinc-800/60 flex flex-col items-center gap-2 hover:border-orange-500 transition-colors">
-                                <CreditCard size={22} className="text-emerald-400" />
-                                <span className="text-sm font-bold">Carteira</span>
-                                <span className="text-xs text-zinc-500">Financeiro</span>
-                            </button>
-                        </div>
                     </div>
                 )}
                 
