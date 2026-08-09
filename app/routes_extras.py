@@ -151,18 +151,15 @@ def _reverse_geocode_nominatim(lat: float, lon: float) -> str:
         raise HTTPException(status_code=400, detail='Erro no reverse geocoding') from exc
 
 
-@router.patch('/barbearia/{barbearia_id}/configurar-endereco')
-def configurar_endereco_barbearia(barbearia_id: int, payload: ConfigurarEnderecoBarbeariaRequest = Body(...), token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
+@router.patch('/barbearia/minha/configurar-endereco')
+def configurar_endereco_minha_barbearia(payload: ConfigurarEnderecoBarbeariaRequest = Body(...), token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
     user = get_current_user(token=token, db=db)
     if user.tipo != 'barbearia':
         raise HTTPException(status_code=403, detail='Apenas a barbearia pode configurar o endereço')
 
-    barbearia = db.query(models.Barbearia).filter(
-        models.Barbearia.id == barbearia_id,
-        models.Barbearia.usuario_id == user.id,
-    ).first()
+    barbearia = db.query(models.Barbearia).filter(models.Barbearia.usuario_id == user.id).first()
     if not barbearia:
-        raise HTTPException(status_code=404, detail='Barbearia não encontrada ou acesso negado')
+        raise HTTPException(status_code=404, detail='Sua barbearia não foi encontrada')
 
     endereco_texto = payload.endereco_texto
     origem = 'endereco'
@@ -176,15 +173,18 @@ def configurar_endereco_barbearia(barbearia_id: int, payload: ConfigurarEndereco
     return _salvar_endereco_barbearia(db, barbearia, endereco_texto, origem=origem)
 
 
-@router.patch('/barbearia/minha/configurar-endereco')
-def configurar_endereco_minha_barbearia(payload: ConfigurarEnderecoBarbeariaRequest = Body(...), token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
+@router.patch('/barbearia/{barbearia_id}/configurar-endereco')
+def configurar_endereco_barbearia(barbearia_id: int, payload: ConfigurarEnderecoBarbeariaRequest = Body(...), token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
     user = get_current_user(token=token, db=db)
     if user.tipo != 'barbearia':
         raise HTTPException(status_code=403, detail='Apenas a barbearia pode configurar o endereço')
 
-    barbearia = db.query(models.Barbearia).filter(models.Barbearia.usuario_id == user.id).first()
+    barbearia = db.query(models.Barbearia).filter(
+        models.Barbearia.id == barbearia_id,
+        models.Barbearia.usuario_id == user.id,
+    ).first()
     if not barbearia:
-        raise HTTPException(status_code=404, detail='Sua barbearia não foi encontrada')
+        raise HTTPException(status_code=404, detail='Barbearia não encontrada ou acesso negado')
 
     endereco_texto = payload.endereco_texto
     origem = 'endereco'
