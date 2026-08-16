@@ -38,7 +38,7 @@ class ConfigurarEnderecoPorGpsRequest(BaseModel):
     longitude: float
 
 
-def _buscar_endereco_via_cep(cep_texto: str, numero: str = None) -> str:
+def _buscar_dados_cep(cep_texto: str) -> dict:
     cep_limpo = ''.join([c for c in (cep_texto or '') if c.isdigit()])
     if len(cep_limpo) != 8:
         raise HTTPException(status_code=400, detail='CEP deve ter 8 dígitos')
@@ -64,10 +64,14 @@ def _buscar_endereco_via_cep(cep_texto: str, numero: str = None) -> str:
     if not logradouro or not localidade or not uf:
         raise HTTPException(status_code=400, detail='CEP não retornou endereço completo')
 
-    numero_limpo = str(numero or '').strip()
-    logradouro_com_numero = f'{logradouro}, {numero_limpo}' if numero_limpo else logradouro
+    return {'logradouro': logradouro, 'bairro': bairro, 'localidade': localidade, 'uf': uf}
 
-    return f'{logradouro_com_numero}{f", {bairro}" if bairro else ""}, {localidade}/{uf}'
+
+def _formatar_endereco_cep(dados_cep: dict, numero: str = None) -> str:
+    numero_limpo = str(numero or '').strip()
+    logradouro_com_numero = f"{dados_cep['logradouro']}, {numero_limpo}" if numero_limpo else dados_cep['logradouro']
+    bairro = dados_cep.get('bairro')
+    return f'{logradouro_com_numero}{f", {bairro}" if bairro else ""}, {dados_cep["localidade"]}/{dados_cep["uf"]}'
 
 
 def _geocodificar_endereco_nominatim(endereco_texto: str) -> tuple[float, float, str]:
@@ -101,11 +105,50 @@ def _geocodificar_endereco_nominatim(endereco_texto: str) -> tuple[float, float,
     return lat, lon, endereco_limpo
 
 
+def _geocodificar_endereco_opencage(logradouro: str, numero: str, cidade: str, uf: str) -> tuple[float, float] | None:
+    api_key = os.environ.get('OPENCAGE_API_KEY')
+    if not api_key:
+        return None
+
+    # O bairro fica de fora de proposito: o nome de bairro que vem do ViaCEP
+    # com frequencia nao bate com o texto indexado pelo OpenStreetMap e faz o
+    # match cair pro nivel de cidade inteira. Testado com CEP real: com bairro
+    # -> confidence 1 (centroide da cidade); sem bairro -> confidence 9 (rua
+    # certa). BrasilAPI (fallback abaixo) tem o mesmo problema pra SP: devolve
+    # sempre o mesmo centroide da cidade pra qualquer CEP.
+    numero_limpo = str(numero or '').strip()
+    logradouro_com_numero = f'{logradouro}, {numero_limpo}' if numero_limpo else logradouro
+    query = f'{logradouro_com_numero}, {cidade} - {uf}, Brazil'
+
+    try:
+        resposta = requests.get(
+            'https://api.opencagedata.com/geocode/v1/json',
+            params={'q': query, 'key': api_key, 'countrycode': 'br', 'limit': 1, 'no_annotations': 1},
+            timeout=10,
+        )
+        resposta.raise_for_status()
+        dados = resposta.json()
+        resultados = dados.get('results') or []
+        if not resultados:
+            return None
+        melhor = resultados[0]
+        if (melhor.get('confidence') or 0) < 5:
+            return None
+        geometria = melhor.get('geometry') or {}
+        lat = geometria.get('lat')
+        lon = geometria.get('lng')
+        if lat is None or lon is None:
+            return None
+        return float(lat), float(lon)
+    except Exception:
+        return None
+
+
 def _obter_coordenadas_por_cep(cep_texto: str) -> tuple[float, float] | None:
     # Nominatim busca por texto de rua e falha com frequencia pra enderecos
     # brasileiros (ruas pequenas/pouco mapeadas no OSM). A BrasilAPI devolve
-    # coordenadas direto a partir do CEP (base do IBGE), muito mais confiavel
-    # pro fluxo de "buscar por CEP".
+    # coordenadas direto a partir do CEP (base do IBGE) - usada como ultimo
+    # fallback quando o OpenCage nao tem chave ou nao acha o endereco.
     cep_limpo = ''.join([c for c in (cep_texto or '') if c.isdigit()])
     if len(cep_limpo) != 8:
         return None
@@ -198,9 +241,12 @@ def configurar_endereco_minha_barbearia(payload: ConfigurarEnderecoBarbeariaRequ
     origem = 'endereco'
     coordenadas_cep = None
     if not endereco_texto and payload.cep_texto:
-        endereco_texto = _buscar_endereco_via_cep(payload.cep_texto, payload.numero)
+        dados_cep = _buscar_dados_cep(payload.cep_texto)
+        endereco_texto = _formatar_endereco_cep(dados_cep, payload.numero)
         origem = 'cep'
-        coordenadas_cep = _obter_coordenadas_por_cep(payload.cep_texto)
+        coordenadas_cep = _geocodificar_endereco_opencage(
+            dados_cep['logradouro'], payload.numero, dados_cep['localidade'], dados_cep['uf']
+        ) or _obter_coordenadas_por_cep(payload.cep_texto)
 
     if not endereco_texto:
         raise HTTPException(status_code=400, detail='Endereço ou CEP são obrigatórios')
@@ -225,9 +271,12 @@ def configurar_endereco_barbearia(barbearia_id: int, payload: ConfigurarEndereco
     origem = 'endereco'
     coordenadas_cep = None
     if not endereco_texto and payload.cep_texto:
-        endereco_texto = _buscar_endereco_via_cep(payload.cep_texto, payload.numero)
+        dados_cep = _buscar_dados_cep(payload.cep_texto)
+        endereco_texto = _formatar_endereco_cep(dados_cep, payload.numero)
         origem = 'cep'
-        coordenadas_cep = _obter_coordenadas_por_cep(payload.cep_texto)
+        coordenadas_cep = _geocodificar_endereco_opencage(
+            dados_cep['logradouro'], payload.numero, dados_cep['localidade'], dados_cep['uf']
+        ) or _obter_coordenadas_por_cep(payload.cep_texto)
 
     if not endereco_texto:
         raise HTTPException(status_code=400, detail='Endereço ou CEP são obrigatórios')
