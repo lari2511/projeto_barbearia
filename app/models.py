@@ -190,7 +190,9 @@ class Chamado(Base):
     data_hora_fim = Column(DateTime, nullable=True)  # Quando termina (importante para liberar cadeira)
     data_agendamento = Column(DateTime, default=datetime.utcnow)  # Quando foi agendado
     horario_match = Column(DateTime, nullable=True)  # Quando freelancer aceitou (inicia contagem de 5 min)
-    
+    pausado_em = Column(DateTime, nullable=True)  # Timestamp de quando o atendimento em andamento foi pausado
+    pausa_acumulada_segundos = Column(Integer, default=0)  # Soma de todas as pausas deste atendimento
+
     # --- STATUS (Máquina de estados) ---
     status = Column(String, default=StatusAgendamento.PENDENTE)  # pendente, confirmado, concluído, cancelado
     cliente_chegou = Column(Boolean, default=False)  # Cliente confirmou chegada no local

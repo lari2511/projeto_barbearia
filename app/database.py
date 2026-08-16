@@ -64,6 +64,8 @@ def init_db():
             "horario_match": "DATETIME",  # ✅ Novo: timestamp quando freelancer aceita (inicia 5 min)
             "cliente_chegou": "BOOLEAN DEFAULT 0",
             "barbeiro_chegou": "BOOLEAN DEFAULT 0",
+            "pausado_em": "DATETIME",  # ✅ Novo: timestamp de quando o atendimento foi pausado
+            "pausa_acumulada_segundos": "INTEGER DEFAULT 0",  # ✅ Novo: soma das pausas deste atendimento
         }
 
         with engine.begin() as connection:

@@ -1711,6 +1711,9 @@ def listar_agendamentos_barbeiro(barbeiro_id: int, db: Session = Depends(get_db)
             "data_agendamento": chamado.data_agendamento.isoformat() if chamado.data_agendamento else None,
             "criado_em": chamado.criado_em.isoformat() if chamado.criado_em else None,
             "data_hora_fim": data_hora_fim_resolvida.isoformat() if data_hora_fim_resolvida else None,
+            "pausado": bool(chamado.pausado_em),
+            "pausado_em": chamado.pausado_em.isoformat() if chamado.pausado_em else None,
+            "pausa_acumulada_segundos": chamado.pausa_acumulada_segundos or 0,
             "barbearia_nome": barbearia.nome if barbearia else "Barbearia",
             "barbearia_endereco": barbearia.endereco if barbearia else "",
             "barbearia_latitude": barbearia.latitude if barbearia else None,
@@ -2615,6 +2618,58 @@ def rejeitar_chamado(id: int, token: str = Depends(oauth2_scheme), db: Session =
         pass
 
     return {"id": chamado.id, "status": chamado.status}
+
+@router.patch("/chamados/{id}/pausar-atendimento")
+def pausar_atendimento_chamado(id: int, pausar: bool, token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
+    # Pausa/retoma o atendimento EM ANDAMENTO de um chamado específico.
+    # Diferente de /freelancer/pausar (que bloqueia recebimento de NOVOS chamados,
+    # tipo "saí pro almoço"): isso aqui congela o cronômetro deste chamado e empurra
+    # data_hora_fim pelo tempo pausado, pra não comer o tempo real de atendimento
+    # nem furar a janela de liberação antecipada (10 min antes do fim).
+    user = get_current_user(token=token, db=db)
+    if user.tipo != "barbeiro":
+        raise HTTPException(status_code=403, detail="Apenas barbeiros podem pausar um atendimento")
+
+    chamado = db.query(models.Chamado).filter(models.Chamado.id == id).first()
+    if not chamado:
+        raise HTTPException(status_code=404, detail="Chamado não encontrado")
+
+    if chamado.barbeiro_id != user.id:
+        raise HTTPException(status_code=403, detail="Este chamado não pertence a você")
+
+    if chamado.status != models.StatusAgendamento.EM_ATENDIMENTO.value:
+        raise HTTPException(status_code=400, detail="Só é possível pausar um atendimento em andamento")
+
+    agora = datetime.now()
+
+    if pausar:
+        if not chamado.pausado_em:
+            chamado.pausado_em = agora
+    else:
+        if chamado.pausado_em:
+            delta_segundos = max(0, int((agora - chamado.pausado_em).total_seconds()))
+            chamado.pausa_acumulada_segundos = (chamado.pausa_acumulada_segundos or 0) + delta_segundos
+            chamado.pausado_em = None
+            if chamado.data_hora_fim:
+                chamado.data_hora_fim = chamado.data_hora_fim + timedelta(seconds=delta_segundos)
+
+            barbeiro = db.query(models.Usuario).filter(models.Usuario.id == user.id).first()
+            if barbeiro and barbeiro.ocupado_ate:
+                barbeiro.ocupado_ate = barbeiro.ocupado_ate + timedelta(seconds=delta_segundos)
+                db.add(barbeiro)
+
+    db.add(chamado)
+    db.commit()
+    db.refresh(chamado)
+
+    return {
+        "chamado_id": chamado.id,
+        "pausado": bool(chamado.pausado_em),
+        "pausado_em": chamado.pausado_em.isoformat() if chamado.pausado_em else None,
+        "pausa_acumulada_segundos": chamado.pausa_acumulada_segundos or 0,
+        "data_hora_fim": chamado.data_hora_fim.isoformat() if chamado.data_hora_fim else None,
+    }
+
 
 @router.put("/chamados/{id}/finalizar")
 def finalizar_servico_manualmente(id: int, token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):

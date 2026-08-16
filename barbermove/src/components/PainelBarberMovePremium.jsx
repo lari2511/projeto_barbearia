@@ -517,6 +517,18 @@ export default function PainelBarberMovePremium({ token: tokenProp, logout: logo
       return;
     }
 
+    // Fonte da verdade e o backend (campo persistido no Chamado). So cai pro
+    // localStorage se o servidor ainda nao devolveu esses campos (ex: chamado
+    // veio do endpoint legado /chamados/abertos, que nao os inclui).
+    if (chamadoAtivo.pausado_em !== undefined || chamadoAtivo.pausa_acumulada_segundos !== undefined) {
+      const pausadoEmMsServidor = chamadoAtivo.pausado_em ? new Date(chamadoAtivo.pausado_em).getTime() : null;
+      const acumuladoMsServidor = Math.round((Number(chamadoAtivo.pausa_acumulada_segundos) || 0) * 1000);
+      setIsPaused(Boolean(chamadoAtivo.pausado));
+      setPausadoEmMs(Number.isFinite(pausadoEmMsServidor) ? pausadoEmMsServidor : null);
+      setPausaAcumuladaMs(acumuladoMsServidor);
+      return;
+    }
+
     try {
       const raw = localStorage.getItem(obterChavePausa(chamadoAtivo.id));
       if (!raw) {
@@ -559,7 +571,7 @@ export default function PainelBarberMovePremium({ token: tokenProp, logout: logo
     try {
       setAlternandoPausa(true);
       const pausarAgora = !isPaused;
-      const res = await fetch(`${API_URL}/api/v1/freelancer/pausar?pausar=${pausarAgora ? 'true' : 'false'}`, {
+      const res = await fetch(`${API_URL}/api/v1/chamados/${chamadoAtivo.id}/pausar-atendimento?pausar=${pausarAgora ? 'true' : 'false'}`, {
         method: 'PATCH',
         headers: { Authorization: `Bearer ${token}` },
       });
@@ -569,18 +581,14 @@ export default function PainelBarberMovePremium({ token: tokenProp, logout: logo
         throw new Error(errData?.detail || 'Não foi possível alterar o status de pausa');
       }
 
-      const agoraLocal = Date.now();
-      if (pausarAgora) {
-        setIsPaused(true);
-        setPausadoEmMs(agoraLocal);
-        notify('Temporizador pausado. Novos chamados ficarão bloqueados até retomar.', 'warning');
-      } else {
-        const delta = pausadoEmMs ? Math.max(0, agoraLocal - pausadoEmMs) : 0;
-        setPausaAcumuladaMs((prev) => prev + delta);
-        setPausadoEmMs(null);
-        setIsPaused(false);
-        notify('Temporizador retomado.', 'success');
-      }
+      const confirmado = await res.json().catch(() => ({}));
+      const pausadoEmMsServidor = confirmado?.pausado_em ? new Date(confirmado.pausado_em).getTime() : null;
+      const acumuladoMsServidor = Math.round((Number(confirmado?.pausa_acumulada_segundos) || 0) * 1000);
+
+      setIsPaused(Boolean(confirmado?.pausado));
+      setPausadoEmMs(Number.isFinite(pausadoEmMsServidor) ? pausadoEmMsServidor : null);
+      setPausaAcumuladaMs(acumuladoMsServidor);
+      notify(pausarAgora ? 'Temporizador pausado.' : 'Temporizador retomado.', pausarAgora ? 'warning' : 'success');
     } catch (err) {
       notify(err?.message || 'Falha ao pausar/retomar temporizador', 'error');
     } finally {

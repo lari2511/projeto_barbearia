@@ -73,6 +73,24 @@ def calcular_distancia_haversine(lat1: float, lon1: float, lat2: float, lon2: fl
     return round(distancia, 2)
 
 
+def _radar_elegivel_para_novo_clause(agora: datetime = None):
+    """Condicao SQLAlchemy: freelancer livre OU dentro da janela de liberacao
+    antecipada (<=10 min pra terminar o atendimento atual). Espelha
+    _esta_na_janela_liberacao_antecipada usada no fluxo classico (routes.py),
+    aplicada aqui em RadarFreelancer.ocupado_ate pra manter os dois sistemas
+    de disponibilidade sincronizados."""
+    referencia = agora or datetime.now()
+    limite = referencia + timedelta(minutes=10)
+    return or_(
+        RadarFreelancer.em_atendimento == False,
+        and_(
+            RadarFreelancer.ocupado_ate.isnot(None),
+            RadarFreelancer.ocupado_ate > referencia,
+            RadarFreelancer.ocupado_ate <= limite,
+        )
+    )
+
+
 # ============================================================================
 # 📊 SCHEMAS (Pydantic)
 # ============================================================================
@@ -488,7 +506,7 @@ async def buscar_barbeiros_proximos(
     # Buscar todos os barbeiros online
     barbeiros_online = db.query(RadarFreelancer).filter(
         RadarFreelancer.is_online == True,
-        RadarFreelancer.em_atendimento == False,
+        _radar_elegivel_para_novo_clause(),
         RadarFreelancer.latitude.isnot(None),
         RadarFreelancer.longitude.isnot(None)
     ).all()
@@ -565,7 +583,7 @@ async def solicitar_barbeiro(
 
     barbeiros_proximos = db.query(RadarFreelancer).filter(
         RadarFreelancer.is_online == True,
-        RadarFreelancer.em_atendimento == False,
+        _radar_elegivel_para_novo_clause(),
         RadarFreelancer.latitude.isnot(None),
         RadarFreelancer.longitude.isnot(None),
     ).all()
@@ -701,7 +719,11 @@ async def barbeiro_aceitar_solicitacao(
         radar.em_atendimento = True
         radar.cliente_atendimento_id = solicitacao.cliente_id
         radar.barbearia_atendimento_id = solicitacao.barbearia_id
-    
+        # SolicitacaoBarbeiro nao tem servico_id/duracao vinculada (so tipo_servico
+        # em texto livre), entao usamos o mesmo fallback de 30 min do fluxo classico
+        # so pra alimentar a janela de liberacao antecipada (_radar_elegivel_para_novo_clause).
+        radar.ocupado_ate = datetime.now() + timedelta(minutes=30)
+
     db.commit()
     
     # Notificar cliente que barbeiro foi encontrado
@@ -770,6 +792,7 @@ async def terminar_atendimento(
     radar.em_atendimento = False
     radar.cliente_atendimento_id = None
     radar.barbearia_atendimento_id = None
+    radar.ocupado_ate = None
     
     db.commit()
     
@@ -862,7 +885,7 @@ async def acionar_cadeira_relampago(
     # Frente A: notificar barbeiros online no raio configurado
     barbeiros_online = db.query(RadarFreelancer).filter(
         RadarFreelancer.is_online == True,
-        RadarFreelancer.em_atendimento == False,
+        _radar_elegivel_para_novo_clause(),
         RadarFreelancer.latitude.isnot(None),
         RadarFreelancer.longitude.isnot(None),
     ).all()
@@ -919,7 +942,7 @@ async def listar_cadeiras_acionadas_ativas(
             radar = db.query(RadarFreelancer).filter(
                 RadarFreelancer.freelancer_id == current_user.id,
                 RadarFreelancer.is_online == True,
-                RadarFreelancer.em_atendimento == False,
+                _radar_elegivel_para_novo_clause(),
             ).first()
             if not radar:
                 continue
@@ -1036,7 +1059,7 @@ async def aceitar_cadeira_acionada_como_barbeiro(
     radar = db.query(RadarFreelancer).filter(
         RadarFreelancer.freelancer_id == current_user.id,
         RadarFreelancer.is_online == True,
-        RadarFreelancer.em_atendimento == False,
+        _radar_elegivel_para_novo_clause(),
     ).first()
     if not radar:
         raise HTTPException(status_code=400, detail="Fique online no radar para aceitar a vaga")
