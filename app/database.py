@@ -57,14 +57,14 @@ def init_db():
     if "chamados" in inspector.get_table_names():
         colunas_existentes = {coluna["name"] for coluna in inspector.get_columns("chamados")}
         colunas_esperadas = {
-            "cancelado_em": "DATETIME",
+            "cancelado_em": "TIMESTAMP",
             "tempo_cancelamento_minutos": "INTEGER",
             "valor_taxa_cancelamento": "FLOAT",
             "motivo_cancelamento": "VARCHAR(255)",
-            "horario_match": "DATETIME",  # ✅ Novo: timestamp quando freelancer aceita (inicia 5 min)
+            "horario_match": "TIMESTAMP",  # ✅ Novo: timestamp quando freelancer aceita (inicia 5 min)
             "cliente_chegou": "BOOLEAN DEFAULT 0",
             "barbeiro_chegou": "BOOLEAN DEFAULT 0",
-            "pausado_em": "DATETIME",  # ✅ Novo: timestamp de quando o atendimento foi pausado
+            "pausado_em": "TIMESTAMP",  # ✅ Novo: timestamp de quando o atendimento foi pausado
             "pausa_acumulada_segundos": "INTEGER DEFAULT 0",  # ✅ Novo: soma das pausas deste atendimento
         }
 
@@ -76,8 +76,8 @@ def init_db():
     if "radar_freelancer" in inspector.get_table_names():
         colunas_existentes = {coluna["name"] for coluna in inspector.get_columns("radar_freelancer")}
         colunas_esperadas = {
-            "ocupado_ate": "DATETIME",
-            "localizacao_atualizada_em": "DATETIME",
+            "ocupado_ate": "TIMESTAMP",
+            "localizacao_atualizada_em": "TIMESTAMP",
             "barbearia_atendimento_id": "INTEGER",
             "cliente_atendimento_id": "INTEGER",
         }
