@@ -62,6 +62,16 @@ export default function PainelBarberMovePremium({ token: tokenProp, logout: logo
 
   const obterChavePausa = useCallback((id) => `barbermove.timer.pause.${id}`, []);
 
+  // O backend salva/serializa datas em UTC "ingenuo" (sem sufixo Z/offset).
+  // new Date(string) sem timezone e interpretado pelo JS como horario LOCAL
+  // do aparelho, nao UTC -- isso inflava o cronometro em +3h (fuso do Brasil).
+  // Forca a interpretacao como UTC quando a string nao ja traz timezone.
+  const parseDataServidorUTC = useCallback((valor) => {
+    if (!valor) return NaN;
+    const temTimezone = /Z$|[+-]\d{2}:?\d{2}$/.test(valor);
+    return new Date(temTimezone ? valor : `${valor}Z`).getTime();
+  }, []);
+
   const formatarDuracao = useCallback((totalSegundos) => {
     const seg = Math.max(0, Number(totalSegundos) || 0);
     const horas = Math.floor(seg / 3600);
@@ -75,12 +85,12 @@ export default function PainelBarberMovePremium({ token: tokenProp, logout: logo
 
   const calcularTempoRestanteMs = useCallback((chamado) => {
     if (!chamado) return null;
-    const fim = chamado.data_hora_fim ? new Date(chamado.data_hora_fim).getTime() : NaN;
+    const fim = chamado.data_hora_fim ? parseDataServidorUTC(chamado.data_hora_fim) : NaN;
     if (!Number.isFinite(fim)) return null;
 
     const pausaAtualMs = isPaused && pausadoEmMs ? (agoraMs - pausadoEmMs) : 0;
     return fim - agoraMs + pausaAcumuladaMs + pausaAtualMs;
-  }, [agoraMs, isPaused, pausadoEmMs, pausaAcumuladaMs]);
+  }, [agoraMs, isPaused, pausadoEmMs, pausaAcumuladaMs, parseDataServidorUTC]);
 
   const renderCronometro = useCallback((chamado, compacto = false) => {
     if (!chamado) return null;
@@ -88,7 +98,7 @@ export default function PainelBarberMovePremium({ token: tokenProp, logout: logo
     const status = String(chamado.status || '').toLowerCase();
     if (status !== 'em_atendimento') return null;
 
-    const fim = chamado.data_hora_fim ? new Date(chamado.data_hora_fim).getTime() : NaN;
+    const fim = chamado.data_hora_fim ? parseDataServidorUTC(chamado.data_hora_fim) : NaN;
     if (!Number.isFinite(fim)) return null;
 
     const isChamadoAtivo = Number(chamadoAtivo?.id) === Number(chamado.id);
@@ -109,7 +119,7 @@ export default function PainelBarberMovePremium({ token: tokenProp, logout: logo
         <p className={`${compacto ? 'text-lg' : 'text-2xl'} font-black text-white`}>{formatarDuracao(restanteSegundos)}</p>
       </div>
     );
-  }, [agoraMs, chamadoAtivo?.id, formatarDuracao, pausaAcumuladaMs, pausadoEmMs, isPaused]);
+  }, [agoraMs, chamadoAtivo?.id, formatarDuracao, pausaAcumuladaMs, pausadoEmMs, isPaused, parseDataServidorUTC]);
 
   const carregarPerfil = useCallback(async () => {
     if (!token) return;
@@ -521,7 +531,7 @@ export default function PainelBarberMovePremium({ token: tokenProp, logout: logo
     // localStorage se o servidor ainda nao devolveu esses campos (ex: chamado
     // veio do endpoint legado /chamados/abertos, que nao os inclui).
     if (chamadoAtivo.pausado_em !== undefined || chamadoAtivo.pausa_acumulada_segundos !== undefined) {
-      const pausadoEmMsServidor = chamadoAtivo.pausado_em ? new Date(chamadoAtivo.pausado_em).getTime() : null;
+      const pausadoEmMsServidor = chamadoAtivo.pausado_em ? parseDataServidorUTC(chamadoAtivo.pausado_em) : null;
       const acumuladoMsServidor = Math.round((Number(chamadoAtivo.pausa_acumulada_segundos) || 0) * 1000);
       setIsPaused(Boolean(chamadoAtivo.pausado));
       setPausadoEmMs(Number.isFinite(pausadoEmMsServidor) ? pausadoEmMsServidor : null);
@@ -551,7 +561,7 @@ export default function PainelBarberMovePremium({ token: tokenProp, logout: logo
       setPausadoEmMs(null);
       setPausaAcumuladaMs(0);
     }
-  }, [chamadoAtivo?.id, obterChavePausa]);
+  }, [chamadoAtivo?.id, obterChavePausa, parseDataServidorUTC]);
 
   useEffect(() => {
     if (!chamadoAtivo?.id) return;
@@ -582,7 +592,7 @@ export default function PainelBarberMovePremium({ token: tokenProp, logout: logo
       }
 
       const confirmado = await res.json().catch(() => ({}));
-      const pausadoEmMsServidor = confirmado?.pausado_em ? new Date(confirmado.pausado_em).getTime() : null;
+      const pausadoEmMsServidor = confirmado?.pausado_em ? parseDataServidorUTC(confirmado.pausado_em) : null;
       const acumuladoMsServidor = Math.round((Number(confirmado?.pausa_acumulada_segundos) || 0) * 1000);
 
       setIsPaused(Boolean(confirmado?.pausado));
