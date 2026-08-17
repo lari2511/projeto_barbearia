@@ -1241,6 +1241,7 @@ export default function ClientDashboard({ token, logout, API_URL: apiUrlProp, no
             }
 
             let offsetMin = 0;
+            let grupoId = null;
             for (const service of selectedServices) {
                 const startTime = new Date(baseTime.getTime() + offsetMin * 60000);
                 const duracao = Number(service.duracao_minutos) || 0;
@@ -1256,13 +1257,22 @@ export default function ClientDashboard({ token, logout, API_URL: apiUrlProp, no
                         data_hora_inicio: startTime.toISOString(),
                         imediato: true,
                         cliente_latitude: localizacaoParaEnvio.latitude,
-                        cliente_longitude: localizacaoParaEnvio.longitude
+                        cliente_longitude: localizacaoParaEnvio.longitude,
+                        // Liga esse chamado ao primeiro da selecao (grupo_id = id do 1o
+                        // chamado) pra backend tratar tempo/disponibilidade combinados
+                        // quando ha mais de um servico selecionado junto.
+                        ...(grupoId ? { grupo_id: grupoId } : {}),
                     })
                 });
 
                 if (!res.ok) {
                     const errData = await res.json().catch(() => ({}));
                     throw new Error(errData.detail || `Falha ao criar chamado para ${service.nome}`);
+                }
+
+                if (!grupoId) {
+                    const criado = await res.json().catch(() => null);
+                    if (criado?.id) grupoId = criado.id;
                 }
             }
             notifySafe(`🚀 Chamados enviados! ${selectedBarber.nome} vai receber agora!`, "success");

@@ -66,6 +66,7 @@ def init_db():
             "barbeiro_chegou": "BOOLEAN DEFAULT 0",
             "pausado_em": "TIMESTAMP",  # ✅ Novo: timestamp de quando o atendimento foi pausado
             "pausa_acumulada_segundos": "INTEGER DEFAULT 0",  # ✅ Novo: soma das pausas deste atendimento
+            "grupo_id": "INTEGER",  # ✅ Novo: liga chamados de uma mesma selecao de multiplos servicos
         }
 
         with engine.begin() as connection:

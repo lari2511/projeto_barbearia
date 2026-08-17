@@ -98,8 +98,24 @@ export default function PainelBarberMovePremium({ token: tokenProp, logout: logo
     const status = String(chamado.status || '').toLowerCase();
     if (status !== 'em_atendimento') return null;
 
-    const fim = chamado.data_hora_fim ? parseDataServidorUTC(chamado.data_hora_fim) : NaN;
+    // Quando o cliente seleciona varios servicos juntos (grupo_id compartilhado),
+    // o cronometro precisa contar ate o fim do ULTIMO servico do grupo, nao so do
+    // que esta em_atendimento agora -- senao mostraria "livre" 10min antes do fim
+    // do primeiro servico mesmo com outro ja esperando na fila.
+    const statusAtivoNaFila = ['pendente', 'confirmado', 'em_atendimento'];
+    const membrosGrupo = chamado.grupo_id
+      ? chamados.filter((c) => c.grupo_id === chamado.grupo_id && statusAtivoNaFila.includes(String(c.status || '').toLowerCase()))
+      : [chamado];
+
+    const fim = membrosGrupo.reduce((maior, membro) => {
+      const fimMembro = membro.data_hora_fim ? parseDataServidorUTC(membro.data_hora_fim) : NaN;
+      return Number.isFinite(fimMembro) && fimMembro > maior ? fimMembro : maior;
+    }, NaN);
     if (!Number.isFinite(fim)) return null;
+
+    const nomeCombinado = membrosGrupo.length > 1
+      ? membrosGrupo.map((m) => m.servico_nome || m.descricao || m.servico).filter(Boolean).join(' + ')
+      : null;
 
     const isChamadoAtivo = Number(chamadoAtivo?.id) === Number(chamado.id);
     const pausaAtualMs = isChamadoAtivo && isPaused && pausadoEmMs ? (agoraMs - pausadoEmMs) : 0;
@@ -116,10 +132,13 @@ export default function PainelBarberMovePremium({ token: tokenProp, logout: logo
             {dentroJanelaProximo ? 'Liberado em 10 min' : 'Aguardando 10 min'}
           </span>
         </div>
+        {nomeCombinado && (
+          <p className="text-[10px] text-zinc-400 truncate">{nomeCombinado}</p>
+        )}
         <p className={`${compacto ? 'text-lg' : 'text-2xl'} font-black text-white`}>{formatarDuracao(restanteSegundos)}</p>
       </div>
     );
-  }, [agoraMs, chamadoAtivo?.id, formatarDuracao, pausaAcumuladaMs, pausadoEmMs, isPaused, parseDataServidorUTC]);
+  }, [agoraMs, chamadoAtivo?.id, chamados, formatarDuracao, pausaAcumuladaMs, pausadoEmMs, isPaused, parseDataServidorUTC]);
 
   const carregarPerfil = useCallback(async () => {
     if (!token) return;

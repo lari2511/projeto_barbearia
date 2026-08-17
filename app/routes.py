@@ -253,7 +253,7 @@ def _iniciar_atendimento_chamado(db: Session, chamado: models.Chamado, barbeiro:
     if barber:
         barber.disponivel = False
         barber.em_atendimento = True
-        barber.ocupado_ate = chamado.data_hora_fim
+        barber.ocupado_ate = _calcular_fim_grupo(db, chamado)
 
     cadeira = None
     if chamado.cadeira_id:
@@ -538,6 +538,26 @@ def _montar_payload_tracking(db: Session, chamado: models.Chamado, ativo: models
         "freelancer_eta_ate_barbearia_min": barbeiro_eta,
         "atualizado_em": datetime.utcnow().isoformat(),
     }
+
+def _calcular_fim_grupo(db: Session, chamado: models.Chamado) -> datetime | None:
+    # Quando o cliente seleciona varios servicos juntos, cada um vira um Chamado
+    # separado (grupo_id compartilhado, sequenciais no tempo). ocupado_ate precisa
+    # refletir o fim do ULTIMO chamado do grupo, senao a janela de liberacao
+    # antecipada de 10min libera o barbeiro pra um novo cliente enquanto ele ainda
+    # tem outro servico do mesmo grupo esperando na fila.
+    if not chamado or not chamado.grupo_id:
+        return chamado.data_hora_fim if chamado else None
+
+    ultimo_fim = db.query(func.max(models.Chamado.data_hora_fim)).filter(
+        models.Chamado.grupo_id == chamado.grupo_id,
+        models.Chamado.status.in_([
+            models.StatusAgendamento.PENDENTE.value,
+            models.StatusAgendamento.CONFIRMADO.value,
+            models.StatusAgendamento.EM_ATENDIMENTO.value,
+        ])
+    ).scalar()
+    return ultimo_fim or chamado.data_hora_fim
+
 
 def _esta_na_janela_liberacao_antecipada(barbeiro: models.Usuario, agora: datetime | None = None, janela_min: int = 10) -> bool:
     if not barbeiro:
@@ -1434,6 +1454,7 @@ def criar_chamado(chamado: schemas.ChamadoCreate, token: str = Depends(oauth2_sc
         cadeira_id=cadeira_id,
         data_hora_inicio=chamado.data_hora_inicio,  # Novo campo
         data_hora_fim=hora_fim,  # Usar hora calculada
+        grupo_id=chamado.grupo_id,  # Liga a outros chamados da mesma selecao de multiplos servicos
         status=models.StatusAgendamento.PENDENTE.value,  # Usar Enum
         valor_total=split['valor_total'],  # Novo campo
         comissao_plataforma=split['comissao_plataforma'],  # Novo campo
@@ -1445,7 +1466,18 @@ def criar_chamado(chamado: schemas.ChamadoCreate, token: str = Depends(oauth2_sc
     db.add(novo_chamado)
     db.commit()
     db.refresh(novo_chamado)
-    
+
+    # Se este chamado referencia o grupo pelo id do PRIMEIRO chamado da selecao de
+    # multiplos servicos, e esse primeiro ainda nao tem grupo_id proprio (era o unico
+    # do grupo ate agora), preenche ele com auto-referencia. Assim os dois passam a
+    # compartilhar o mesmo grupo_id e _calcular_fim_grupo funciona nos dois sentidos.
+    if novo_chamado.grupo_id:
+        primeiro_chamado = db.query(models.Chamado).filter(models.Chamado.id == novo_chamado.grupo_id).first()
+        if primeiro_chamado and not primeiro_chamado.grupo_id:
+            primeiro_chamado.grupo_id = primeiro_chamado.id
+            db.add(primeiro_chamado)
+            db.commit()
+
     # Criar histórico
     historico = models.ChamadoHistorico(
         chamado_id=novo_chamado.id,
@@ -1714,6 +1746,7 @@ def listar_agendamentos_barbeiro(barbeiro_id: int, db: Session = Depends(get_db)
             "pausado": bool(chamado.pausado_em),
             "pausado_em": chamado.pausado_em.isoformat() if chamado.pausado_em else None,
             "pausa_acumulada_segundos": chamado.pausa_acumulada_segundos or 0,
+            "grupo_id": chamado.grupo_id,
             "barbearia_nome": barbearia.nome if barbearia else "Barbearia",
             "barbearia_endereco": barbearia.endereco if barbearia else "",
             "barbearia_latitude": barbearia.latitude if barbearia else None,
@@ -2127,7 +2160,7 @@ def aceitar_chamado(id: int, token: str = Depends(oauth2_scheme), db: Session = 
     
     barbeiro.disponivel = False
     barbeiro.em_atendimento = False
-    barbeiro.ocupado_ate = chamado.data_hora_fim
+    barbeiro.ocupado_ate = _calcular_fim_grupo(db, chamado)
     
     db.commit()
     db.refresh(chamado)
@@ -2286,7 +2319,7 @@ async def chegar_chamado(id: int, token: str = Depends(oauth2_scheme), db: Sessi
         if barbeiro:
             barbeiro.disponivel = False
             barbeiro.em_atendimento = True
-            barbeiro.ocupado_ate = chamado.data_hora_fim
+            barbeiro.ocupado_ate = _calcular_fim_grupo(db, chamado)
 
         db.add(models.ChamadoHistorico(
             chamado_id=chamado.id,
@@ -2505,7 +2538,7 @@ def iniciar_corte(id: int, token: str = Depends(oauth2_scheme), db: Session = De
     if barbeiro:
         barbeiro.disponivel = False
         barbeiro.em_atendimento = True
-        barbeiro.ocupado_ate = chamado.data_hora_fim
+        barbeiro.ocupado_ate = _calcular_fim_grupo(db, chamado)
 
     if chamado.cadeira_id:
         cadeira = db.query(models.Cadeira).filter(models.Cadeira.id == chamado.cadeira_id).first()
@@ -2653,9 +2686,31 @@ def pausar_atendimento_chamado(id: int, pausar: bool, token: str = Depends(oauth
             if chamado.data_hora_fim:
                 chamado.data_hora_fim = chamado.data_hora_fim + timedelta(seconds=delta_segundos)
 
+            # Se esse chamado faz parte de uma selecao de multiplos servicos (grupo_id),
+            # empurra tambem os proximos da fila (ainda nao iniciados) pelo mesmo tempo
+            # pausado, senao o proximo servico do grupo comecaria adiantado em relacao
+            # ao atraso real deste.
+            if chamado.grupo_id:
+                irmaos = db.query(models.Chamado).filter(
+                    models.Chamado.grupo_id == chamado.grupo_id,
+                    models.Chamado.id != chamado.id,
+                    models.Chamado.status.in_([
+                        models.StatusAgendamento.PENDENTE.value,
+                        models.StatusAgendamento.CONFIRMADO.value,
+                    ])
+                ).all()
+                for irmao in irmaos:
+                    if irmao.data_hora_inicio:
+                        irmao.data_hora_inicio = irmao.data_hora_inicio + timedelta(seconds=delta_segundos)
+                    if irmao.data_hora_fim:
+                        irmao.data_hora_fim = irmao.data_hora_fim + timedelta(seconds=delta_segundos)
+                    db.add(irmao)
+
+            db.flush()
+
             barbeiro = db.query(models.Usuario).filter(models.Usuario.id == user.id).first()
-            if barbeiro and barbeiro.ocupado_ate:
-                barbeiro.ocupado_ate = barbeiro.ocupado_ate + timedelta(seconds=delta_segundos)
+            if barbeiro:
+                barbeiro.ocupado_ate = _calcular_fim_grupo(db, chamado)
                 db.add(barbeiro)
 
     db.add(chamado)

@@ -290,6 +290,7 @@ class ChamadoCreate(BaseModel):
     data_hora_fim: Optional[datetime] = None  # Novo campo
     cliente_latitude: float
     cliente_longitude: float
+    grupo_id: Optional[int] = None  # Liga chamados criados juntos numa selecao de multiplos servicos
 
 
 class ChamadoResponse(BaseModel):
