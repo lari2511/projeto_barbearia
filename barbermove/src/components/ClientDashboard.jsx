@@ -7,6 +7,7 @@ import AbaPadronizadaAvaliacoes from './AbaPadronizadaAvaliacoes';
 import ProfileCard from './ProfileCard';
 import ChatRoom from './ChatRoom';
 import TrackingPanel from './TrackingPanel';
+import CronometroAtendimento, { parseDataServidorUTC } from './CronometroAtendimento';
 import TelaRotasAtivos from './TelaRotasAtivos';
 import MapaBarbeiros from './MapaBarbeiros';
 import { obterLocalizacaoAtual, obterPosicaoAltaPrecisa } from '../utils/location';
@@ -572,6 +573,14 @@ export default function ClientDashboard({ token, logout, API_URL: apiUrlProp, no
 
         return () => clearInterval(intervalo);
     }, [activeChamado?.id, activeChamado?.horario_match, isChamadoVisivel(activeChamado), isPerfilTab]);
+
+    // Tick do cronômetro do atendimento em andamento (mesmo padrão do painel do freelancer)
+    const [agoraMsCronometro, setAgoraMsCronometro] = useState(Date.now());
+    useEffect(() => {
+        if (String(activeChamado?.status || '').toLowerCase() !== 'em_atendimento') return;
+        const t = setInterval(() => setAgoraMsCronometro(Date.now()), 1000);
+        return () => clearInterval(t);
+    }, [activeChamado?.status]);
 
     const requestUserLocation = () => {
         if (isFetchingLocationRef.current) return;
@@ -1330,6 +1339,17 @@ export default function ClientDashboard({ token, logout, API_URL: apiUrlProp, no
                             </div>
                         </div>
                     </div>
+                    {String(activeChamado.status || '').toLowerCase() === 'em_atendimento' && (
+                        <CronometroAtendimento
+                            chamado={activeChamado}
+                            chamadosGrupo={myOrders}
+                            chamadoAtivoId={activeChamado.id}
+                            isPausado={Boolean(activeChamado.pausado)}
+                            pausadoEmMs={activeChamado.pausado_em ? parseDataServidorUTC(activeChamado.pausado_em) : null}
+                            pausaAcumuladaMs={Math.round((Number(activeChamado.pausa_acumulada_segundos) || 0) * 1000)}
+                            agoraMs={agoraMsCronometro}
+                        />
+                    )}
                     <div className="grid grid-cols-1 gap-2">
                         {typeof onChamadoAceito === 'function' && (
                             <button

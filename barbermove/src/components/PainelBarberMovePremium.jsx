@@ -1,11 +1,35 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { Home, ClipboardList, Star, User, CreditCard, LogOut, CheckCircle, XCircle, DollarSign, Pause, Play, Copy } from 'lucide-react';
+import { Home, ClipboardList, Star, User, CreditCard, LogOut, CheckCircle, XCircle, DollarSign, Copy, Phone, Scissors, MapPin } from 'lucide-react';
 import { useApp } from '../contexts/AppContext';
-import { getApiBaseUrl, getWsBaseUrl } from '../utils/api';
+import { getApiBaseUrl, getWsBaseUrl, resolveMediaUrl } from '../utils/api';
 import AbaPadronizadaAvaliacoes from './AbaPadronizadaAvaliacoes';
 import TelaPerfilUsuario from './TelaPerfilUsuario';
 import TrackingPanel from './TrackingPanel';
+import CronometroAtendimento, { parseDataServidorUTC } from './CronometroAtendimento';
 import { useBackHandler } from '../utils/useBackHandler';
+
+function Avatar({ nome, foto, API_URL, size = 44 }) {
+  const url = foto ? resolveMediaUrl(foto, API_URL) : '';
+  const iniciais = (nome || '?').trim().split(/\s+/).slice(0, 2).map((p) => p[0]).join('').toUpperCase();
+  if (url) {
+    return (
+      <img
+        src={url}
+        alt={nome || 'Cliente'}
+        style={{ width: size, height: size }}
+        className="rounded-full object-cover border border-zinc-700 shrink-0"
+      />
+    );
+  }
+  return (
+    <div
+      style={{ width: size, height: size }}
+      className="rounded-full bg-zinc-800 border border-zinc-700 flex items-center justify-center text-xs font-bold text-zinc-300 shrink-0"
+    >
+      {iniciais || '?'}
+    </div>
+  );
+}
 
 export default function PainelBarberMovePremium({ token: tokenProp, logout: logoutProp, API_URL: apiUrlProp, notify: notifyProp }) {
   const { user, logout: ctxLogout, token: ctxToken, notify: ctxNotify } = useApp();
@@ -16,6 +40,12 @@ export default function PainelBarberMovePremium({ token: tokenProp, logout: logo
 
   const TABS = ['inicio', 'chamados', 'perfil'];
   const PERFIL_SECTIONS = ['dados', 'carteira', 'avaliacoes'];
+  const FILTROS_HISTORICO = [
+    { id: 'todos', label: 'Todos' },
+    { id: 'hoje', label: 'Hoje' },
+    { id: 'semana', label: 'Semana' },
+    { id: 'mes', label: 'Mês' },
+  ];
   const [tab, setTab] = useState(() => {
     const s = localStorage.getItem('barbeiro_dashboard_tab') || 'inicio';
     return TABS.includes(s) ? s : 'inicio';
@@ -36,6 +66,9 @@ export default function PainelBarberMovePremium({ token: tokenProp, logout: logo
   const [pausadoEmMs, setPausadoEmMs] = useState(null);
   const [pausaAcumuladaMs, setPausaAcumuladaMs] = useState(0);
   const [alternandoPausa, setAlternandoPausa] = useState(false);
+  const [verHistorico, setVerHistorico] = useState(false);
+  const [filtroHistorico, setFiltroHistorico] = useState('todos');
+  const [chamadoParaFinalizarId, setChamadoParaFinalizarId] = useState(null);
   const scrollRef = useRef(null);
   const ultimaSyncGpsRef = useRef(0);
 
@@ -62,27 +95,6 @@ export default function PainelBarberMovePremium({ token: tokenProp, logout: logo
 
   const obterChavePausa = useCallback((id) => `barbermove.timer.pause.${id}`, []);
 
-  // O backend salva/serializa datas em UTC "ingenuo" (sem sufixo Z/offset).
-  // new Date(string) sem timezone e interpretado pelo JS como horario LOCAL
-  // do aparelho, nao UTC -- isso inflava o cronometro em +3h (fuso do Brasil).
-  // Forca a interpretacao como UTC quando a string nao ja traz timezone.
-  const parseDataServidorUTC = useCallback((valor) => {
-    if (!valor) return NaN;
-    const temTimezone = /Z$|[+-]\d{2}:?\d{2}$/.test(valor);
-    return new Date(temTimezone ? valor : `${valor}Z`).getTime();
-  }, []);
-
-  const formatarDuracao = useCallback((totalSegundos) => {
-    const seg = Math.max(0, Number(totalSegundos) || 0);
-    const horas = Math.floor(seg / 3600);
-    const minutos = Math.floor((seg % 3600) / 60);
-    const segundos = seg % 60;
-    if (horas > 0) {
-      return `${String(horas).padStart(2, '0')}:${String(minutos).padStart(2, '0')}:${String(segundos).padStart(2, '0')}`;
-    }
-    return `${String(minutos).padStart(2, '0')}:${String(segundos).padStart(2, '0')}`;
-  }, []);
-
   const calcularTempoRestanteMs = useCallback((chamado) => {
     if (!chamado) return null;
     const fim = chamado.data_hora_fim ? parseDataServidorUTC(chamado.data_hora_fim) : NaN;
@@ -91,54 +103,6 @@ export default function PainelBarberMovePremium({ token: tokenProp, logout: logo
     const pausaAtualMs = isPaused && pausadoEmMs ? (agoraMs - pausadoEmMs) : 0;
     return fim - agoraMs + pausaAcumuladaMs + pausaAtualMs;
   }, [agoraMs, isPaused, pausadoEmMs, pausaAcumuladaMs, parseDataServidorUTC]);
-
-  const renderCronometro = useCallback((chamado, compacto = false) => {
-    if (!chamado) return null;
-
-    const status = String(chamado.status || '').toLowerCase();
-    if (status !== 'em_atendimento') return null;
-
-    // Quando o cliente seleciona varios servicos juntos (grupo_id compartilhado),
-    // o cronometro precisa contar ate o fim do ULTIMO servico do grupo, nao so do
-    // que esta em_atendimento agora -- senao mostraria "livre" 10min antes do fim
-    // do primeiro servico mesmo com outro ja esperando na fila.
-    const statusAtivoNaFila = ['pendente', 'confirmado', 'em_atendimento'];
-    const membrosGrupo = chamado.grupo_id
-      ? chamados.filter((c) => c.grupo_id === chamado.grupo_id && statusAtivoNaFila.includes(String(c.status || '').toLowerCase()))
-      : [chamado];
-
-    const fim = membrosGrupo.reduce((maior, membro) => {
-      const fimMembro = membro.data_hora_fim ? parseDataServidorUTC(membro.data_hora_fim) : NaN;
-      return Number.isFinite(fimMembro) && fimMembro > maior ? fimMembro : maior;
-    }, NaN);
-    if (!Number.isFinite(fim)) return null;
-
-    const nomeCombinado = membrosGrupo.length > 1
-      ? membrosGrupo.map((m) => m.servico_nome || m.descricao || m.servico).filter(Boolean).join(' + ')
-      : null;
-
-    const isChamadoAtivo = Number(chamadoAtivo?.id) === Number(chamado.id);
-    const pausaAtualMs = isChamadoAtivo && isPaused && pausadoEmMs ? (agoraMs - pausadoEmMs) : 0;
-    const acumuladoMs = isChamadoAtivo ? pausaAcumuladaMs : 0;
-    const restanteMs = fim - agoraMs + acumuladoMs + pausaAtualMs;
-    const restanteSegundos = Math.ceil(Math.max(0, restanteMs) / 1000);
-    const dentroJanelaProximo = restanteSegundos <= (10 * 60);
-
-    return (
-      <div className={`rounded-xl border border-zinc-700 bg-zinc-950/70 ${compacto ? 'p-2' : 'p-3'} space-y-2`}>
-        <div className="flex items-center justify-between">
-          <p className={`font-bold uppercase tracking-wide text-zinc-400 ${compacto ? 'text-[10px]' : 'text-[11px]'}`}>Cronometro</p>
-          <span className={`text-[10px] font-bold px-2 py-1 rounded-full ${dentroJanelaProximo ? 'bg-emerald-500/20 text-emerald-300' : 'bg-amber-500/20 text-amber-300'}`}>
-            {dentroJanelaProximo ? 'Liberado em 10 min' : 'Aguardando 10 min'}
-          </span>
-        </div>
-        {nomeCombinado && (
-          <p className="text-[10px] text-zinc-400 truncate">{nomeCombinado}</p>
-        )}
-        <p className={`${compacto ? 'text-lg' : 'text-2xl'} font-black text-white`}>{formatarDuracao(restanteSegundos)}</p>
-      </div>
-    );
-  }, [agoraMs, chamadoAtivo?.id, chamados, formatarDuracao, pausaAcumuladaMs, pausadoEmMs, isPaused, parseDataServidorUTC]);
 
   const carregarPerfil = useCallback(async () => {
     if (!token) return;
@@ -635,6 +599,12 @@ export default function PainelBarberMovePremium({ token: tokenProp, logout: logo
     } catch (_) { notify('Erro de conexão', 'error'); }
   };
 
+  const confirmarFinalizarChamado = async () => {
+    if (!chamadoParaFinalizarId) return;
+    await finalizarChamado(chamadoParaFinalizarId);
+    setChamadoParaFinalizarId(null);
+  };
+
   const statusColor = (s) => {
     const st = (s||'').toLowerCase();
     if (st === 'pendente') return 'text-yellow-400 bg-yellow-500/10 border-yellow-500/30';
@@ -645,6 +615,23 @@ export default function PainelBarberMovePremium({ token: tokenProp, logout: logo
 
   const bloqueadoFinanceiro = Boolean(ganhos?.bloqueado_financeiro);
   const saldoCarteiraAtual = Number(ganhos?.saldo_carteira || 0);
+  const historicoChamados = chamados.filter((c) => ['concluido', 'concluído', 'cancelado'].includes((c.status || '').toLowerCase()));
+  const filaEspera = chamados
+    .filter((c) => c.id !== chamadoAtivo?.id && ['pendente', 'confirmado'].includes((c.status || '').toLowerCase()))
+    .sort((a, b) => new Date(a.data_hora_inicio || a.data_agendamento || 0) - new Date(b.data_hora_inicio || b.data_agendamento || 0));
+  const proximoNaFila = filaEspera[0] || null;
+  const historicoFiltrado = historicoChamados.filter((c) => {
+    if (filtroHistorico === 'todos') return true;
+    const dataRef = c.data_hora_inicio || c.data_agendamento;
+    if (!dataRef) return false;
+    const data = new Date(dataRef);
+    const agora = new Date();
+    const diffDias = (agora - data) / (1000 * 60 * 60 * 24);
+    if (filtroHistorico === 'hoje') return data.toDateString() === agora.toDateString();
+    if (filtroHistorico === 'semana') return diffDias <= 7;
+    if (filtroHistorico === 'mes') return diffDias <= 30;
+    return true;
+  });
 
   return (
     <div className="min-h-[100dvh] w-full bg-[#050505] text-white flex justify-center">
@@ -686,7 +673,18 @@ export default function PainelBarberMovePremium({ token: tokenProp, logout: logo
                   <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-sm">
                     <p className="font-bold text-amber-300">🔔 Chamado ativo: #{chamadoAtivo.id}</p>
                     <p className="text-xs text-zinc-400 mt-0.5">{chamadoAtivo.servico_nome || chamadoAtivo.descricao}</p>
-                    <div className="mt-2">{renderCronometro(chamadoAtivo, true)}</div>
+                    <div className="mt-2">
+                      <CronometroAtendimento
+                        chamado={chamadoAtivo}
+                        chamadosGrupo={chamados}
+                        chamadoAtivoId={chamadoAtivo?.id}
+                        isPausado={isPaused}
+                        pausadoEmMs={pausadoEmMs}
+                        pausaAcumuladaMs={pausaAcumuladaMs}
+                        agoraMs={agoraMs}
+                        compacto
+                      />
+                    </div>
                   </div>
                 )}
               </div>
@@ -694,7 +692,7 @@ export default function PainelBarberMovePremium({ token: tokenProp, logout: logo
                 <button onClick={() => setTab('chamados')} className="rounded-2xl border border-zinc-800 bg-zinc-900 p-4 flex flex-col items-center gap-2 hover:border-orange-500 transition-colors">
                   <ClipboardList size={22} className="text-orange-400" />
                   <span className="text-sm font-bold">Chamados</span>
-                  <span className="text-xs text-zinc-500">{chamados.length} no histórico</span>
+                  <span className="text-xs text-zinc-500">{chamadoAtivo ? 'Em andamento' : `${historicoChamados.length} no histórico`}</span>
                 </button>
                 <button onClick={() => abrirPerfil('dados')} className="rounded-2xl border border-zinc-800 bg-zinc-900 p-4 flex flex-col items-center gap-2 hover:border-orange-500 transition-colors">
                   <User size={22} className="text-purple-400" />
@@ -806,27 +804,73 @@ export default function PainelBarberMovePremium({ token: tokenProp, logout: logo
                 </div>
               )}
 
-              {chamadoAtivo && (
-                <div className="rounded-2xl border border-green-500/30 bg-green-500/10 p-4 space-y-3">
-                  <p className="text-xs font-bold text-green-300 uppercase tracking-wide">🚀 Chamado Ativo #{chamadoAtivo.id}</p>
-                  <p className="text-sm font-bold text-white">{chamadoAtivo.servico_nome || chamadoAtivo.descricao}</p>
-                  <p className="text-xs text-zinc-400">Cliente: {chamadoAtivo.cliente_nome || chamadoAtivo.nome_cliente}</p>
-                  <p className="text-xs text-zinc-400">Barbearia: {chamadoAtivo.nome_barbearia}</p>
-                  <div className="space-y-2">
-                    {renderCronometro(chamadoAtivo)}
-                    {(String(chamadoAtivo.status || '').toLowerCase() === 'em_atendimento') && (
-                      <div className="flex justify-end">
-                        <button
-                          onClick={togglePausaTemporizador}
-                          disabled={alternandoPausa}
-                          className={`inline-flex items-center gap-2 rounded-lg px-3 py-2 text-xs font-bold text-white ${isPaused ? 'bg-emerald-600 hover:bg-emerald-500' : 'bg-amber-600 hover:bg-amber-500'} disabled:opacity-60`}
-                        >
-                          {isPaused ? <Play size={12} /> : <Pause size={12} />}
-                          {alternandoPausa ? 'Atualizando...' : (isPaused ? 'Retomar' : 'Pausar')}
-                        </button>
+              {chamadoAtivo ? (
+                <div className="rounded-2xl border border-zinc-800 bg-zinc-900 p-4 space-y-4">
+                  <div className="flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-emerald-400" />
+                    <p className="text-xs font-bold text-emerald-300 uppercase tracking-wide">
+                      {String(chamadoAtivo.status || '').toLowerCase() === 'em_atendimento' ? 'Em atendimento' : `Chamado #${chamadoAtivo.id}`}
+                    </p>
+                  </div>
+
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-3 min-w-0">
+                      <Avatar nome={chamadoAtivo.cliente_nome || chamadoAtivo.nome_cliente} foto={chamadoAtivo.cliente_foto} API_URL={API_URL} />
+                      <div className="min-w-0">
+                        <p className="text-[10px] uppercase tracking-wide text-zinc-500">Cliente</p>
+                        <p className="text-sm font-bold text-white truncate">{chamadoAtivo.cliente_nome || chamadoAtivo.nome_cliente}</p>
                       </div>
+                    </div>
+                    {chamadoAtivo.cliente_telefone && (
+                      <a
+                        href={`tel:${chamadoAtivo.cliente_telefone}`}
+                        className="w-10 h-10 rounded-full bg-zinc-800 border border-zinc-700 flex items-center justify-center text-zinc-300 hover:text-orange-400 hover:border-orange-500 shrink-0"
+                        aria-label="Ligar para o cliente"
+                      >
+                        <Phone size={16} />
+                      </a>
                     )}
                   </div>
+
+                  <div className="flex items-center justify-between gap-3 border-t border-zinc-800 pt-3">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <Scissors size={16} className="text-orange-400 shrink-0" />
+                      <div className="min-w-0">
+                        <p className="text-[10px] uppercase tracking-wide text-zinc-500">Serviço</p>
+                        <p className="text-sm font-bold text-white truncate">
+                          {chamadoAtivo.servico_nome || chamadoAtivo.descricao}
+                          {chamadoAtivo.duracao_minutos ? ` · ${chamadoAtivo.duracao_minutos} min` : ''}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="text-right shrink-0">
+                      <p className="text-[10px] uppercase tracking-wide text-zinc-500">Valor</p>
+                      <p className="text-sm font-bold text-emerald-400">R$ {Number(chamadoAtivo.valor || 0).toFixed(2)}</p>
+                    </div>
+                  </div>
+
+                  {String(chamadoAtivo.status || '').toLowerCase() === 'em_atendimento' && (
+                    <CronometroAtendimento
+                      variante="circular"
+                      chamado={chamadoAtivo}
+                      chamadosGrupo={chamados}
+                      chamadoAtivoId={chamadoAtivo?.id}
+                      isPausado={isPaused}
+                      pausadoEmMs={pausadoEmMs}
+                      pausaAcumuladaMs={pausaAcumuladaMs}
+                      agoraMs={agoraMs}
+                      onTogglePausa={togglePausaTemporizador}
+                      alternandoPausa={alternandoPausa}
+                    />
+                  )}
+
+                  {chamadoAtivo.nome_barbearia && (
+                    <div className="flex items-center gap-2 rounded-xl border border-zinc-800 bg-zinc-950/60 px-3 py-2.5">
+                      <MapPin size={14} className="text-zinc-400 shrink-0" />
+                      <p className="text-xs text-zinc-400 truncate">{chamadoAtivo.nome_barbearia}</p>
+                    </div>
+                  )}
+
                   <TrackingPanel
                     chamado={chamadoAtivo}
                     token={token}
@@ -853,61 +897,91 @@ export default function PainelBarberMovePremium({ token: tokenProp, logout: logo
                     </div>
                   )}
                   {['em_atendimento'].includes((chamadoAtivo.status||'').toLowerCase()) && (
-                    <button onClick={() => finalizarChamado(chamadoAtivo.id)} className="w-full bg-blue-600 hover:bg-blue-700 text-white font-black rounded-xl py-3 text-sm">
-                      🏁 Finalizar Serviço
+                    <button
+                      onClick={() => setChamadoParaFinalizarId(chamadoAtivo.id)}
+                      className="w-full inline-flex items-center justify-center gap-2 bg-orange-600 hover:bg-orange-500 text-white font-black rounded-xl py-3.5 text-sm"
+                    >
+                      <Scissors size={16} />
+                      Finalizar corte
                     </button>
                   )}
+
+                  {proximoNaFila && (
+                    <div className="border-t border-zinc-800 pt-3">
+                      <p className="text-[10px] uppercase tracking-wide text-zinc-500 mb-2">Próximo na fila</p>
+                      <div className="flex items-center gap-3">
+                        <Avatar nome={proximoNaFila.cliente_nome || proximoNaFila.nome_cliente} foto={proximoNaFila.cliente_foto} API_URL={API_URL} size={36} />
+                        <div className="min-w-0 flex-1">
+                          <p className="text-sm font-bold text-white truncate">{proximoNaFila.cliente_nome || proximoNaFila.nome_cliente}</p>
+                          <p className="text-xs text-amber-300">Aguardando</p>
+                        </div>
+                        <span className="text-[10px] font-bold px-2 py-1 rounded-full border border-zinc-700 text-zinc-300 shrink-0">Posição 2º</span>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="text-center py-12">
+                  <p className="text-zinc-600 text-sm">Nenhum atendimento em andamento</p>
                 </div>
               )}
 
-              {chamados.length === 0 ? (
-                <div className="text-center py-12">
-                  <p className="text-zinc-600 text-sm">Nenhum chamado ainda</p>
-                </div>
-              ) : (
-                <div className="space-y-2">
-                  {chamados.map(c => (
-                    <div key={c.id} className="rounded-xl border border-zinc-800 bg-zinc-900 p-3.5 space-y-2">
-                      <div className="flex justify-between items-start">
-                        <div className="min-w-0 pr-2">
-                          <p className="font-bold text-sm truncate">{c.servico_nome || c.descricao || 'Serviço'}</p>
-                          <p className="text-xs text-zinc-400 truncate">Cliente: {c.cliente_nome || c.nome_cliente}</p>
-                          <p className="text-xs text-zinc-400 truncate">{c.nome_barbearia || 'Barbearia'}</p>
-                        </div>
-                        <span className={`text-[10px] font-bold px-2 py-1 rounded-full border ${statusColor(c.status)}`}>
-                          {(c.status||'').toUpperCase()}
-                        </span>
-                      </div>
-                      <div className="flex justify-between items-center text-xs text-zinc-500">
-                        <span>#{c.id}</span>
-                        <span className="text-green-400 font-bold">R$ {Number(c.valor||0).toFixed(2)}</span>
-                      </div>
-                      {renderCronometro(c, true)}
-                      {(c.status||'').toLowerCase() === 'pendente' && (
-                        <div className="flex gap-2">
-                          <button
-                            onClick={() => !bloqueadoFinanceiro && aceitarChamado(c.id)}
-                            disabled={bloqueadoFinanceiro}
-                            className="flex-1 bg-green-600 hover:bg-green-700 disabled:bg-zinc-700 disabled:text-zinc-400 text-white font-black rounded-xl py-2 text-xs"
-                          >
-                            {bloqueadoFinanceiro ? '⛔ Bloqueado' : '✅ Aceitar'}
-                          </button>
-                          <button
-                            onClick={() => recusarChamado(c.id)}
-                            className="rounded-xl border border-red-500/60 text-red-400 hover:bg-red-500/10 font-black px-3 py-2 text-xs"
-                          >
-                            ❌ Recusar
-                          </button>
-                        </div>
-                      )}
-                      {['em_atendimento'].includes((c.status||'').toLowerCase()) && (
-                        <button onClick={() => finalizarChamado(c.id)} className="w-full bg-blue-600 hover:bg-blue-700 text-white font-black rounded-xl py-2 text-xs">
-                          🏁 Finalizar
-                        </button>
-                      )}
+              <button
+                onClick={() => setVerHistorico((v) => !v)}
+                className="w-full rounded-xl border border-zinc-800 bg-zinc-900 hover:border-orange-500 transition-colors py-3 text-xs font-bold text-zinc-300"
+              >
+                {verHistorico ? '▲ Ocultar histórico' : `▼ Ver histórico (${historicoChamados.length})`}
+              </button>
+
+              {verHistorico && (
+                <>
+                  <div className="flex gap-2 overflow-x-auto pb-1">
+                    {FILTROS_HISTORICO.map((f) => (
+                      <button
+                        key={f.id}
+                        onClick={() => setFiltroHistorico(f.id)}
+                        className={`shrink-0 rounded-full px-3 py-1.5 text-xs font-bold border transition-colors ${filtroHistorico === f.id ? 'bg-orange-500 border-orange-500 text-white' : 'border-zinc-800 text-zinc-400 hover:border-zinc-600'}`}
+                      >
+                        {f.label}
+                      </button>
+                    ))}
+                  </div>
+                  {historicoFiltrado.length === 0 ? (
+                    <div className="text-center py-8">
+                      <p className="text-zinc-600 text-sm">Nenhum atendimento no histórico ainda</p>
                     </div>
-                  ))}
-                </div>
+                  ) : (
+                  <div className="space-y-2">
+                    {historicoFiltrado.map(c => (
+                      <div key={c.id} className="rounded-xl border border-zinc-800 bg-zinc-900 p-3.5 space-y-1.5">
+                        <div className="flex justify-between items-start gap-2">
+                          <div className="flex items-center gap-2.5 min-w-0">
+                            <Avatar nome={c.cliente_nome || c.nome_cliente} foto={c.cliente_foto} API_URL={API_URL} size={36} />
+                            <div className="min-w-0">
+                              <p className="font-bold text-sm truncate">{c.cliente_nome || c.nome_cliente}</p>
+                              <p className="text-xs text-zinc-400 truncate">{c.servico_nome || c.descricao || 'Serviço'}</p>
+                            </div>
+                          </div>
+                          <span className={`text-[10px] font-bold px-2 py-1 rounded-full border shrink-0 ${statusColor(c.status)}`}>
+                            {(c.status||'').toLowerCase().includes('conclu') ? 'Concluído' : 'Cancelado'}
+                          </span>
+                        </div>
+                        <p className="text-xs text-zinc-500">
+                          {c.data_agendamento ? new Date(c.data_agendamento).toLocaleDateString('pt-BR') : '-'}
+                          {c.data_hora_inicio ? ` · ${new Date(c.data_hora_inicio).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}` : ''}
+                        </p>
+                        <div className="flex justify-between items-center text-xs text-zinc-500">
+                          <span>#{c.id}</span>
+                          <span className="text-green-400 font-bold">R$ {Number(c.valor||0).toFixed(2)}</span>
+                        </div>
+                        {c.avaliacao_nota != null && (
+                          <p className="text-xs text-yellow-400 font-bold">{'⭐'.repeat(c.avaliacao_nota)} {c.avaliacao_nota}/5</p>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                  )}
+                </>
               )}
             </div>
           )}
@@ -1094,6 +1168,29 @@ export default function PainelBarberMovePremium({ token: tokenProp, logout: logo
             </button>
           ))}
         </div>
+
+        {chamadoParaFinalizarId && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 px-4">
+            <div className="w-full max-w-sm rounded-2xl border border-zinc-800 bg-zinc-900 p-5 space-y-4">
+              <p className="text-sm font-bold text-white">Finalizar este atendimento?</p>
+              <p className="text-xs text-zinc-400">O cronômetro será encerrado e o atendimento vai para o histórico.</p>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setChamadoParaFinalizarId(null)}
+                  className="flex-1 rounded-xl border border-zinc-700 text-zinc-300 hover:bg-zinc-800 font-bold py-3 text-sm"
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={confirmarFinalizarChamado}
+                  className="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-black rounded-xl py-3 text-sm"
+                >
+                  🏁 Finalizar Serviço
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

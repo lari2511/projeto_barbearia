@@ -3,6 +3,29 @@ import { ArrowLeft, Building2, Hash, Mail, MapPin, Phone, Scissors, Store, User,
 import { useApp } from '../contexts/AppContext'
 import { Button, Input } from './Common'
 
+// Envia breadcrumbs do fluxo de cadastro pro servidor (visivel via `railway logs`),
+// já que console.log local nunca chega até quem está depurando remotamente.
+const enviarDiagnosticoCadastro = async (apiUrl, etapa, mensagem, extra) => {
+  try {
+    if (!apiUrl) return
+    await fetch(`${apiUrl}/api/v1/notificacoes/frontend-diagnostic`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        origem: 'frontend',
+        contexto: 'cadastro',
+        etapa,
+        mensagem: mensagem || null,
+        url: typeof window !== 'undefined' ? window.location.href : null,
+        user_agent: typeof navigator !== 'undefined' ? navigator.userAgent : null,
+        extra: extra || null,
+      }),
+    })
+  } catch (_err) {
+    // Diagnostico nao pode quebrar o fluxo principal.
+  }
+}
+
 const userTypes = [
   {
     type: 'cliente',
@@ -252,6 +275,7 @@ export default function Cadastro({ initialType = 'cliente', onBack, onSuccess })
   const handleSubmit = async (event) => {
     event.preventDefault()
     console.log('[Cadastro] handleSubmit disparado', { selectedType })
+    void enviarDiagnosticoCadastro(API_URL, 'submit:start', 'handleSubmit disparado', { selectedType })
     setLocalError('Processando cadastro...')
 
     try {
@@ -262,26 +286,31 @@ export default function Cadastro({ initialType = 'cliente', onBack, onSuccess })
 
       if (!form.nome.trim() || !form.email.trim() || !form.senha || !form.cpf.trim() || !form.telefone.trim()) {
         console.log('[Cadastro] falhou validacao de campos obrigatorios', form)
+        void enviarDiagnosticoCadastro(API_URL, 'submit:validacao-falhou', 'Campos obrigatórios faltando', { selectedType })
         setLocalError('Preencha todos os campos obrigatórios')
         return
       }
 
       if ((selectedType === 'barbeiro' || selectedType === 'barbearia') && !form.endereco.trim()) {
+        void enviarDiagnosticoCadastro(API_URL, 'submit:validacao-falhou', 'Endereço faltando', { selectedType })
         setLocalError('Endereço é obrigatório')
         return
       }
 
       if (selectedType === 'barbearia' && (!form.cep.trim() || !form.cnpj.trim())) {
+        void enviarDiagnosticoCadastro(API_URL, 'submit:validacao-falhou', 'CEP ou CNPJ faltando', { selectedType, cep: form.cep, cnpj: form.cnpj })
         setLocalError('CEP e CNPJ são obrigatórios para barbearia')
         return
       }
 
       if (selectedType === 'barbeiro') {
         if (photos.portfolio.length < 3) {
+          void enviarDiagnosticoCadastro(API_URL, 'submit:validacao-falhou', 'Menos de 3 fotos de portfólio', { qtd: photos.portfolio.length })
           setLocalError('Barbeiro deve ter no mínimo 3 fotos de portfólio')
           return
         }
         if (!photos.rgCpf) {
+          void enviarDiagnosticoCadastro(API_URL, 'submit:validacao-falhou', 'Foto de RG/CPF faltando', null)
           setLocalError('Barbeiro deve enviar foto do RG/CPF para validação')
           return
         }
@@ -289,10 +318,12 @@ export default function Cadastro({ initialType = 'cliente', onBack, onSuccess })
 
       const payload = buildPayload(selectedType, form)
       console.log('[Cadastro] enviando payload', payload)
+      void enviarDiagnosticoCadastro(API_URL, 'submit:enviando', 'Payload montado, chamando register()', { selectedType, email: payload.email })
       setLocalError('Enviando dados para o servidor...')
 
       const result = await register(selectedType, payload)
       console.log('[Cadastro] resultado do register()', result)
+      void enviarDiagnosticoCadastro(API_URL, 'submit:resultado', result ? 'register() retornou sucesso' : 'register() retornou false/falha', { sucesso: Boolean(result) })
 
       if (!result) {
         setLocalError('O servidor recusou o cadastro. Veja o aviso no topo da tela para o motivo.')
@@ -303,17 +334,20 @@ export default function Cadastro({ initialType = 'cliente', onBack, onSuccess })
         setLocalError('Conta criada, enviando fotos...')
         const falhas = await enviarFotosFreelancer(result.access_token)
         console.log('[Cadastro] falhas no envio de fotos', falhas)
+        void enviarDiagnosticoCadastro(API_URL, 'submit:fotos', `${falhas} falha(s) no envio de fotos`, { falhas })
         if (falhas > 0) {
           notify('Conta criada, mas algumas fotos não foram enviadas. Você pode reenviá-las depois em Meu Perfil.', 'error')
         }
       }
 
+      void enviarDiagnosticoCadastro(API_URL, 'submit:concluido', 'Cadastro concluido com sucesso', { selectedType })
       setLocalError('')
       if (onSuccess) {
         onSuccess(result)
       }
     } catch (err) {
       console.error('[Cadastro] erro inesperado no handleSubmit', err)
+      void enviarDiagnosticoCadastro(API_URL, 'submit:excecao', err?.message || String(err), { stack: err?.stack || null })
       setLocalError(`Erro inesperado: ${err?.message || err}`)
       notify(`❌ Erro inesperado ao cadastrar: ${err?.message || err}`, 'error')
     }

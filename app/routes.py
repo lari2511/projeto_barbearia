@@ -1725,12 +1725,18 @@ def listar_agendamentos_barbeiro(barbeiro_id: int, db: Session = Depends(get_db)
             models.Avaliacao.avaliador_id == barbeiro_id
         ).first() is not None
 
+        avaliacao_cliente = db.query(models.AvaliacaoFreelancer).filter(
+            models.AvaliacaoFreelancer.chamado_id == chamado.id,
+            models.AvaliacaoFreelancer.tipo_avaliador == "cliente"
+        ).first()
+
         resultado.append({
             "id": chamado.id,
             "cliente_id": chamado.cliente_id,
             "barbearia_id": chamado.barbearia_id,
             "cliente_nome": cliente.nome if cliente else "Desconhecido",
             "cliente_telefone": cliente.telefone if cliente else "",
+            "cliente_foto": cliente.foto_perfil if cliente else None,
             "servico": servico.nome if servico else "Serviço",
             "servico_nome": servico.nome if servico else "Serviço",
             "descricao": servico.nome if servico else "Serviço",
@@ -1755,7 +1761,8 @@ def listar_agendamentos_barbeiro(barbeiro_id: int, db: Session = Depends(get_db)
             "cliente_latitude": cliente.latitude if cliente else None,
             "cliente_longitude": cliente.longitude if cliente else None,
             "cliente_endereco": cliente.endereco if cliente else "",
-            "avaliado": ja_avaliado
+            "avaliado": ja_avaliado,
+            "avaliacao_nota": avaliacao_cliente.nota if avaliacao_cliente else None
         })
     
     return resultado
@@ -2773,6 +2780,8 @@ def finalizar_servico_manualmente(id: int, token: str = Depends(oauth2_scheme), 
             cadeira.chamado_id = None
         cadeira.liberada_em = datetime.now()
     
+    chamado.concluido_em = datetime.now()
+
     resultado = _finalizar_chamado_e_avancar_fila(db, chamado, barbeiro)
     db.add(models.ChamadoHistorico(
         chamado_id=chamado.id,
@@ -2788,6 +2797,21 @@ def finalizar_servico_manualmente(id: int, token: str = Depends(oauth2_scheme), 
         tipo="chamado",
         referencia_id=chamado.id
     ))
+
+    # Pontos de fidelidade do cliente por servico concluido
+    pontos = db.query(models.PontosFidelidade).filter(models.PontosFidelidade.usuario_id == chamado.cliente_id).first()
+    if not pontos:
+        pontos = models.PontosFidelidade(usuario_id=chamado.cliente_id, pontos=50)
+        db.add(pontos)
+    else:
+        pontos.pontos += 50
+        if pontos.pontos >= 1000:
+            pontos.nivel = "PLATINA"
+        elif pontos.pontos >= 500:
+            pontos.nivel = "OURO"
+        elif pontos.pontos >= 200:
+            pontos.nivel = "PRATA"
+
     db.commit()
 
     # Enviar push para o cliente informando conclusão (se disponível)
@@ -2884,87 +2908,6 @@ def barbearia_recusar_chamado(id: int, token: str = Depends(oauth2_scheme), db: 
         raise HTTPException(status_code=403, detail="Apenas barbearias podem recusar agendamentos")
 
     raise HTTPException(status_code=403, detail="Barbearia não pode recusar agendamentos")
-
-@router.put("/chamados/{id}/finalizar")
-def finalizar_chamado(id: int, token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
-    # Finalizar um chamado - APENAS FREELANCER.
-    user = get_current_user(token=token, db=db)
-    
-    # ❌ REGRA: Apenas freelancer (barbeiro) pode finalizar
-    if user.tipo != "barbeiro":
-        raise HTTPException(
-            status_code=403,
-            detail="Apenas o freelancer pode finalizar o atendimento. O dono da barbearia não pode finalizar."
-        )
-    
-    chamado = db.query(models.Chamado).filter(models.Chamado.id == id).first()
-    if not chamado:
-        raise HTTPException(status_code=404, detail="Chamado não encontrado")
-    
-    # Verificar se é o barbeiro deste chamado
-    if chamado.barbeiro_id != user.id:
-        raise HTTPException(status_code=403, detail="Este agendamento não é seu")
-    
-    status_anterior = chamado.status
-    chamado.status = models.StatusAgendamento.CONCLUIDO.value  # Usar Enum
-    chamado.concluido_em = datetime.now()
-
-    # Manter consistência de status do barbeiro após conclusão
-    barbeiro = db.query(models.Usuario).filter(models.Usuario.id == user.id).first()
-    if barbeiro:
-        barbeiro.disponivel = True
-        barbeiro.em_atendimento = False
-        barbeiro.ocupado_ate = None
-
-    # ✅ LIBERAR CADEIRA ASSOCIADA APÓS CONCLUSÃO
-    if chamado.cadeira_id:
-        cadeira_concluida = db.query(models.Cadeira).filter(models.Cadeira.id == chamado.cadeira_id).first()
-        if cadeira_concluida and cadeira_concluida.chamado_id == chamado.id:
-            cadeira_concluida.status = models.StatusCadeira.DISPONIVEL
-            cadeira_concluida.freelancer_id = None
-            cadeira_concluida.chamado_id = None
-            cadeira_concluida.liberada_em = datetime.now()
-
-    db.commit()
-    db.refresh(chamado)
-    
-    # Criar histórico
-    historico = models.ChamadoHistorico(
-        chamado_id=chamado.id,
-        status_anterior=status_anterior,
-        status_novo=models.StatusAgendamento.CONCLUIDO.value,
-        usuario_id=user.id,
-        observacao="Serviço concluído"
-    )
-    db.add(historico)
-    
-    # Notificar cliente
-    notificacao = models.Notificacao(
-        usuario_id=chamado.cliente_id,
-        titulo="Serviço Concluído",
-        mensagem="Seu serviço foi concluído! Não esqueça de avaliar.",
-        tipo="chamado",
-        referencia_id=chamado.id
-    )
-    db.add(notificacao)
-    
-    # Adicionar pontos de fidelidade ao cliente
-    pontos = db.query(models.PontosFidelidade).filter(models.PontosFidelidade.usuario_id == chamado.cliente_id).first()
-    if not pontos:
-        pontos = models.PontosFidelidade(usuario_id=chamado.cliente_id, pontos=50)
-        db.add(pontos)
-    else:
-        pontos.pontos += 50
-        if pontos.pontos >= 1000:
-            pontos.nivel = "PLATINA"
-        elif pontos.pontos >= 500:
-            pontos.nivel = "OURO"
-        elif pontos.pontos >= 200:
-            pontos.nivel = "PRATA"
-    
-    db.commit()
-    
-    return {"id": chamado.id, "status": chamado.status}
 
 # --- ENDPOINTS DE BARBEIROS ---
 
@@ -3352,6 +3295,12 @@ def listar_meus_pedidos_cliente(token: str = Depends(oauth2_scheme), db: Session
             "cadeira_id": chamado.cadeira_id,
             "cadeira_numero": cadeira.numero if cadeira else None,
             "data_hora_inicio": chamado.data_hora_inicio.isoformat() if chamado.data_hora_inicio else None,
+            "data_hora_fim": chamado.data_hora_fim.isoformat() if chamado.data_hora_fim else None,
+            "duracao_minutos": servico.duracao_minutos if servico and servico.duracao_minutos else 30,
+            "pausado": bool(chamado.pausado_em),
+            "pausado_em": chamado.pausado_em.isoformat() if chamado.pausado_em else None,
+            "pausa_acumulada_segundos": chamado.pausa_acumulada_segundos or 0,
+            "grupo_id": chamado.grupo_id,
             "data_agendamento": chamado.data_agendamento.isoformat() if chamado.data_agendamento else None,
             "aprovado_barbeiro": chamado.aprovado_barbeiro,
             "aprovado_barbeiro_em": chamado.aprovado_barbeiro_em.isoformat() if chamado.aprovado_barbeiro_em else None,
