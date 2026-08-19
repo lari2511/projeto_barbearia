@@ -1969,7 +1969,7 @@ export default function ClientDashboard({ token, logout, API_URL: apiUrlProp, no
                         onLogout={logout}
                         onNotify={notifySafe}
                         mostrarCabecalho={false}
-                        permitirEdicaoFoto={false}
+                        permitirEdicaoFoto={true}
                     />
                 </div>
             )}
