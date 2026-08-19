@@ -1,7 +1,7 @@
 # --- ARQUIVO: app/main.py ---
 # Ponto de entrada: Configura o App e inclui as rotas
 
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from dotenv import load_dotenv
@@ -360,6 +360,29 @@ def read_root():
         pass
 
     return {"status": "BarberMove API Online", "docs": "/docs"}
+
+
+@app.get("/sw.js")
+@app.get("/registerSW.js")
+@app.get("/manifest.webmanifest")
+def read_pwa_no_cache_file(request: Request):
+    # Mesma logica do index.html: esses arquivos tem nome fixo entre builds
+    # (diferente dos assets com hash), entao um Cache-Control ausente deixa o
+    # WebView do app livre pra guardar a versao antiga indefinidamente e nunca
+    # descobrir que existe um service worker novo pra instalar.
+    filename = request.url.path.lstrip("/")
+    try:
+        file_path = spa_dir / filename
+        if file_path.exists():
+            media_type = "text/javascript" if filename.endswith(".js") else "application/manifest+json"
+            return FileResponse(str(file_path), media_type=media_type, headers=_INDEX_NO_CACHE_HEADERS)
+        alt = pathlib.Path.cwd() / "app" / "static" / filename
+        if alt.exists():
+            media_type = "text/javascript" if filename.endswith(".js") else "application/manifest+json"
+            return FileResponse(str(alt), media_type=media_type, headers=_INDEX_NO_CACHE_HEADERS)
+    except Exception:
+        pass
+    raise HTTPException(status_code=404, detail="Not found")
 
 
 @app.get("/health")
