@@ -297,8 +297,17 @@ export default function PainelBarberMovePremium({ token: tokenProp, logout: logo
       const data = await res.json();
       const lista = Array.isArray(data) ? data : [];
       setChamados(lista);
-      const ativo = lista.find(c => !['concluido','concluído','cancelado'].includes((c.status||'').toLowerCase()));
-      setChamadoAtivo(ativo || null);
+      const prioridadeStatus = { em_atendimento: 3, confirmado: 2, aceito: 2, pendente: 1 };
+      const candidatos = lista.filter(c => !['concluido','concluído','cancelado'].includes((c.status||'').toLowerCase()));
+      const ativo = candidatos.sort((a, b) => {
+        const pa = prioridadeStatus[(a.status || '').toLowerCase()] || 0;
+        const pb = prioridadeStatus[(b.status || '').toLowerCase()] || 0;
+        if (pb !== pa) return pb - pa;
+        const da = new Date(a.data_hora_inicio || a.data_agendamento || 0);
+        const db_ = new Date(b.data_hora_inicio || b.data_agendamento || 0);
+        return da - db_;
+      })[0] || null;
+      setChamadoAtivo(ativo);
     } catch (_) {}
   }, [token, API_URL]);
 
