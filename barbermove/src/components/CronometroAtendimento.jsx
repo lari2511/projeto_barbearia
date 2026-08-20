@@ -54,7 +54,7 @@ export default function CronometroAtendimento({
   const fim = membrosGrupo.reduce((maior, membro) => {
     const fimMembro = membro.data_hora_fim ? parseDataServidorUTC(membro.data_hora_fim) : NaN;
     return Number.isFinite(fimMembro) && fimMembro > maior ? fimMembro : maior;
-  }, NaN);
+  }, -Infinity);
   if (!Number.isFinite(fim)) return null;
 
   const nomeCombinado = membrosGrupo.length > 1
