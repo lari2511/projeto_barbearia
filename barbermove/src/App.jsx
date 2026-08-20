@@ -5,6 +5,7 @@ import BarberDashboard from './components/BarberDashboard'
 import ShopDashboard from './components/ShopDashboard'
 import Login from './components/Login'
 import AppUpdateModal from './components/AppUpdateModal'
+import { Toast } from './components/Common'
 import { useApp } from './contexts/AppContext.jsx'
 import { getWsBaseUrl } from './utils/api'
 import { handleBackButton } from './utils/backButtonStack'
@@ -49,7 +50,7 @@ const isAdminType = (value) => {
 }
 
 export default function App() {
-  const { token, userType, logout, notify, API_URL } = useApp()
+  const { token, userType, logout, notify, toast, API_URL } = useApp()
   const apiRootForApk = React.useMemo(() => {
     const rawBase = String(API_URL || '').replace(/\/$/, '')
     if (rawBase.endsWith('/api/v1')) {
@@ -534,6 +535,7 @@ export default function App() {
   return (
     <div className="min-h-screen w-full bg-[#050507] flex justify-center items-start overflow-x-hidden">
       <div className="relative w-full max-w-[430px] min-h-screen bg-[#0a0a0c] shadow-[0_8px_20px_rgba(0,0,0,0.5)] overflow-hidden">
+        {toast && <Toast message={toast.message} type={toast.type} />}
         {updateInfo && !isNativeApp && (
           <div className="absolute inset-x-3 top-3 z-50 rounded-2xl border border-orange-400/50 bg-zinc-950/95 p-3 shadow-2xl">
             <p className="text-sm font-black text-orange-300">Atualizacao disponivel</p>

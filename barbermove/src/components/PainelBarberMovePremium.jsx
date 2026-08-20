@@ -494,7 +494,10 @@ export default function PainelBarberMovePremium({ token: tokenProp, logout: logo
         method: 'PUT', headers: { Authorization: `Bearer ${token}` },
       });
       if (res.ok) { notify('Chamado aceito!', 'success'); carregarChamados(); }
-      else notify('Erro ao aceitar', 'error');
+      else {
+        const data = await res.json().catch(() => ({}));
+        notify(data?.detail || 'Erro ao aceitar', 'error');
+      }
     } catch (_) { notify('Erro de conexão', 'error'); }
   };
 
@@ -507,7 +510,10 @@ export default function PainelBarberMovePremium({ token: tokenProp, logout: logo
         notify('Chamado recusado', 'info');
         setChamados((prev) => prev.filter((c) => c.id !== id));
         setChamadoAtivo((prev) => (prev?.id === id ? null : prev));
-      } else notify('Erro ao recusar', 'error');
+      } else {
+        const data = await res.json().catch(() => ({}));
+        notify(data?.detail || 'Erro ao recusar', 'error');
+      }
     } catch (_) { notify('Erro de conexão', 'error'); }
   };
 
