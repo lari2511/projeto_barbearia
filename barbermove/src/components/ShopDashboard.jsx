@@ -6,6 +6,7 @@ import AbaPadronizadaAvaliacoes from './AbaPadronizadaAvaliacoes';
 import TelaPerfilUsuario from './TelaPerfilUsuario';
 import TelaMensalidadeAssinatura from './TelaMensalidadeAssinatura';
 import { useBackHandler } from '../utils/useBackHandler';
+import CronometroAtendimento, { parseDataServidorUTC } from './CronometroAtendimento';
 
 const confirmarAcao = (mensagem) => {
     if (typeof window === 'undefined') return true;
@@ -141,6 +142,13 @@ export default function ShopDashboard({ token, logout, notify, API_URL }) {
         const interval = setInterval(carregarAgendamentos, 10000);
         return () => clearInterval(interval);
     }, [barbeariaId, API_URL, token]);
+
+    // Tique do cronômetro exibido nos atendimentos em andamento (mesma lógica do cliente/freelancer)
+    const [agoraMsCronometro, setAgoraMsCronometro] = useState(Date.now());
+    useEffect(() => {
+        const t = setInterval(() => setAgoraMsCronometro(Date.now()), 1000);
+        return () => clearInterval(t);
+    }, []);
 
     const carregarServicosBarbearia = useCallback(async () => {
         if (!barbeariaId) return;
@@ -1148,9 +1156,9 @@ export default function ShopDashboard({ token, logout, notify, API_URL }) {
                                     <div key={ag.id} className="bm-card p-3.5 space-y-2.5 overflow-hidden">
                                         <div className="flex justify-between items-start">
                                             <div className="min-w-0 pr-2">
-                                                <p className="font-bold text-sm truncate">{ag.servico_nome || 'Serviço'}</p>
-                                                <p className="text-xs text-zinc-400 truncate">Cliente: {ag.cliente_nome}</p>
-                                                <p className="text-xs text-zinc-400 truncate">Freelancer: {ag.barbeiro_nome}</p>
+                                                <p className="font-bold text-sm truncate">{ag.servico_nome || ag.descricao || 'Serviço'}</p>
+                                                <p className="text-xs text-zinc-400 truncate">Cliente: {ag.cliente_nome || ag.nome_cliente}</p>
+                                                <p className="text-xs text-zinc-400 truncate">Freelancer: {ag.barbeiro_nome || ag.nome_barbeiro}</p>
                                                 <p className="text-xs text-zinc-300">
                                                     {ag.data_hora_inicio ? new Date(ag.data_hora_inicio).toLocaleString('pt-BR') : 'Horário não definido'}
                                                 </p>
@@ -1167,25 +1175,16 @@ export default function ShopDashboard({ token, logout, notify, API_URL }) {
                                         </div>
 
                                         {ag.status === 'em_atendimento' && (
-                                            <div>
-                                                <button
-                                                    onClick={async () => {
-                                                        const res = await fetch(`${API_URL}/api/v1/chamados/${ag.id}/finalizar`, {
-                                                            method: 'PUT',
-                                                            headers: { 'Authorization': `Bearer ${token}` }
-                                                        });
-                                                        if (res.ok) {
-                                                            notify('Corte finalizado', 'success');
-                                                            if (typeof window !== 'undefined') window.location.reload();
-                                                        } else {
-                                                            notify('Não foi possível finalizar', 'error');
-                                                        }
-                                                    }}
-                                                    className="flex-1 bg-green-600 hover:bg-green-700 text-white rounded text-xs font-bold py-2"
-                                                >
-                                                    FINALIZAR_CORTE
-                                                </button>
-                                            </div>
+                                            <CronometroAtendimento
+                                                chamado={ag}
+                                                chamadosGrupo={agendamentos}
+                                                chamadoAtivoId={ag.id}
+                                                isPausado={Boolean(ag.pausado)}
+                                                pausadoEmMs={ag.pausado_em ? parseDataServidorUTC(ag.pausado_em) : null}
+                                                pausaAcumuladaMs={Math.round((Number(ag.pausa_acumulada_segundos) || 0) * 1000)}
+                                                agoraMs={agoraMsCronometro}
+                                                compacto
+                                            />
                                         )}
 
                                         {/* ✅ APENAS VISUALIZAÇÃO - Dono não pode aceitar/recusar */}
@@ -1196,7 +1195,7 @@ export default function ShopDashboard({ token, logout, notify, API_URL }) {
                                         )}
 
                                         {/* 🎯 AVALIAR FREELANCER - Após concluído */}
-                                        {ag.status === 'concluido' && !ag.avaliado_por_barbearia && (
+                                        {ag.status === 'concluido' && !(ag.avaliado_por_barbearia ?? ag.avaliado) && (
                                             <div className="space-y-2 pt-2 border-t border-zinc-700">
                                                 <p className="text-xs text-zinc-400 font-bold">Avaliar Freelancer:</p>
                                                 <div className="flex gap-2">

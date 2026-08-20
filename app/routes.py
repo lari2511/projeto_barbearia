@@ -240,7 +240,7 @@ def _calcular_taxa_cancelamento(chamado: models.Chamado, barbeiro: models.Usuari
 
 def _iniciar_atendimento_chamado(db: Session, chamado: models.Chamado, barbeiro: models.Usuario):
     """Inicia atendimento de um chamado da fila e atualiza barbeiro/cadeira."""
-    agora = datetime.now()
+    agora = datetime.utcnow()
 
     servico = db.query(models.Servico).filter(models.Servico.id == chamado.servico_id).first()
     duracao_minutos = servico.duracao_minutos if (servico and servico.duracao_minutos) else 30
@@ -270,7 +270,7 @@ def _iniciar_atendimento_chamado(db: Session, chamado: models.Chamado, barbeiro:
 def _finalizar_chamado_e_avancar_fila(db: Session, chamado: models.Chamado, barbeiro: models.Usuario):
     status_anterior = chamado.status
     chamado.status = models.StatusAgendamento.CONCLUIDO.value
-    chamado.data_hora_fim = datetime.now()
+    chamado.data_hora_fim = datetime.utcnow()
 
     cadeira_liberada_id = chamado.cadeira_id
     if cadeira_liberada_id:
@@ -2680,7 +2680,7 @@ def pausar_atendimento_chamado(id: int, pausar: bool, token: str = Depends(oauth
     if chamado.status != models.StatusAgendamento.EM_ATENDIMENTO.value:
         raise HTTPException(status_code=400, detail="Só é possível pausar um atendimento em andamento")
 
-    agora = datetime.now()
+    agora = datetime.utcnow()
 
     if pausar:
         if not chamado.pausado_em:
@@ -3166,12 +3166,13 @@ def listar_agendamentos_barbearia(
     if not barbearia:
         raise HTTPException(status_code=403, detail="Acesso negado")
     
-    # Buscar agendamentos confirmados e pendentes
+    # Buscar agendamentos confirmados, pendentes, em atendimento e concluidos
     agendamentos = db.query(models.Chamado).filter(
         models.Chamado.barbearia_id == barbearia_id,
         models.Chamado.status.in_([
             models.StatusAgendamento.CONFIRMADO.value,
             models.StatusAgendamento.PENDENTE.value,
+            models.StatusAgendamento.EM_ATENDIMENTO.value,
             models.StatusAgendamento.CONCLUIDO.value
         ])
     ).order_by(models.Chamado.data_hora_inicio).all()
@@ -3217,16 +3218,26 @@ def listar_agendamentos_barbearia(
             "cliente_id": ag.cliente_id,
             "barbeiro_id": ag.barbeiro_id,
             "barbearia_id": ag.barbearia_id,
+            "cliente_nome": cliente.nome if cliente else "Cliente",
             "nome_cliente": cliente.nome if cliente else "Cliente",
+            "barbeiro_nome": barbeiro.nome if barbeiro else "Aguardando",
             "nome_barbeiro": barbeiro.nome if barbeiro else "Aguardando",
+            "servico_nome": servico.nome if servico else "Serviço",
             "descricao": servico.nome if servico else "Serviço",
             "data_hora_inicio": ag.data_hora_inicio,
+            "data_hora_fim": ag.data_hora_fim,
+            "duracao_minutos": servico.duracao_minutos if servico and servico.duracao_minutos else 30,
+            "pausado": bool(ag.pausado_em),
+            "pausado_em": ag.pausado_em,
+            "pausa_acumulada_segundos": ag.pausa_acumulada_segundos or 0,
+            "grupo_id": ag.grupo_id,
             "status": ag.status,
             "cliente_distancia_ate_barbearia_km": cliente_distancia,
             "cliente_eta_ate_barbearia_min": cliente_eta,
             "freelancer_distancia_ate_barbearia_km": freelancer_distancia,
             "freelancer_eta_ate_barbearia_min": freelancer_eta,
-            "avaliado": ja_avaliado
+            "avaliado": ja_avaliado,
+            "avaliado_por_barbearia": ja_avaliado
         })
     
     return result
