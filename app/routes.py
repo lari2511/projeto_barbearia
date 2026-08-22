@@ -316,6 +316,15 @@ def _finalizar_chamado_e_avancar_fila(db: Session, chamado: models.Chamado, barb
             "cadeira_liberada_id": cadeira_liberada_id,
         }
 
+    # Fila vazia nessa barbearia: o trabalho dele ali acabou, entao desmarca
+    # presenca. Quem quiser continuar disponivel no local so precisa apertar
+    # "PRESENTE" de novo (1 toque) - evita ficar preso "presente" pra sempre
+    # so porque ninguem desmarcava manualmente ao sair.
+    if barber and barber.barbearia_atual_id and int(barber.barbearia_atual_id) == int(chamado.barbearia_id):
+        barber.presente_em_local = False
+        barber.barbearia_atual_id = None
+        barber.horario_chegada = None
+
     return {
         "status_anterior": status_anterior,
         "proximo": None,
@@ -2305,6 +2314,15 @@ async def chegar_chamado(id: int, token: str = Depends(oauth2_scheme), db: Sessi
         chamado.cliente_chegou = True
     else:
         chamado.barbeiro_chegou = True
+        # Confirmar chegada em QUALQUER chamado (avulso ou fixo) conta como
+        # estar presente na barbearia - antes só quem usava o botao manual
+        # "PRESENTE", check-in por GPS ou vaga relampago ficava marcado, e
+        # quem so aceitava e comparecia num chamado normal nunca aparecia
+        # como presente pro dono da barbearia.
+        if barbeiro and not barbeiro.presente_em_local:
+            barbeiro.presente_em_local = True
+            barbeiro.barbearia_atual_id = chamado.barbearia_id
+            barbeiro.horario_chegada = datetime.utcnow()
 
     chamado.horario_chegada = datetime.utcnow()
 
