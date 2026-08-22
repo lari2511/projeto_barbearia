@@ -247,6 +247,7 @@ export default function ClientDashboard({ token, logout, API_URL: apiUrlProp, no
     const [barbeiroInfo, setBarbeiroInfo] = useState(null);
     const [userLocation, setUserLocation] = useState(null);
     const [loadingLocation, setLoadingLocation] = useState(false);
+    const [bookingLoading, setBookingLoading] = useState(false);
     const isFetchingLocationRef = useRef(false);
     const [step, setStep] = useState('inicio'); // 'inicio' -> 'barbearias' -> 'barbeiros' -> 'servicos'
     const [activeChamado, setActiveChamado] = useState(null); // chamado retornado após booking
@@ -1118,7 +1119,7 @@ export default function ClientDashboard({ token, logout, API_URL: apiUrlProp, no
         // Obter posição precisa antes de validar o limite de 10 minutos
         let localizacao;
         try {
-            setLoadingLocation(true);
+            setBookingLoading(true);
             localizacao = await obterPosicaoAltaPrecisa();
             // atualizar estado para refletir na UI (evita usar coords de perfil antigo)
             setUserLocation(localizacao);
@@ -1126,7 +1127,7 @@ export default function ClientDashboard({ token, logout, API_URL: apiUrlProp, no
             notifySafe('Não foi possível obter localização precisa. Ative o GPS e tente novamente.', 'error');
             return;
         } finally {
-            setLoadingLocation(false);
+            setBookingLoading(false);
         }
 
         // Recalcular distância/tempo usando a localização atual
@@ -1197,14 +1198,14 @@ export default function ClientDashboard({ token, logout, API_URL: apiUrlProp, no
         // Obter posição precisa antes de validar o limite de 10 minutos
         let localizacao;
         try {
-            setLoadingLocation(true);
+            setBookingLoading(true);
             localizacao = await obterPosicaoAltaPrecisa();
             setUserLocation(localizacao);
         } catch (_err) {
             notifySafe('Não foi possível obter localização precisa. Ative o GPS e tente novamente.', 'error');
             return;
         } finally {
-            setLoadingLocation(false);
+            setBookingLoading(false);
         }
 
         const distanciaKmAtual = (selectedBarbearia && localizacao)
@@ -1830,10 +1831,10 @@ export default function ClientDashboard({ token, logout, API_URL: apiUrlProp, no
                                             </button>
                                             <button
                                                 onClick={() => handleBooking(service)}
-                                                    disabled={!podeChamarAgora}
-                                                    className={`flex-1 ${podeChamarAgora ? 'bg-emerald-500 hover:bg-emerald-400' : 'bg-zinc-700 cursor-not-allowed'} text-white font-bold rounded-xl py-3 text-sm`}
+                                                    disabled={!podeChamarAgora || bookingLoading}
+                                                    className={`flex-1 ${podeChamarAgora && !bookingLoading ? 'bg-emerald-500 hover:bg-emerald-400' : 'bg-zinc-700 cursor-not-allowed'} text-white font-bold rounded-xl py-3 text-sm`}
                                             >
-                                                Chamar AGORA
+                                                {bookingLoading ? 'Buscando localização...' : 'Chamar AGORA'}
                                             </button>
                                         </div>
                                     </div>
@@ -1853,10 +1854,10 @@ export default function ClientDashboard({ token, logout, API_URL: apiUrlProp, no
                                     </div>
                                     <button
                                         onClick={handleBookingMultiple}
-                                        disabled={!podeChamarAgora}
-                                        className={`mt-3 w-full ${podeChamarAgora ? 'bg-emerald-500 hover:bg-emerald-400' : 'bg-zinc-700 cursor-not-allowed'} text-white font-bold rounded-xl py-3 text-sm`}
+                                        disabled={!podeChamarAgora || bookingLoading}
+                                        className={`mt-3 w-full ${podeChamarAgora && !bookingLoading ? 'bg-emerald-500 hover:bg-emerald-400' : 'bg-zinc-700 cursor-not-allowed'} text-white font-bold rounded-xl py-3 text-sm`}
                                     >
-                                        Chamar AGORA
+                                        {bookingLoading ? 'Buscando localização...' : 'Chamar AGORA'}
                                     </button>
                                 </div>
                             )}
