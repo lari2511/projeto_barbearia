@@ -810,7 +810,13 @@ export default function ShopDashboard({ token, logout, notify, API_URL }) {
                                   : status === 'ocupada' && cadeira.freelancer_nome
                                     ? `🔴 Ocupada por ${cadeira.freelancer_nome}`
                                     : config.label;
-                                
+                                const chamadoDaCadeira = status === 'ocupada' && cadeira.freelancer_id
+                                    ? agendamentos.find((ag) => (
+                                        String(ag.status || '').toLowerCase() === 'em_atendimento' &&
+                                        Number(ag.barbeiro_id) === Number(cadeira.freelancer_id)
+                                    ))
+                                    : null;
+
                                 return (
                                   <div key={cadeira.id} className={`${config.bg} border ${config.border} p-3 rounded-lg transition-all hover:border-purple-600/50`}>
                                     <div className="flex items-center justify-between">
@@ -862,6 +868,20 @@ export default function ShopDashboard({ token, logout, notify, API_URL }) {
                                         )}
                                       </div>
                                     </div>
+                                    {chamadoDaCadeira && (
+                                        <div className="mt-2">
+                                            <CronometroAtendimento
+                                                chamado={chamadoDaCadeira}
+                                                chamadosGrupo={agendamentos}
+                                                chamadoAtivoId={chamadoDaCadeira.id}
+                                                isPausado={Boolean(chamadoDaCadeira.pausado)}
+                                                pausadoEmMs={chamadoDaCadeira.pausado_em ? parseDataServidorUTC(chamadoDaCadeira.pausado_em) : null}
+                                                pausaAcumuladaMs={Math.round((Number(chamadoDaCadeira.pausa_acumulada_segundos) || 0) * 1000)}
+                                                agoraMs={agoraMsCronometro}
+                                                compacto
+                                            />
+                                        </div>
+                                    )}
                                   </div>
                                 );
                               })}

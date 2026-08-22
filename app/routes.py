@@ -3567,7 +3567,12 @@ def listar_barbeiros_presentes(
             "tempo_presente": tempo_presente,
             "atendendo_cliente": chamado_ativo.cliente.nome if chamado_ativo and chamado_ativo.cliente else None,
             "servico": chamado_ativo.servico.nome if chamado_ativo and chamado_ativo.servico else None,
-            "disponivel": barbeiro.disponivel and not chamado_ativo
+            "disponivel": barbeiro.disponivel and not chamado_ativo,
+            # O frontend filtra a lista de novo checando esses dois campos
+            # (defesa contra presenca desatualizada vinda de outra fonte);
+            # a query acima ja garante que sao verdadeiros pra cada linha aqui.
+            "presente_em_local": True,
+            "barbearia_atual_id": barbearia_id,
         })
     
     return resultado
