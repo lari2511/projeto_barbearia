@@ -150,6 +150,21 @@ export default function ShopDashboard({ token, logout, notify, API_URL }) {
         return () => clearInterval(t);
     }, []);
 
+    // Cruza cadeiras com o chamado em_atendimento ativo (por freelancer), usado no destaque
+    // "Atendimentos em andamento" da aba Chamadas/Agendamentos.
+    const cadeirasComAtendimento = useMemo(() => {
+        return cadeirasBarbearia.map((cadeira, index) => {
+            const status = String(cadeira.status || cadeira.status_atendimento || '').trim().toLowerCase();
+            const chamado = status === 'ocupada' && cadeira.freelancer_id
+                ? agendamentos.find((ag) => (
+                    String(ag.status || '').toLowerCase() === 'em_atendimento' &&
+                    Number(ag.barbeiro_id) === Number(cadeira.freelancer_id)
+                ))
+                : null;
+            return { cadeira, numeroExibido: index + 1, status, chamado };
+        });
+    }, [cadeirasBarbearia, agendamentos]);
+
     const carregarServicosBarbearia = useCallback(async () => {
         if (!barbeariaId) return;
 
@@ -563,6 +578,16 @@ export default function ShopDashboard({ token, logout, notify, API_URL }) {
             ws.close();
         };
     }, [API_URL, barbeariaId, tab, carregarFreelancersDisponiveis, carregarFreelancersPresentes, carregarCadeirasBarbearia, carregarVagasRelampago]);
+
+    // Carrega o estado das cadeiras também na aba Chamadas/Agendamentos, para alimentar o
+    // destaque "Atendimentos em andamento" sem exigir atualização manual da tela.
+    useEffect(() => {
+        if (!barbeariaId || tab !== 'agenda') return;
+
+        carregarCadeirasBarbearia();
+        const interval = setInterval(carregarCadeirasBarbearia, 10000);
+        return () => clearInterval(interval);
+    }, [barbeariaId, tab, carregarCadeirasBarbearia]);
 
     const addService = async (e) => {
         e.preventDefault();
@@ -1166,8 +1191,59 @@ export default function ShopDashboard({ token, logout, notify, API_URL }) {
                             <button type="button" onClick={() => setTab('agenda')} className="rounded-xl px-3 py-2 text-xs font-bold bg-orange-500 text-white">Chamadas</button>
                             <button type="button" onClick={() => setTab('avaliar')} className="rounded-xl px-3 py-2 text-xs font-bold bg-zinc-800 text-zinc-300 hover:bg-zinc-700">Avaliar</button>
                         </div>
+                        {cadeirasComAtendimento.length > 0 && (
+                            <div className="space-y-2.5">
+                                <h2 className="text-sm font-bold text-zinc-300 uppercase tracking-wide">Atendimentos em andamento</h2>
+
+                                {cadeirasComAtendimento.some((c) => c.chamado) ? (
+                                    <div className="space-y-2">
+                                        {cadeirasComAtendimento.filter((c) => c.chamado).map(({ cadeira, numeroExibido, chamado }) => (
+                                            <div key={cadeira.id} className="bm-card border border-emerald-600/40 bg-emerald-950/10 p-3.5 space-y-2">
+                                                <div className="flex items-center justify-between gap-2">
+                                                    <p className="font-bold text-sm text-white">Cadeira {numeroExibido} — Ocupada</p>
+                                                    <span className="inline-flex items-center gap-1 text-[11px] font-extrabold text-emerald-300 bg-emerald-600/20 px-2 py-1 rounded-full whitespace-nowrap">
+                                                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" /> Em atendimento
+                                                    </span>
+                                                </div>
+                                                <p className="text-xs text-zinc-300 truncate">Freelancer: <span className="font-semibold text-white">{chamado.barbeiro_nome || chamado.nome_barbeiro}</span></p>
+                                                <p className="text-xs text-zinc-300 truncate">Cliente: <span className="font-semibold text-white">{chamado.cliente_nome || chamado.nome_cliente}</span></p>
+                                                <p className="text-xs text-zinc-300 truncate">Serviço: <span className="font-semibold text-white">{chamado.servico_nome || chamado.descricao || 'Serviço'}</span></p>
+                                                <CronometroAtendimento
+                                                    chamado={chamado}
+                                                    chamadosGrupo={agendamentos}
+                                                    chamadoAtivoId={chamado.id}
+                                                    isPausado={Boolean(chamado.pausado)}
+                                                    pausadoEmMs={chamado.pausado_em ? parseDataServidorUTC(chamado.pausado_em) : null}
+                                                    pausaAcumuladaMs={Math.round((Number(chamado.pausa_acumulada_segundos) || 0) * 1000)}
+                                                    agoraMs={agoraMsCronometro}
+                                                    compacto
+                                                />
+                                            </div>
+                                        ))}
+                                    </div>
+                                ) : (
+                                    <p className="text-zinc-600 text-xs">Nenhum atendimento em andamento no momento.</p>
+                                )}
+
+                                <div className="flex flex-wrap gap-2">
+                                    {cadeirasComAtendimento.map(({ cadeira, numeroExibido, status }) => (
+                                        <span
+                                            key={cadeira.id}
+                                            className={`text-[11px] font-bold px-2 py-1 rounded-full border ${
+                                                status === 'ocupada' ? 'bg-emerald-600/15 text-emerald-300 border-emerald-600/30' :
+                                                status === 'bloqueada' ? 'bg-red-600/15 text-red-300 border-red-600/30' :
+                                                'bg-zinc-800 text-zinc-400 border-zinc-700'
+                                            }`}
+                                        >
+                                            Cadeira {numeroExibido} — {status === 'ocupada' ? '🟢 Ocupada' : status === 'bloqueada' ? '🔒 Bloqueada' : '⚪ Livre'}
+                                        </span>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+
                         <h2 className="text-sm font-bold text-zinc-300 uppercase tracking-wide">Agendamentos</h2>
-                        
+
                         {agendamentos.length === 0 ? (
                             <p className="text-zinc-600 text-center py-12 text-xs">Nenhum agendamento</p>
                         ) : (
