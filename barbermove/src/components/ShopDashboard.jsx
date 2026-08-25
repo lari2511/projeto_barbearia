@@ -165,6 +165,14 @@ export default function ShopDashboard({ token, logout, notify, API_URL }) {
         });
     }, [cadeirasBarbearia, agendamentos]);
 
+    // Clientes com atendimento futuro (ainda não em_atendimento) com aquele freelancer,
+    // exibidos na seção "Fila de espera" da aba Chamadas/Agendamentos.
+    const filaDeEspera = useMemo(() => {
+        return agendamentos.filter((ag) => (
+            ['pendente', 'confirmado'].includes(String(ag.status || '').toLowerCase())
+        ));
+    }, [agendamentos]);
+
     const carregarServicosBarbearia = useCallback(async () => {
         if (!barbeariaId) return;
 
@@ -1216,6 +1224,7 @@ export default function ShopDashboard({ token, logout, notify, API_URL }) {
                                                     pausadoEmMs={chamado.pausado_em ? parseDataServidorUTC(chamado.pausado_em) : null}
                                                     pausaAcumuladaMs={Math.round((Number(chamado.pausa_acumulada_segundos) || 0) * 1000)}
                                                     agoraMs={agoraMsCronometro}
+                                                    variante="dono"
                                                     compacto
                                                 />
                                             </div>
@@ -1238,6 +1247,31 @@ export default function ShopDashboard({ token, logout, notify, API_URL }) {
                                             Cadeira {numeroExibido} — {status === 'ocupada' ? '🟢 Ocupada' : status === 'bloqueada' ? '🔒 Bloqueada' : '⚪ Livre'}
                                         </span>
                                     ))}
+                                </div>
+                            </div>
+                        )}
+
+                        {filaDeEspera.length > 0 && (
+                            <div className="space-y-2.5">
+                                <h2 className="text-sm font-bold text-zinc-300 uppercase tracking-wide">Fila de espera</h2>
+                                <div className="space-y-2">
+                                    {filaDeEspera.map((ag) => {
+                                        const emAndamento = String(ag.status || '').toLowerCase() === 'confirmado';
+                                        return (
+                                            <div key={ag.id} className="bm-card p-3.5 space-y-1.5">
+                                                <p className="font-bold text-sm text-white truncate">Cliente {ag.cliente_nome || ag.nome_cliente}</p>
+                                                <p className="text-xs text-zinc-300 truncate">Freelancer: <span className="font-semibold text-white">{ag.barbeiro_nome || ag.nome_barbeiro}</span></p>
+                                                <p className="text-xs text-zinc-300 truncate">Serviço: <span className="font-semibold text-white">{ag.servico_nome || ag.descricao || 'Serviço'}</span></p>
+                                                <p className="text-xs text-zinc-300">
+                                                    Status: {emAndamento ? (
+                                                        <span className="font-semibold text-yellow-400">🟡 A caminho</span>
+                                                    ) : (
+                                                        <span className="font-semibold text-orange-400">🟠 Aguardando</span>
+                                                    )}
+                                                </p>
+                                            </div>
+                                        );
+                                    })}
                                 </div>
                             </div>
                         )}

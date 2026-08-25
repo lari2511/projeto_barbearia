@@ -1,6 +1,6 @@
 from typing import Optional
 from datetime import datetime
-from pydantic import BaseModel, ConfigDict, EmailStr, field_validator, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, field_validator, model_validator, Field
 
 
 class UsuarioBase(BaseModel):
@@ -126,44 +126,53 @@ class BarbeiroCreate(UsuarioBase):
 class BarbeariaCreate(UsuarioBase):
     endereco: str  # OBRIGATÓRIO - localização física fixa
     cep: Optional[str] = None
-    cpf: str  # CPF do dono - agora obrigatório
+    cpf: Optional[str] = None  # Dono usa CPF OU CNPJ, nunca os dois obrigatórios
     cnpj: Optional[str] = None  # CNPJ da empresa
     latitude: Optional[float] = None  # IMPORTANTE: Localização física da barbearia
     longitude: Optional[float] = None  # IMPORTANTE: Localização física da barbearia
 
     @field_validator("cpf")
     @classmethod
-    def validate_cpf(cls, v: str) -> str:
+    def validate_cpf(cls, v: Optional[str]) -> Optional[str]:
+        if not v:
+            return None  # Normaliza string vazia pra NULL (evita colidir no unique)
         cpf_limpo = v.replace(".", "").replace("-", "")
         if len(cpf_limpo) != 11 or not cpf_limpo.isdigit():
             raise ValueError("CPF deve ter 11 dígitos")
-        
+
         # Validação do algoritmo do CPF
         if cpf_limpo == cpf_limpo[0] * 11:
             raise ValueError("CPF inválido")
-        
+
         # Valida primeiro dígito verificador
         soma = sum(int(cpf_limpo[i]) * (10 - i) for i in range(9))
         digito1 = (soma * 10 % 11) % 10
         if digito1 != int(cpf_limpo[9]):
             raise ValueError("CPF inválido")
-        
+
         # Valida segundo dígito verificador
         soma = sum(int(cpf_limpo[i]) * (11 - i) for i in range(10))
         digito2 = (soma * 10 % 11) % 10
         if digito2 != int(cpf_limpo[10]):
             raise ValueError("CPF inválido")
-        
+
         return v
 
     @field_validator("cnpj")
     @classmethod
     def validate_cnpj(cls, v: Optional[str]) -> Optional[str]:
-        if v:
-            cnpj_limpo = v.replace(".", "").replace("/", "").replace("-", "")
-            if len(cnpj_limpo) != 14 or not cnpj_limpo.isdigit():
-                raise ValueError("CNPJ deve ter 14 dígitos")
+        if not v:
+            return None  # Normaliza string vazia pra NULL (evita colidir no unique)
+        cnpj_limpo = v.replace(".", "").replace("/", "").replace("-", "")
+        if len(cnpj_limpo) != 14 or not cnpj_limpo.isdigit():
+            raise ValueError("CNPJ deve ter 14 dígitos")
         return v
+
+    @model_validator(mode="after")
+    def validate_documento(self):
+        if not self.cpf and not self.cnpj:
+            raise ValueError("Informe CPF ou CNPJ")
+        return self
 
     @field_validator("endereco")
     @classmethod

@@ -2,6 +2,7 @@ import React, { useMemo, useState } from 'react'
 import { ArrowLeft, Building2, Hash, Mail, MapPin, Phone, Scissors, Store, User, Lock, Camera, Upload, X } from 'lucide-react'
 import { useApp } from '../contexts/AppContext'
 import { Button, Input } from './Common'
+import { isValidCNPJ, isValidCPF, maskCNPJ, maskCPF } from '../utils/documentValidation'
 
 // Envia breadcrumbs do fluxo de cadastro pro servidor (visivel via `railway logs`),
 // já que console.log local nunca chega até quem está depurando remotamente.
@@ -59,6 +60,7 @@ const emptyForm = {
   endereco: '',
   cep: '',
   cnpj: '',
+  tipoDocumento: '', // 'cpf' | 'cnpj' — só usado no cadastro de barbearia
 }
 
 const emptyPhotos = {
@@ -114,6 +116,18 @@ export default function Cadastro({ initialType = 'cliente', onBack, onSuccess })
   const handleChange = (field) => (event) => {
     const value = event.target.value
     setForm((current) => ({ ...current, [field]: value }))
+  }
+
+  // Aplica máscara conforme o tipo de documento escolhido para a barbearia.
+  const handleDocumentoChange = (tipo) => (event) => {
+    const value = tipo === 'cpf' ? maskCPF(event.target.value) : maskCNPJ(event.target.value)
+    setForm((current) => ({ ...current, [tipo]: value }))
+  }
+
+  // Trocar o tipo de documento limpa o campo anterior, pra não enviar um
+  // valor obsoleto do documento não selecionado junto no cadastro.
+  const handleTipoDocumentoChange = (tipo) => {
+    setForm((current) => ({ ...current, tipoDocumento: tipo, cpf: '', cnpj: '' }))
   }
 
   // Buscar endereço por CEP
@@ -284,7 +298,10 @@ export default function Cadastro({ initialType = 'cliente', onBack, onSuccess })
         return
       }
 
-      if (!form.nome.trim() || !form.email.trim() || !form.senha || !form.cpf.trim() || !form.telefone.trim()) {
+      // Barbearia usa o seletor de tipo de documento (CPF OU CNPJ) em vez do
+      // campo de CPF genérico usado por cliente/freelancer.
+      const exigeCpfGenerico = selectedType !== 'barbearia'
+      if (!form.nome.trim() || !form.email.trim() || !form.senha || !form.telefone.trim() || (exigeCpfGenerico && !form.cpf.trim())) {
         console.log('[Cadastro] falhou validacao de campos obrigatorios', form)
         void enviarDiagnosticoCadastro(API_URL, 'submit:validacao-falhou', 'Campos obrigatórios faltando', { selectedType })
         setLocalError('Preencha todos os campos obrigatórios')
@@ -297,10 +314,40 @@ export default function Cadastro({ initialType = 'cliente', onBack, onSuccess })
         return
       }
 
-      if (selectedType === 'barbearia' && (!form.cep.trim() || !form.cnpj.trim())) {
-        void enviarDiagnosticoCadastro(API_URL, 'submit:validacao-falhou', 'CEP ou CNPJ faltando', { selectedType, cep: form.cep, cnpj: form.cnpj })
-        setLocalError('CEP e CNPJ são obrigatórios para barbearia')
-        return
+      if (selectedType === 'barbearia') {
+        if (!form.cep.trim()) {
+          void enviarDiagnosticoCadastro(API_URL, 'submit:validacao-falhou', 'CEP faltando', { selectedType, cep: form.cep })
+          setLocalError('CEP é obrigatório para barbearia')
+          return
+        }
+
+        if (!form.tipoDocumento) {
+          void enviarDiagnosticoCadastro(API_URL, 'submit:validacao-falhou', 'Tipo de documento não selecionado', { selectedType })
+          setLocalError('Selecione o tipo de documento: CPF ou CNPJ')
+          return
+        }
+
+        if (form.tipoDocumento === 'cpf') {
+          if (!form.cpf.trim()) {
+            setLocalError('Digite o CPF')
+            return
+          }
+          if (!isValidCPF(form.cpf)) {
+            void enviarDiagnosticoCadastro(API_URL, 'submit:validacao-falhou', 'CPF inválido', { selectedType })
+            setLocalError('CPF inválido')
+            return
+          }
+        } else {
+          if (!form.cnpj.trim()) {
+            setLocalError('Digite o CNPJ')
+            return
+          }
+          if (!isValidCNPJ(form.cnpj)) {
+            void enviarDiagnosticoCadastro(API_URL, 'submit:validacao-falhou', 'CNPJ inválido', { selectedType })
+            setLocalError('CNPJ inválido')
+            return
+          }
+        }
       }
 
       if (selectedType === 'barbeiro') {
@@ -435,14 +482,16 @@ export default function Cadastro({ initialType = 'cliente', onBack, onSuccess })
             placeholder="(11) 99999-9999"
           />
 
-          <Input
-            label="CPF"
-            icon={Hash}
-            value={form.cpf}
-            onChange={handleChange('cpf')}
-            placeholder="000.000.000-00"
-            required
-          />
+          {selectedType !== 'barbearia' && (
+            <Input
+              label="CPF"
+              icon={Hash}
+              value={form.cpf}
+              onChange={handleChange('cpf')}
+              placeholder="000.000.000-00"
+              required
+            />
+          )}
 
           {(selectedType === 'barbeiro' || selectedType === 'barbearia') && (
             <>
@@ -456,32 +505,64 @@ export default function Cadastro({ initialType = 'cliente', onBack, onSuccess })
               />
 
               {selectedType === 'barbearia' && (
-                <div className="grid grid-cols-2 gap-2">
-                  <div className="space-y-1">
-                    <Input
-                      label="CEP"
-                      value={form.cep}
-                      onChange={handleChange('cep')}
-                      placeholder="00000-000"
-                      required
-                    />
-                    <button
-                      type="button"
-                      onClick={buscarCep}
-                      disabled={loadingCep}
-                      className="w-full rounded-xl border border-zinc-800 bg-black/30 px-3 py-2 text-left text-sm font-semibold text-zinc-200 hover:bg-zinc-800 disabled:opacity-50"
-                    >
-                      {loadingCep ? 'Buscando...' : '🔍 Buscar CEP'}
-                    </button>
-                  </div>
+                <div className="space-y-1">
                   <Input
-                    label="CNPJ"
-                    icon={Building2}
-                    value={form.cnpj}
-                    onChange={handleChange('cnpj')}
-                    placeholder="00.000.000/0000-00"
+                    label="CEP"
+                    value={form.cep}
+                    onChange={handleChange('cep')}
+                    placeholder="00000-000"
                     required
                   />
+                  <button
+                    type="button"
+                    onClick={buscarCep}
+                    disabled={loadingCep}
+                    className="w-full rounded-xl border border-zinc-800 bg-black/30 px-3 py-2 text-left text-sm font-semibold text-zinc-200 hover:bg-zinc-800 disabled:opacity-50"
+                  >
+                    {loadingCep ? 'Buscando...' : '🔍 Buscar CEP'}
+                  </button>
+
+                  <div className="mb-4">
+                    <label className="mb-1 block text-sm font-medium text-zinc-300">Tipo de documento</label>
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => handleTipoDocumentoChange('cpf')}
+                        className={`rounded-xl border px-3 py-3 text-sm font-bold transition ${form.tipoDocumento === 'cpf' ? 'border-orange-500 bg-orange-500/10 text-white' : 'border-zinc-700 bg-black/30 text-zinc-400'}`}
+                      >
+                        CPF
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleTipoDocumentoChange('cnpj')}
+                        className={`rounded-xl border px-3 py-3 text-sm font-bold transition ${form.tipoDocumento === 'cnpj' ? 'border-orange-500 bg-orange-500/10 text-white' : 'border-zinc-700 bg-black/30 text-zinc-400'}`}
+                      >
+                        CNPJ
+                      </button>
+                    </div>
+                  </div>
+
+                  {form.tipoDocumento === 'cpf' && (
+                    <Input
+                      label="CPF"
+                      icon={Hash}
+                      value={form.cpf}
+                      onChange={handleDocumentoChange('cpf')}
+                      placeholder="Digite o CPF"
+                      required
+                    />
+                  )}
+
+                  {form.tipoDocumento === 'cnpj' && (
+                    <Input
+                      label="CNPJ"
+                      icon={Building2}
+                      value={form.cnpj}
+                      onChange={handleDocumentoChange('cnpj')}
+                      placeholder="Digite o CNPJ"
+                      required
+                    />
+                  )}
                 </div>
               )}
             </>

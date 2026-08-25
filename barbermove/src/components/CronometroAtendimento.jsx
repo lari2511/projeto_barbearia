@@ -69,6 +69,19 @@ export default function CronometroAtendimento({
   const dentroJanelaProximo = restanteSegundos <= (10 * 60);
   const pausadoAgora = isChamadoAtivo && isPausado;
 
+  if (variante === 'dono') {
+    return (
+      <div className={compacto ? 'space-y-1' : 'space-y-1.5'}>
+        <p className={`text-xs font-bold ${pausadoAgora ? 'text-amber-400' : 'text-emerald-400'}`}>
+          {pausadoAgora ? '⏸ Atendimento pausado' : '🟢 Em andamento'}
+        </p>
+        <p className={`${compacto ? 'text-lg' : 'text-2xl'} font-black text-white`}>
+          ⏱ {formatarDuracao(restanteSegundos)} restantes
+        </p>
+      </div>
+    );
+  }
+
   if (variante === 'circular') {
     const totalSegundos = Math.max(1, membrosGrupo.reduce((soma, m) => soma + ((Number(m.duracao_minutos) || 30) * 60), 0));
     const fracaoRestante = Math.min(1, Math.max(0, restanteSegundos / totalSegundos));

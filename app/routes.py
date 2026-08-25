@@ -889,10 +889,11 @@ def cadastrar_barbearia(
     if usuario_existente:
         raise HTTPException(status_code=400, detail="Email já cadastrado")
     
-    # Verificar se CPF já está em uso
-    cpf_existente = db.query(models.Usuario).filter(models.Usuario.cpf == barbearia.cpf).first()
-    if cpf_existente:
-        raise HTTPException(status_code=400, detail="CPF já cadastrado")
+    # Verificar se CPF já está em uso (dono pode optar por CNPJ e não informar CPF)
+    if barbearia.cpf:
+        cpf_existente = db.query(models.Usuario).filter(models.Usuario.cpf == barbearia.cpf).first()
+        if cpf_existente:
+            raise HTTPException(status_code=400, detail="CPF já cadastrado")
     
     # Verificar se telefone já está em uso
     if barbearia.telefone:

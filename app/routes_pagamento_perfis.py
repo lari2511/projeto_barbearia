@@ -164,7 +164,7 @@ def obter_conta_pagamento(
             "conta": None,
             "tipo_conta": "corrente",
             "titular_nome": current_user.nome,
-            "titular_documento": current_user.cpf if current_user.tipo != "barbearia" else current_user.cnpj,
+            "titular_documento": (current_user.cnpj or current_user.cpf) if current_user.tipo == "barbearia" else current_user.cpf,
             "frequencia_repasse": repasse.frequencia_repasse,
             "dia_semana_repasse": repasse.dia_semana_repasse,
             "dia_mes_repasse": repasse.dia_mes_repasse,
