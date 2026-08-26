@@ -7,6 +7,7 @@ import TelaPerfilUsuario from './TelaPerfilUsuario';
 import TelaMensalidadeAssinatura from './TelaMensalidadeAssinatura';
 import { useBackHandler } from '../utils/useBackHandler';
 import CronometroAtendimento, { parseDataServidorUTC } from './CronometroAtendimento';
+import DeslocamentoAtendimento from './DeslocamentoAtendimento';
 
 const confirmarAcao = (mensagem) => {
     if (typeof window === 'undefined') return true;
@@ -172,6 +173,12 @@ export default function ShopDashboard({ token, logout, notify, API_URL }) {
             ['pendente', 'confirmado'].includes(String(ag.status || '').toLowerCase())
         ));
     }, [agendamentos]);
+
+    // Só chamados confirmados (freelancer já aceitou) têm deslocamento real até a
+    // barbearia pra acompanhar no mapa; pendente ainda nem tem freelancer definido.
+    const deslocamentosAtivos = useMemo(() => {
+        return filaDeEspera.filter((ag) => String(ag.status || '').toLowerCase() === 'confirmado');
+    }, [filaDeEspera]);
 
     const carregarServicosBarbearia = useCallback(async () => {
         if (!barbeariaId) return;
@@ -1272,6 +1279,17 @@ export default function ShopDashboard({ token, logout, notify, API_URL }) {
                                             </div>
                                         );
                                     })}
+                                </div>
+                            </div>
+                        )}
+
+                        {deslocamentosAtivos.length > 0 && (
+                            <div className="space-y-2.5">
+                                <h2 className="text-sm font-bold text-zinc-300 uppercase tracking-wide">Deslocamento</h2>
+                                <div className="space-y-2">
+                                    {deslocamentosAtivos.map((ag) => (
+                                        <DeslocamentoAtendimento key={ag.id} chamado={ag} token={token} API_URL={API_URL} />
+                                    ))}
                                 </div>
                             </div>
                         )}
