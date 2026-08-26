@@ -8,6 +8,7 @@ import TelaMensalidadeAssinatura from './TelaMensalidadeAssinatura';
 import { useBackHandler } from '../utils/useBackHandler';
 import CronometroAtendimento, { parseDataServidorUTC } from './CronometroAtendimento';
 import DeslocamentoAtendimento from './DeslocamentoAtendimento';
+import ChatRoom from './ChatRoom';
 
 const confirmarAcao = (mensagem) => {
     if (typeof window === 'undefined') return true;
@@ -1234,6 +1235,7 @@ export default function ShopDashboard({ token, logout, notify, API_URL }) {
                                                     variante="dono"
                                                     compacto
                                                 />
+                                                <ChatRoom chamadoId={chamado.id} token={token} API_URL={API_URL} compact />
                                             </div>
                                         ))}
                                     </div>

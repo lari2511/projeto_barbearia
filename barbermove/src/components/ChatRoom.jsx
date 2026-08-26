@@ -1,5 +1,12 @@
 import React, { useEffect, useState, useRef } from 'react';
 
+const rotuloRemetente = (tipo) => {
+    if (tipo === 'cliente') return 'Cliente';
+    if (tipo === 'barbeiro') return 'Freelancer';
+    if (tipo === 'barbearia') return 'Proprietário';
+    return 'Participante';
+};
+
 export default function ChatRoom({ chamadoId, token, API_URL, compact = true }) {
     const [messages, setMessages] = useState([]);
     const [text, setText] = useState('');
@@ -56,7 +63,9 @@ export default function ChatRoom({ chamadoId, token, API_URL, compact = true }) 
             <div ref={listRef} className={`${compact ? 'max-h-40' : 'max-h-[65vh]'} overflow-auto space-y-3`}>
                 {messages.map((m, i) => (
                     <div key={i} className={`${compact ? 'text-xs p-1 rounded bg-black/30' : 'p-3 rounded-lg bg-black/30'} `}>
-                        {!compact && <div className="text-[11px] text-zinc-400 mb-1 font-medium">{m.remetente_id}</div>}
+                        <div className={`${compact ? 'text-[10px]' : 'text-[11px] mb-1'} text-orange-300 font-bold`}>
+                            {rotuloRemetente(m.remetente_tipo)}{m.remetente_nome ? ` · ${m.remetente_nome}` : ''}
+                        </div>
                         <div className={`${compact ? 'text-white' : 'text-white text-sm'}`}>{m.mensagem}</div>
                         <div className={`${compact ? 'text-[10px] text-zinc-500' : 'text-[11px] text-zinc-500 mt-2'}`}>{new Date(m.criado_em || Date.now()).toLocaleTimeString()}</div>
                     </div>

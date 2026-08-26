@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import TrackingMapRealtime from './TrackingMapRealtime';
+import ChatRoom from './ChatRoom';
 
 // Acompanhamento (somente leitura) do deslocamento de freelancer/cliente até a
 // barbearia, para o painel do proprietário. Ao contrário do TrackingPanel (usado
@@ -92,6 +93,8 @@ export default function DeslocamentoAtendimento({ chamado, token, API_URL }) {
           />
         )}
       </div>
+
+      <ChatRoom chamadoId={chamado.id} token={token} API_URL={API_URL} compact />
     </div>
   );
 }

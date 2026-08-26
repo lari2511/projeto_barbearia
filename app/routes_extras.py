@@ -21,7 +21,7 @@ from . import models, schemas
 from .database import get_db
 from .email_utils import send_email
 from .email_send import send_verification_email, send_welcome_email
-from .routes import get_current_user, oauth2_scheme, get_password_hash, create_email_verification_token, verify_email_token
+from .routes import get_current_user, oauth2_scheme, get_password_hash, create_email_verification_token, verify_email_token, _validar_acesso_tracking
 from fastapi import Body
 
 router = APIRouter()
@@ -1221,49 +1221,60 @@ def marcar_notificacao_lida(notificacao_id: int, token: str = Depends(oauth2_sch
 
 # ==================== CHAT ====================
 
+def _serializar_mensagem_chat(msg: models.MensagemChat) -> schemas.MensagemChatResponse:
+    return schemas.MensagemChatResponse(
+        id=msg.id,
+        remetente_id=msg.remetente_id,
+        remetente_nome=msg.remetente.nome if msg.remetente else None,
+        remetente_tipo=msg.remetente.tipo if msg.remetente else None,
+        mensagem=msg.mensagem,
+        lida=msg.lida,
+        criado_em=msg.criado_em,
+    )
+
+
 @router.post("/chat/mensagem", response_model=schemas.MensagemChatResponse)
 def enviar_mensagem(mensagem: schemas.MensagemChatCreate, token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
-    """Enviar mensagem no chat do chamado"""
+    """Enviar mensagem no chat do chamado (cliente, freelancer ou dono da barbearia do chamado)"""
     user = get_current_user(token=token, db=db)
-    
+
     # Verificar se chamado existe e usuário faz parte dele
     chamado = db.query(models.Chamado).filter(models.Chamado.id == mensagem.chamado_id).first()
     if not chamado:
         raise HTTPException(status_code=404, detail="Chamado não encontrado")
-    
-    if user.id not in (chamado.cliente_id, chamado.barbeiro_id):
-        raise HTTPException(status_code=403, detail="Você não faz parte deste chamado")
-    
+
+    # Mesma regra dos 3 papéis já usada no tracking (cliente/barbeiro/dono da barbearia do chamado)
+    _validar_acesso_tracking(db, user, chamado)
+
     nova_mensagem = models.MensagemChat(
         chamado_id=mensagem.chamado_id,
         remetente_id=user.id,
         mensagem=mensagem.mensagem
     )
-    
+
     db.add(nova_mensagem)
     db.commit()
     db.refresh(nova_mensagem)
-    
-    return nova_mensagem
+
+    return _serializar_mensagem_chat(nova_mensagem)
 
 
 @router.get("/chat/{chamado_id}/mensagens", response_model=List[schemas.MensagemChatResponse])
 def listar_mensagens_chat(chamado_id: int, token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
-    """Listar mensagens do chat de um chamado"""
+    """Listar mensagens do chat de um chamado (cliente, freelancer ou dono da barbearia do chamado)"""
     user = get_current_user(token=token, db=db)
-    
+
     chamado = db.query(models.Chamado).filter(models.Chamado.id == chamado_id).first()
     if not chamado:
         raise HTTPException(status_code=404, detail="Chamado não encontrado")
-    
-    if user.id not in (chamado.cliente_id, chamado.barbeiro_id):
-        raise HTTPException(status_code=403, detail="Você não faz parte deste chamado")
-    
+
+    _validar_acesso_tracking(db, user, chamado)
+
     mensagens = db.query(models.MensagemChat).filter(
         models.MensagemChat.chamado_id == chamado_id
     ).order_by(models.MensagemChat.criado_em).all()
-    
-    return mensagens
+
+    return [_serializar_mensagem_chat(m) for m in mensagens]
 
 
 # ==================== INICIAR CHAT RÁPIDO ====================

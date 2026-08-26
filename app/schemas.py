@@ -425,6 +425,8 @@ class MensagemChatResponse(BaseModel):
 
     id: int
     remetente_id: int
+    remetente_nome: Optional[str] = None
+    remetente_tipo: Optional[str] = None  # cliente | barbeiro | barbearia
     mensagem: str
     lida: bool
     criado_em: datetime

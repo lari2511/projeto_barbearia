@@ -5,6 +5,7 @@ import { getApiBaseUrl, getWsBaseUrl, resolveMediaUrl } from '../utils/api';
 import AbaPadronizadaAvaliacoes from './AbaPadronizadaAvaliacoes';
 import TelaPerfilUsuario from './TelaPerfilUsuario';
 import TrackingPanel from './TrackingPanel';
+import ChatRoom from './ChatRoom';
 import CronometroAtendimento, { parseDataServidorUTC } from './CronometroAtendimento';
 import { useBackHandler } from '../utils/useBackHandler';
 
@@ -894,6 +895,7 @@ export default function PainelBarberMovePremium({ token: tokenProp, logout: logo
                     modo="barbeiro"
                     minhaPosicao={minhaPosicao}
                   />
+                  <ChatRoom chamadoId={chamadoAtivo.id} token={token} API_URL={API_URL} compact />
                   {['pendente'].includes((chamadoAtivo.status||'').toLowerCase()) && (
                     <div className="flex gap-2">
                       <button
