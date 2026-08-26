@@ -91,6 +91,9 @@ def listar_aprovados(
         "tipo": u.tipo,
         "telefone": u.telefone,
         "aprovado_em": u.perfil_aprovado_em,
+        "documento_frente_url": u.documento_frente_url,
+        "documento_verso_url": u.documento_verso_url,
+        "selfie_documento_url": u.selfie_documento_url,
     } for u in aprovados]
 
 @router.get("/api/estatisticas")
@@ -571,6 +574,16 @@ def dashboard_page():
                 }
             }
             
+            function documentoLink(url, label) {
+                if (!url) {
+                    return `<span style="opacity:0.4;margin-right:6px;" title="${label} não enviado">❌ ${label}</span>`;
+                }
+                return `<a href="${url}" target="_blank" rel="noopener" title="Abrir ${label}" style="display:inline-flex;align-items:center;gap:4px;margin-right:10px;color:#f97316;text-decoration:none;">
+                    <img src="${url}" alt="${label}" style="width:36px;height:36px;object-fit:cover;border-radius:6px;border:1px solid #374151;" />
+                    <span style="font-size:12px;">${label}</span>
+                </a>`;
+            }
+
             async function carregarUsuarios() {
                 const endpoint = abaAtual === 'pendentes' ? '/pendentes' : '/aprovados';
                 const usersList = document.getElementById('usersList');
@@ -600,13 +613,15 @@ def dashboard_page():
                                 </div>
                                 <p>📧 ${u.email}</p>
                                 <p>📞 ${u.telefone || 'Sem telefone'}</p>
-                                ${abaAtual === 'pendentes' ? `
-                                    <p style="margin-top: 8px; color: #fbbf24;">
-                                        📄 Documentos: 
-                                        ${u.documento_frente ? '✅' : '❌'} 
-                                        ${u.documento_verso ? '✅' : '❌'} 
-                                        ${u.selfie ? '✅' : '❌'}
-                                    </p>
+                                ${(u.documento_frente_url || u.documento_verso_url || u.selfie_documento_url) ? `
+                                    <div style="margin-top: 8px;">
+                                        <p style="color: #fbbf24; margin-bottom: 6px;">📄 Documentos:</p>
+                                        <div style="display:flex; flex-wrap:wrap; gap:4px;">
+                                            ${documentoLink(u.documento_frente_url, 'Frente')}
+                                            ${documentoLink(u.documento_verso_url, 'Verso')}
+                                            ${documentoLink(u.selfie_documento_url, 'Selfie')}
+                                        </div>
+                                    </div>
                                 ` : ''}
                             </div>
                             <div class="user-actions">
