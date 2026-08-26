@@ -181,6 +181,12 @@ export default function ShopDashboard({ token, logout, notify, API_URL }) {
         return filaDeEspera.filter((ag) => String(ag.status || '').toLowerCase() === 'confirmado');
     }, [filaDeEspera]);
 
+    // Mesmos atendimentos em andamento já calculados pra aba Chamadas, reaproveitados
+    // no destaque de alta prioridade da Tela Inicial (sem cronômetro/estado paralelo).
+    const atendimentosAtivosInicio = useMemo(() => {
+        return cadeirasComAtendimento.filter((c) => c.chamado);
+    }, [cadeirasComAtendimento]);
+
     const carregarServicosBarbearia = useCallback(async () => {
         if (!barbeariaId) return;
 
@@ -595,10 +601,11 @@ export default function ShopDashboard({ token, logout, notify, API_URL }) {
         };
     }, [API_URL, barbeariaId, tab, carregarFreelancersDisponiveis, carregarFreelancersPresentes, carregarCadeirasBarbearia, carregarVagasRelampago]);
 
-    // Carrega o estado das cadeiras também na aba Chamadas/Agendamentos, para alimentar o
-    // destaque "Atendimentos em andamento" sem exigir atualização manual da tela.
+    // Carrega o estado das cadeiras também na aba Chamadas/Agendamentos e na Tela
+    // Inicial, para alimentar o destaque "Atendimento em andamento" sem exigir
+    // atualização manual da tela nem que o dono clique em Chamados primeiro.
     useEffect(() => {
-        if (!barbeariaId || tab !== 'agenda') return;
+        if (!barbeariaId || (tab !== 'agenda' && tab !== 'inicio')) return;
 
         carregarCadeirasBarbearia();
         const interval = setInterval(carregarCadeirasBarbearia, 10000);
@@ -753,6 +760,43 @@ export default function ShopDashboard({ token, logout, notify, API_URL }) {
                             </div>
                             <p className="text-sm text-zinc-400">Gerencie seus freelancers, agendamentos, avaliações e financeiro.</p>
                         </div>
+
+                        {atendimentosAtivosInicio.length > 0 && (
+                            <button
+                                type="button"
+                                onClick={() => setTab('agenda')}
+                                className="w-full text-left bm-card bg-red-950/20 border border-red-600/40 rounded-2xl p-4 space-y-3 hover:border-red-500 transition-colors"
+                            >
+                                <div className="flex items-center gap-2">
+                                    <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
+                                    <h3 className="text-sm font-black text-red-300 uppercase tracking-wide">
+                                        {atendimentosAtivosInicio.length > 1 ? 'Atendimentos em andamento' : 'Atendimento em andamento'}
+                                    </h3>
+                                </div>
+                                <div className="space-y-2">
+                                    {atendimentosAtivosInicio.map(({ cadeira, numeroExibido, chamado }) => (
+                                        <div key={cadeira.id} className="rounded-xl border border-zinc-800 bg-black/30 p-3 space-y-1.5">
+                                            <p className="font-bold text-sm text-white">Cadeira {numeroExibido} — Ocupada</p>
+                                            <p className="text-xs text-zinc-300 truncate">Freelancer: <span className="font-semibold text-white">{chamado.barbeiro_nome || chamado.nome_barbeiro}</span></p>
+                                            <p className="text-xs text-zinc-300 truncate">Cliente: <span className="font-semibold text-white">{chamado.cliente_nome || chamado.nome_cliente}</span></p>
+                                            <p className="text-xs text-zinc-300 truncate">Serviço: <span className="font-semibold text-white">{chamado.servico_nome || chamado.descricao || 'Serviço'}</span></p>
+                                            <CronometroAtendimento
+                                                chamado={chamado}
+                                                chamadosGrupo={agendamentos}
+                                                chamadoAtivoId={chamado.id}
+                                                isPausado={Boolean(chamado.pausado)}
+                                                pausadoEmMs={chamado.pausado_em ? parseDataServidorUTC(chamado.pausado_em) : null}
+                                                pausaAcumuladaMs={Math.round((Number(chamado.pausa_acumulada_segundos) || 0) * 1000)}
+                                                agoraMs={agoraMsCronometro}
+                                                variante="dono"
+                                                compacto
+                                            />
+                                        </div>
+                                    ))}
+                                </div>
+                            </button>
+                        )}
+
                         <div className="grid grid-cols-2 gap-3">
                             <button onClick={() => setTab('barbeiros')} className="bm-card bg-zinc-900 rounded-2xl p-4 border border-zinc-800/60 flex flex-col items-center gap-2 hover:border-orange-500 transition-colors">
                                 <Store size={22} className="text-orange-400" />
