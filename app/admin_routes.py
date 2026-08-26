@@ -524,7 +524,7 @@ def dashboard_page():
                     let sucesso = false;
                     
                     for (const endpoint of endpoints) {
-                        const res = await fetch('http://' + window.location.hostname + ':8000' + endpoint, {
+                        const res = await fetch(endpoint, {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
                             body: formData
