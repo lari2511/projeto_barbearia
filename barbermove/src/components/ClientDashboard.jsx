@@ -4,6 +4,7 @@ import TelaPagamento from './TelaPagamento';
 import TelaPerfilUsuario from './TelaPerfilUsuario';
 import MapEmbed from './MapEmbed';
 import AbaPadronizadaAvaliacoes from './AbaPadronizadaAvaliacoes';
+import FluxoAvaliacaoCliente from './FluxoAvaliacaoCliente';
 import ProfileCard from './ProfileCard';
 import ChatRoom from './ChatRoom';
 import TrackingPanel from './TrackingPanel';
@@ -260,7 +261,51 @@ export default function ClientDashboard({ token, logout, API_URL: apiUrlProp, no
     const [gpsConsentOpen, setGpsConsentOpen] = useState(false);
     const [gpsPreference, setGpsPreference] = useState('always');
     const [vagasRelampago, setVagasRelampago] = useState([]);
+    const [avaliacaoPendente, setAvaliacaoPendente] = useState(null); // pendencia do fluxo automatico pos-pagamento
+    const fluxoAvaliacaoVistoRef = useRef(null);
     const isPerfilTab = tab === 'perfil';
+
+    const marcarFluxoAvaliacaoVisto = useCallback((chamadoId) => {
+        try {
+            const brutos = JSON.parse(localStorage.getItem('bm_aval_fluxo_visto') || '[]');
+            const lista = Array.isArray(brutos) ? brutos : [];
+            if (!lista.includes(chamadoId)) {
+                lista.push(chamadoId);
+                localStorage.setItem('bm_aval_fluxo_visto', JSON.stringify(lista.slice(-50)));
+            }
+        } catch (_err) {
+            // localStorage indisponivel: fluxo apenas nao lembra entre sessoes
+        }
+    }, []);
+
+    const fluxoAvaliacaoJaVisto = useCallback((chamadoId) => {
+        try {
+            const brutos = JSON.parse(localStorage.getItem('bm_aval_fluxo_visto') || '[]');
+            return Array.isArray(brutos) && brutos.includes(chamadoId);
+        } catch (_err) {
+            return false;
+        }
+    }, []);
+
+    const verificarAvaliacoesPendentes = useCallback(async () => {
+        try {
+            const res = await fetch(`${API_URL}/api/v1/avaliacoes/pendentes-cliente`, {
+                headers: { Authorization: `Bearer ${token}` },
+            });
+            if (!res.ok) return;
+            const lista = await res.json().catch(() => []);
+            const pendencia = (Array.isArray(lista) ? lista : []).find((p) => (
+                (!p.avaliacao_freelancer_enviada || !p.avaliacao_barbearia_enviada)
+                && !fluxoAvaliacaoJaVisto(p.chamado_id)
+            ));
+            if (pendencia) {
+                setAvaliacaoPendente(pendencia);
+                marcarFluxoAvaliacaoVisto(pendencia.chamado_id);
+            }
+        } catch (_err) {
+            // silencioso: fluxo de avaliacao nao deve atrapalhar o uso do app
+        }
+    }, [API_URL, token, fluxoAvaliacaoJaVisto, marcarFluxoAvaliacaoVisto]);
 
     const isConcluido = (status = '') => (status || '').toString().toLowerCase().includes('conclu');
     const isPagamentoConcluido = (order = {}) => {
@@ -559,6 +604,21 @@ export default function ClientDashboard({ token, logout, API_URL: apiUrlProp, no
 
         prevChamadoRef.current = activeChamado;
     }, [activeChamado, notifySafe]);
+
+    // Fluxo automatico: apos pagamento confirmado, abrir a avaliacao (freelancer + barbearia)
+    useEffect(() => {
+        if (avaliacaoPendente) return;
+        const candidato = (myOrders || []).find((o) => (
+            isConcluido(o.status)
+            && isPagamentoConcluido(o)
+            && !(o.avaliacao_freelancer_enviada && o.avaliacao_barbearia_enviada)
+            && !fluxoAvaliacaoJaVisto(o.id)
+        ));
+        if (candidato && fluxoAvaliacaoVistoRef.current !== candidato.id) {
+            fluxoAvaliacaoVistoRef.current = candidato.id;
+            verificarAvaliacoesPendentes();
+        }
+    }, [myOrders, avaliacaoPendente, fluxoAvaliacaoJaVisto, verificarAvaliacoesPendentes]);
 
     // ✅ Timer: atualizar a cada segundo para mostrar tempo restante de cancelamento grátis
     useEffect(() => {
@@ -1623,7 +1683,12 @@ export default function ClientDashboard({ token, logout, API_URL: apiUrlProp, no
                                                     )}
                                                     <div className="bg-orange-600 px-1.5 py-0.5 sm:px-2 sm:py-1 rounded text-[9px] sm:text-[10px] leading-none font-bold flex items-center gap-1">
                                                         <Star size={9} className="fill-white sm:w-[10px] sm:h-[10px]" />
-                                                        <span>{barber.avaliacao || 5.0}</span>
+                                                        <span>
+                                                            {Number(barber.media_avaliacoes ?? barber.avaliacao) > 0
+                                                                ? Number(barber.media_avaliacoes ?? barber.avaliacao).toFixed(1)
+                                                                : 'Novo'}
+                                                            {Number(barber.total_avaliacoes) > 0 ? ` (${barber.total_avaliacoes})` : ''}
+                                                        </span>
                                                     </div>
                                                 </div>
                                                 <p className="text-xs text-zinc-400 truncate">{barber.endereco || barber.barbearia_atual_nome || 'Endereço disponível no perfil'}</p>
@@ -2046,6 +2111,10 @@ export default function ClientDashboard({ token, logout, API_URL: apiUrlProp, no
                             }
                             setChamadoParaPagar(null);
                             carregarMeusPedidos();
+                            if (!resultadoPagamento?.aguarda_confirmacao_barbeiro) {
+                                // Pagamento ja confirmado -> abre a avaliacao do cliente
+                                setTimeout(() => { verificarAvaliacoesPendentes(); }, 400);
+                            }
                         }}
                     />
                 </div>
@@ -2061,6 +2130,19 @@ export default function ClientDashboard({ token, logout, API_URL: apiUrlProp, no
             <button data-active={tab === 'perfil'} onClick={() => setTab('perfil')} className={`bm-bottom-nav-btn dashboard-nav-btn flex flex-col items-center justify-center gap-1 h-[3.35rem] flex-1 text-center ${tab === 'perfil' ? 'text-orange-500 bg-orange-500/5' : 'text-zinc-400 hover:text-zinc-200'}`}><User size={14} /><span>Perfil</span></button>
             <button data-active={tab === 'pagamento'} onClick={() => setTab('pagamento')} className={`bm-bottom-nav-btn dashboard-nav-btn flex flex-col items-center justify-center gap-1 h-[3.35rem] flex-1 text-center ${tab === 'pagamento' ? 'text-orange-500 bg-orange-500/5' : 'text-zinc-400 hover:text-zinc-200'}`}><CreditCard size={14} /><span>Carteira</span></button>
         </div>
+
+        {avaliacaoPendente && (
+            <FluxoAvaliacaoCliente
+                pendencia={avaliacaoPendente}
+                API_URL={API_URL}
+                token={token}
+                notify={notify}
+                onDone={() => {
+                    setAvaliacaoPendente(null);
+                    carregarMeusPedidos();
+                }}
+            />
+        )}
 
         {perfilModal && (
             <div className="fixed inset-0 bg-black/80 z-[2200] flex items-center justify-center p-4">

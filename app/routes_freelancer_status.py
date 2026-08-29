@@ -452,6 +452,10 @@ def avaliar_freelancer(
     db: Session = Depends(get_db)
 ):
     """
+    DEPRECATED (Etapa 6): use POST /api/v1/avaliacoes/freelancer/{id}
+    (routes_avaliacoes.py). Este handler grava na tabela errada
+    (AvaliacaoBarbearia) e foi mantido apenas para nao quebrar a rota.
+
     Permite ao dono da barbearia avaliar o freelancer após atendimento concluído.
     """
     # Verificar se é o dono da barbearia

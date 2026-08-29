@@ -729,7 +729,7 @@ class RelatorioComissoes(BaseModel):
 
 class AvaliacaoCreate(BaseModel):
     """Criar avaliacao"""
-    chamado_id: int
+    chamado_id: Optional[int] = None  # opcional: avaliacoes de relacao (freelancer<->barbearia) nao exigem chamado
     avaliado_id: Optional[int] = None  # quando usar endpoint genérico
     nota: int  # 1-5
     comentario: Optional[str] = None

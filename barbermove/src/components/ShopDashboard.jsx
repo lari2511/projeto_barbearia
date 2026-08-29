@@ -3,6 +3,7 @@ import { getWsBaseUrl } from '../utils/api';
 import { Store, LogOut, CheckCircle, AlertCircle, User, CreditCard, Calendar, Search, Star, TrendingUp, Users, Bell, Pencil, Trash2, X, Check } from 'lucide-react';
 import PaymentSection from './PaymentSection';
 import AbaPadronizadaAvaliacoes from './AbaPadronizadaAvaliacoes';
+import AvaliacaoModal from './AvaliacaoModal';
 import TelaPerfilUsuario from './TelaPerfilUsuario';
 import TelaMensalidadeAssinatura from './TelaMensalidadeAssinatura';
 import { useBackHandler } from '../utils/useBackHandler';
@@ -61,6 +62,7 @@ export default function ShopDashboard({ token, logout, notify, API_URL }) {
     const [cadeirasBarbearia, setCadeirasBarbearia] = useState([]);
     const [loadingCadeirasBarbearia, setLoadingCadeirasBarbearia] = useState(false);
     const [ultimaAtualizacaoFreelancers, setUltimaAtualizacaoFreelancers] = useState(null);
+    const [freelancerParaAvaliar, setFreelancerParaAvaliar] = useState(null); // { id, nome, foto }
     const [wsConectado, setWsConectado] = useState(false);
     const [_loading, _setLoading] = useState(false);
     const [barbeariaId, setBarbeariaId] = useState(null);
@@ -276,36 +278,33 @@ export default function ShopDashboard({ token, logout, notify, API_URL }) {
         }
     };
 
-    // Avaliar freelancer
+    // Avaliar freelancer (fonte unica: AvaliacaoFreelancer).
+    // chamadoId opcional: quando ausente, e uma avaliacao de relacao (barbearia -> freelancer).
     const avaliarFreelancer = async (freelancerId, chamadoId, nota, comentario) => {
-        if (!barbeariaId) {
-            notify('Barbearia não identificada', 'error');
-            return;
-        }
-
         try {
-            const res = await fetch(`${API_URL}/api/v1/barbearia/${barbeariaId}/avaliar-freelancer`, {
+            const res = await fetch(`${API_URL}/api/v1/avaliacoes/freelancer/${freelancerId}`, {
                 method: 'POST',
                 headers: {
                     'Authorization': `Bearer ${token}`,
                     'Content-Type': 'application/json'
                 },
                 body: JSON.stringify({
-                    freelancer_id: freelancerId,
-                    chamado_id: chamadoId,
+                    chamado_id: chamadoId || null,
                     nota: nota,
-                    comentario: comentario
+                    comentario: comentario || null
                 })
             });
 
             if (res.ok) {
                 notify('Avaliação enviada com sucesso!', 'success');
-            } else {
-                const error = await res.json().catch(() => ({}));
-                notify(error.detail || 'Erro ao enviar avaliação', 'error');
+                return true;
             }
+            const error = await res.json().catch(() => ({}));
+            notify(error.detail || 'Erro ao enviar avaliação', 'error');
+            return false;
         } catch (_err) {
             notify('Erro ao conectar com servidor', 'error');
+            return false;
         }
     };
 
@@ -1197,6 +1196,12 @@ export default function ShopDashboard({ token, logout, notify, API_URL }) {
                                                     PRESENTE
                                                 </button>
                                             </div>
+                                            <button
+                                                onClick={() => setFreelancerParaAvaliar({ id: freelancer.id, nome: freelancer.nome, foto: freelancer.foto_perfil })}
+                                                className="mt-2 w-full py-2 bg-orange-600/15 hover:bg-orange-600/25 border border-orange-600/40 text-orange-300 rounded text-xs font-bold flex items-center justify-center gap-1.5"
+                                            >
+                                                <Star size={12} /> Avaliar freelancer
+                                            </button>
                                         </div>
                                     ))}
                                 </div>
@@ -1214,9 +1219,18 @@ export default function ShopDashboard({ token, logout, notify, API_URL }) {
                             ) : (
                                 <div className="space-y-2">
                                     {freelancersDisponiveis.map((f) => (
-                                        <div key={f.usuario_id} className="bg-black/40 border border-zinc-700 rounded p-2">
-                                            <p className="text-sm font-bold text-white">{f.nome}</p>
-                                            <p className="text-[11px] text-zinc-400">{f.presente_em_local ? 'Disponível no local' : 'Disponível na região'}</p>
+                                        <div key={f.usuario_id} className="bg-black/40 border border-zinc-700 rounded p-2 flex items-center justify-between gap-2">
+                                            <div className="min-w-0">
+                                                <p className="text-sm font-bold text-white truncate">{f.nome}</p>
+                                                <p className="text-[11px] text-zinc-400">{f.presente_em_local ? 'Disponível no local' : 'Disponível na região'}</p>
+                                            </div>
+                                            <button
+                                                onClick={() => setFreelancerParaAvaliar({ id: f.usuario_id, nome: f.nome, foto: f.foto_perfil })}
+                                                className="shrink-0 p-2 bg-orange-600/15 hover:bg-orange-600/25 border border-orange-600/40 text-orange-300 rounded"
+                                                title="Avaliar freelancer"
+                                            >
+                                                <Star size={14} />
+                                            </button>
                                         </div>
                                     ))}
                                 </div>
@@ -1499,6 +1513,23 @@ export default function ShopDashboard({ token, logout, notify, API_URL }) {
                 <button data-active={tab === 'perfil' || tab === 'pagamento'} onClick={() => setTab('perfil')} className={`bm-bottom-nav-btn flex flex-col items-center justify-center gap-0.5 h-full text-center rounded-xl ${tab === 'perfil' || tab === 'pagamento' ? 'text-orange-500 bg-orange-500/5' : 'text-zinc-400 hover:text-zinc-200'}`}><User size={14} /><span className="text-[10px] leading-none">Perfil</span></button>
             </div>
             </div>
+
+            {freelancerParaAvaliar && (
+                <AvaliacaoModal
+                    isOpen
+                    titulo="Avaliar freelancer"
+                    subtitulo="Avaliacao vinculada a sua barbearia"
+                    nomeAlvo={freelancerParaAvaliar.nome}
+                    avatarUrl={freelancerParaAvaliar.foto}
+                    textoBotao="Enviar avaliação"
+                    onClose={() => setFreelancerParaAvaliar(null)}
+                    onSubmit={async ({ nota, comentario }) => {
+                        const ok = await avaliarFreelancer(freelancerParaAvaliar.id, null, nota, comentario);
+                        if (ok) setFreelancerParaAvaliar(null);
+                        return ok;
+                    }}
+                />
+            )}
         </div>
     );
 }

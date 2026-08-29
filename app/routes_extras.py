@@ -528,11 +528,15 @@ DEBUG_EMAIL_TOKENS = os.getenv("DEBUG_EMAIL_TOKENS", "0") == "1"
 
 @router.post("/avaliacoes/criar", response_model=dict)
 def criar_avaliacao_bidirecional(
-    avaliacao: schemas.AvaliacaoCreate, 
-    token: str = Depends(oauth2_scheme), 
+    avaliacao: schemas.AvaliacaoCreate,
+    token: str = Depends(oauth2_scheme),
     db: Session = Depends(get_db)
 ):
     """
+    DEPRECATED (Etapa 6): use POST /api/v1/avaliacoes/freelancer/{id} e
+    /api/v1/avaliacoes/barbearia/{id} (routes_avaliacoes.py). Este endpoint
+    grava apenas na tabela legada `avaliacoes` e nao conta nas medias de perfil.
+
     Sistema unificado de avaliações bidirecionais.
     
     ✅ CLIENTE avalia:
@@ -735,13 +739,17 @@ def listar_avaliacoes_usuario(usuario_id: int, db: Session = Depends(get_db)):
 
 @router.get("/usuario/{usuario_id}/media_avaliacao")
 def media_avaliacao_usuario(usuario_id: int, db: Session = Depends(get_db)):
-    """Obter média de avaliações de um usuário"""
-    media = db.query(func.avg(models.Avaliacao.nota)).filter(models.Avaliacao.avaliado_id == usuario_id).scalar()
-    total = db.query(func.count(models.Avaliacao.id)).filter(models.Avaliacao.avaliado_id == usuario_id).scalar()
-    
+    """Media de avaliacoes de um usuario (freelancer ou barbearia).
+
+    Etapa 6: le a fonte unica (AvaliacaoFreelancer / AvaliacaoBarbearia) via
+    avaliacoes_service, para bater com a media exibida nos perfis.
+    """
+    from .avaliacoes_service import resumo_por_usuario
+    resumo = resumo_por_usuario(db, usuario_id)
     return {
-        "media": round(media, 2) if media else 0,
-        "total_avaliacoes": total or 0
+        "media": resumo["media"],
+        "total": resumo["total"],
+        "total_avaliacoes": resumo["total"],
     }
 
 

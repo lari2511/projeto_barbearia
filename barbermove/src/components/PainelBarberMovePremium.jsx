@@ -3,6 +3,7 @@ import { Home, ClipboardList, Star, User, CreditCard, LogOut, CheckCircle, XCirc
 import { useApp } from '../contexts/AppContext';
 import { getApiBaseUrl, getWsBaseUrl, resolveMediaUrl } from '../utils/api';
 import AbaPadronizadaAvaliacoes from './AbaPadronizadaAvaliacoes';
+import AvaliacaoModal from './AvaliacaoModal';
 import TelaPerfilUsuario from './TelaPerfilUsuario';
 import TrackingPanel from './TrackingPanel';
 import ChatRoom from './ChatRoom';
@@ -70,8 +71,55 @@ export default function PainelBarberMovePremium({ token: tokenProp, logout: logo
   const [verHistorico, setVerHistorico] = useState(false);
   const [filtroHistorico, setFiltroHistorico] = useState('todos');
   const [chamadoParaFinalizarId, setChamadoParaFinalizarId] = useState(null);
+  const [barbeariaParaAvaliar, setBarbeariaParaAvaliar] = useState(null); // { id, nome }
   const scrollRef = useRef(null);
   const ultimaSyncGpsRef = useRef(0);
+  const barbeariaPresenteRef = useRef(null); // ultima barbearia onde o freelancer esteve presente
+
+  const barbeariaAvaliada = useCallback((barbeariaId) => {
+    try {
+      const brutos = JSON.parse(localStorage.getItem('bm_freela_aval_barbearia') || '[]');
+      return Array.isArray(brutos) && brutos.includes(barbeariaId);
+    } catch (_e) {
+      return false;
+    }
+  }, []);
+
+  const marcarBarbeariaAvaliada = useCallback((barbeariaId) => {
+    try {
+      const brutos = JSON.parse(localStorage.getItem('bm_freela_aval_barbearia') || '[]');
+      const lista = Array.isArray(brutos) ? brutos : [];
+      if (!lista.includes(barbeariaId)) {
+        lista.push(barbeariaId);
+        localStorage.setItem('bm_freela_aval_barbearia', JSON.stringify(lista.slice(-50)));
+      }
+    } catch (_e) {
+      // sem persistencia entre sessoes
+    }
+  }, []);
+
+  const enviarAvaliacaoBarbearia = useCallback(async ({ nota, comentario }) => {
+    if (!barbeariaParaAvaliar?.id) return false;
+    try {
+      const res = await fetch(`${API_URL}/api/v1/avaliacoes/barbearia/${barbeariaParaAvaliar.id}`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ chamado_id: null, nota, comentario: comentario || null }),
+      });
+      if (!res.ok) {
+        const erro = await res.json().catch(() => ({}));
+        notify(erro.detail || 'Nao foi possivel enviar a avaliacao', 'error');
+        return false;
+      }
+      marcarBarbeariaAvaliada(barbeariaParaAvaliar.id);
+      setBarbeariaParaAvaliar(null);
+      notify('Barbearia avaliada. Obrigado!', 'success');
+      return true;
+    } catch (_e) {
+      notify('Erro de conexao ao enviar avaliacao', 'error');
+      return false;
+    }
+  }, [API_URL, token, notify, barbeariaParaAvaliar, marcarBarbeariaAvaliada]);
 
   const atualizarStatusRadar = useCallback(async (isOnline) => {
     if (!token) return;
@@ -130,16 +178,34 @@ export default function PainelBarberMovePremium({ token: tokenProp, logout: logo
       ? statusAtualNormalizado === 'online' || statusAtualNormalizado === 'presente'
       : Boolean(novoPerfil.online_regiao || novoPerfil.disponivel || novoPerfil.presente_em_local);
 
-    setPerfil((atual) => ({
-      ...(atual || {}),
-      ...novoPerfil,
-      presente_em_local: isPresente,
-      online_regiao: isOnline,
-      disponivel: isOnline,
-      barbearia_atual_nome: isPresente ? (novoPerfil.barbearia_atual_nome || atual?.barbearia_atual_nome || '') : '',
-      barbearia_atual_id: isPresente ? (novoPerfil.barbearia_atual_id || atual?.barbearia_atual_id || null) : null,
-    }));
-  }, []);
+    setPerfil((atual) => {
+      const estavaPresente = Boolean(atual?.presente_em_local);
+      const barbeariaAnteriorId = atual?.barbearia_atual_id || barbeariaPresenteRef.current?.id || null;
+      const barbeariaAnteriorNome = atual?.barbearia_atual_nome || barbeariaPresenteRef.current?.nome || '';
+
+      if (isPresente && (novoPerfil.barbearia_atual_id || atual?.barbearia_atual_id)) {
+        barbeariaPresenteRef.current = {
+          id: novoPerfil.barbearia_atual_id || atual?.barbearia_atual_id,
+          nome: novoPerfil.barbearia_atual_nome || atual?.barbearia_atual_nome || '',
+        };
+      }
+
+      // Saiu da barbearia (presente -> disponivel/offline): oferecer avaliacao da barbearia
+      if (estavaPresente && !isPresente && barbeariaAnteriorId && !barbeariaAvaliada(barbeariaAnteriorId)) {
+        setBarbeariaParaAvaliar({ id: barbeariaAnteriorId, nome: barbeariaAnteriorNome });
+      }
+
+      return {
+        ...(atual || {}),
+        ...novoPerfil,
+        presente_em_local: isPresente,
+        online_regiao: isOnline,
+        disponivel: isOnline,
+        barbearia_atual_nome: isPresente ? (novoPerfil.barbearia_atual_nome || atual?.barbearia_atual_nome || '') : '',
+        barbearia_atual_id: isPresente ? (novoPerfil.barbearia_atual_id || atual?.barbearia_atual_id || null) : null,
+      };
+    });
+  }, [barbeariaAvaliada]);
 
   const textoStatusTopo = (() => {
     if (perfil?.presente_em_local) {
@@ -1149,7 +1215,21 @@ export default function PainelBarberMovePremium({ token: tokenProp, logout: logo
               )}
 
               {perfilSection === 'avaliacoes' && (
-                <div className="p-0">
+                <div className="p-0 space-y-3">
+                  {(() => {
+                    const alvo = perfil?.barbearia_atual_id
+                      ? { id: perfil.barbearia_atual_id, nome: perfil.barbearia_atual_nome }
+                      : barbeariaPresenteRef.current;
+                    if (!alvo?.id) return null;
+                    return (
+                      <button
+                        onClick={() => setBarbeariaParaAvaliar({ id: alvo.id, nome: alvo.nome })}
+                        className="w-full rounded-xl border border-orange-600/40 bg-orange-600/10 text-orange-300 py-3 text-sm font-bold hover:bg-orange-600/20 transition-colors"
+                      >
+                        ⭐ Avaliar {alvo.nome || 'barbearia'}
+                      </button>
+                    );
+                  })()}
                   {perfil ? (
                     <AbaPadronizadaAvaliacoes
                       usuarioId={perfil.id}
@@ -1207,6 +1287,18 @@ export default function PainelBarberMovePremium({ token: tokenProp, logout: logo
               </div>
             </div>
           </div>
+        )}
+
+        {barbeariaParaAvaliar && (
+          <AvaliacaoModal
+            isOpen
+            titulo="Avaliar Barbearia"
+            subtitulo="Como foi trabalhar nesta barbearia?"
+            nomeAlvo={barbeariaParaAvaliar.nome || 'Barbearia'}
+            textoBotao="Enviar avaliação"
+            onClose={() => setBarbeariaParaAvaliar(null)}
+            onSubmit={enviarAvaliacaoBarbearia}
+          />
         )}
       </div>
     </div>

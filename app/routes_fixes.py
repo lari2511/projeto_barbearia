@@ -387,6 +387,9 @@ def criar_avaliacao_cruzada(
     usuario = Depends(get_current_user)
 ):
     """
+    DEPRECATED (Etapa 6): use routes_avaliacoes.py. Mantido apenas por
+    compatibilidade de rota; nao e chamado pelo frontend atual.
+
     Sistema de avaliações cruzadas:
     - Cliente avalia: Barbeiro e Barbearia
     - Barbeiro avalia: Cliente e Barbearia
@@ -493,6 +496,9 @@ def get_avaliacoes_usuario(
     db: Session = Depends(get_db)
 ):
     """
+    DEPRECATED (Etapa 6): le a tabela legada `avaliacoes`. Use
+    /api/v1/avaliacoes/freelancer/{id}/recebidas ou /barbearia/{id}/recebidas.
+
     Retorna todas as avaliações recebidas por um usuário
     """
     avaliacoes = db.query(models.Avaliacao).filter(

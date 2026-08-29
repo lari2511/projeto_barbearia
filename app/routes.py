@@ -3276,9 +3276,24 @@ def listar_meus_pedidos_cliente(token: str = Depends(oauth2_scheme), db: Session
 
     chamados_ids = [ch.id for ch in chamados]
     pagamentos_por_chamado = {}
+    aval_freelancer_ids = set()
+    aval_barbearia_ids = set()
     if chamados_ids:
         pagamentos = db.query(models.Pagamento).filter(models.Pagamento.chamado_id.in_(chamados_ids)).all()
         pagamentos_por_chamado = {pag.chamado_id: pag for pag in pagamentos}
+
+        aval_freelancer_ids = {
+            row[0] for row in db.query(models.AvaliacaoFreelancer.chamado_id).filter(
+                models.AvaliacaoFreelancer.chamado_id.in_(chamados_ids),
+                models.AvaliacaoFreelancer.avaliador_id == user.id,
+            ).all()
+        }
+        aval_barbearia_ids = {
+            row[0] for row in db.query(models.AvaliacaoBarbearia.chamado_id).filter(
+                models.AvaliacaoBarbearia.chamado_id.in_(chamados_ids),
+                models.AvaliacaoBarbearia.avaliador_id == user.id,
+            ).all()
+        }
 
     resultado = []
     for chamado in chamados:
@@ -3350,7 +3365,9 @@ def listar_meus_pedidos_cliente(token: str = Depends(oauth2_scheme), db: Session
             "cliente_eta_ate_barbearia_min": cliente_eta,
             "freelancer_distancia_ate_barbearia_km": freelancer_distancia,
             "freelancer_eta_ate_barbearia_min": freelancer_eta,
-            "avaliado": False,
+            "avaliacao_freelancer_enviada": chamado.id in aval_freelancer_ids,
+            "avaliacao_barbearia_enviada": chamado.id in aval_barbearia_ids,
+            "avaliado": (chamado.id in aval_freelancer_ids and chamado.id in aval_barbearia_ids),
             "pagamento_id": pagamento.id if pagamento else None,
             "pagamento_concluido": bool(pagamento and pagamento.pago_em),
             "pagamento_pago_em": pagamento.pago_em.isoformat() if pagamento and pagamento.pago_em else None,

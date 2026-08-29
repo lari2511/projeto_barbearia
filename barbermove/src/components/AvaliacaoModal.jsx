@@ -1,7 +1,16 @@
 import React, { useState, useEffect } from 'react';
 import { Star, X, Send, AlertCircle } from 'lucide-react';
 
-export default function AvaliacaoModal({ isOpen, onClose, onSubmit, titulo = "Avaliar Serviço" }) {
+export default function AvaliacaoModal({
+    isOpen,
+    onClose,
+    onSubmit,
+    titulo = "Avaliar Serviço",
+    subtitulo = null,
+    avatarUrl = null,
+    nomeAlvo = null,
+    textoBotao = "Enviar",
+}) {
     const [nota, setNota] = useState(0);
     const [hoverNota, setHoverNota] = useState(0);
     const [comentario, setComentario] = useState('');
@@ -59,6 +68,25 @@ export default function AvaliacaoModal({ isOpen, onClose, onSubmit, titulo = "Av
 
                 {/* Body */}
                 <div className="p-6 space-y-6">
+                    {/* Alvo da avaliação (foto + nome) */}
+                    {(avatarUrl || nomeAlvo || subtitulo) && (
+                        <div className="flex flex-col items-center text-center gap-2">
+                            {(avatarUrl || nomeAlvo) && (
+                                <div className="h-16 w-16 rounded-full overflow-hidden bg-zinc-800 border border-zinc-700 flex items-center justify-center">
+                                    {avatarUrl ? (
+                                        <img src={avatarUrl} alt={nomeAlvo || ''} className="h-full w-full object-cover" />
+                                    ) : (
+                                        <span className="text-xl font-bold text-zinc-400">
+                                            {(nomeAlvo || '?').charAt(0).toUpperCase()}
+                                        </span>
+                                    )}
+                                </div>
+                            )}
+                            {nomeAlvo && <p className="text-white font-bold">{nomeAlvo}</p>}
+                            {subtitulo && <p className="text-zinc-400 text-xs">{subtitulo}</p>}
+                        </div>
+                    )}
+
                     {/* Seleção de Estrelas */}
                     <div className="text-center">
                         <p className="text-zinc-400 text-sm mb-4">Qual foi sua experiência?</p>
@@ -131,7 +159,7 @@ export default function AvaliacaoModal({ isOpen, onClose, onSubmit, titulo = "Av
                         className="flex-1 bg-orange-600 hover:bg-orange-700 disabled:bg-zinc-700 text-white py-3 rounded-lg font-bold flex items-center justify-center gap-2 disabled:opacity-50"
                     >
                         <Send size={16} />
-                        {enviando ? 'Enviando...' : 'Enviar'}
+                        {enviando ? 'Enviando...' : textoBotao}
                     </button>
                 </div>
             </div>
