@@ -201,6 +201,7 @@ export default function PainelBarberMovePremium({ token: tokenProp, logout: logo
         presente_em_local: isPresente,
         online_regiao: isOnline,
         disponivel: isOnline,
+        saida_pendente: novoPerfil.saida_pendente ?? (isPresente ? (atual?.saida_pendente || null) : null),
         barbearia_atual_nome: isPresente ? (novoPerfil.barbearia_atual_nome || atual?.barbearia_atual_nome || '') : '',
         barbearia_atual_id: isPresente ? (novoPerfil.barbearia_atual_id || atual?.barbearia_atual_id || null) : null,
       };
@@ -209,9 +210,13 @@ export default function PainelBarberMovePremium({ token: tokenProp, logout: logo
 
   const textoStatusTopo = (() => {
     if (perfil?.presente_em_local) {
-      return perfil?.barbearia_atual_nome
+      const base = perfil?.barbearia_atual_nome
         ? `Presente em ${perfil.barbearia_atual_nome}`
         : 'Presente em barbearia';
+      if (perfil?.saida_pendente) {
+        return `${base} · saindo em breve`;
+      }
+      return base;
     }
 
     if (perfil?.online_regiao || perfil?.disponivel) {
@@ -507,9 +512,13 @@ export default function PainelBarberMovePremium({ token: tokenProp, logout: logo
   useEffect(() => { carregarGanhos(); }, [carregarGanhos]);
   useEffect(() => { carregarVagasRelampago(); }, [carregarVagasRelampago]);
   useEffect(() => {
-    const t = setInterval(carregarChamados, 8000);
+    const t = setInterval(() => {
+      carregarChamados();
+      // Etapa 7: mantém a presença/saída pendente em dia (ex.: liberada ao concluir a fila)
+      carregarPerfil();
+    }, 8000);
     return () => clearInterval(t);
-  }, [carregarChamados]);
+  }, [carregarChamados, carregarPerfil]);
   useEffect(() => {
     const t = setInterval(carregarVagasRelampago, 8000);
     return () => clearInterval(t);
@@ -539,6 +548,12 @@ export default function PainelBarberMovePremium({ token: tokenProp, logout: logo
             const vaga = payload?.vaga;
             if (!vaga?.id) return;
             setVagasRelampago((prev) => prev.filter((item) => Number(item.id) !== Number(vaga.id)));
+            return;
+          }
+
+          // Etapa 7: status do freelancer mudou (ex.: saída pendente aplicada ao concluir a fila)
+          if (payload?.type === 'freelancer_status_changed') {
+            carregarPerfil();
           }
         } catch (_) {
           // ignora mensagens nao json

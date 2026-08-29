@@ -108,6 +108,9 @@ class Usuario(Base):
     online_regiao = Column(Boolean, default=False)  # Freelancer online no marketplace
     barbearia_atual_id = Column(Integer, ForeignKey("barbearias.id"), nullable=True)  # Barbearia onde está presente
     horario_chegada = Column(DateTime, nullable=True)  # Horário que chegou na barbearia
+    # Etapa 7: freelancer PRESENTE pediu para sair mas ainda tem atendimentos pendentes.
+    # Valores: "online" | "offline" | None. Aplicado automaticamente quando a fila esvazia.
+    saida_pendente = Column(String, nullable=True)
     criado_em = Column(DateTime, default=datetime.utcnow)
     
     # ✅ CONTROLE ADMIN - Flagging de usuários problemáticos

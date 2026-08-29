@@ -145,6 +145,17 @@ def _registrar_movimentacao_carteira(
     return historico
 
 
+def _liberar_presenca_pos_conclusao(db: Session, barbeiro_usuario_id: Optional[int]) -> None:
+    """Etapa 7: aplica a saída pendente do freelancer se a fila esvaziou. Nunca lança."""
+    if not barbeiro_usuario_id:
+        return
+    try:
+        from app.routes_freelancer_status import liberar_presenca_se_sem_pendencias
+        liberar_presenca_se_sem_pendencias(db, barbeiro_usuario_id)
+    except Exception:
+        pass
+
+
 def _aplicar_movimentacao_financeira_carteira(
     db: Session,
     *,
@@ -514,6 +525,10 @@ def confirmar_pagamento(
         valor_total=valor_total,
     )
 
+    # Etapa 7: se o freelancer pediu para sair da barbearia e este era o ultimo
+    # atendimento pendente, aplica a saida agora (libera cadeira + status).
+    _liberar_presenca_pos_conclusao(db, chamado.barbeiro_id)
+
     db.commit()
 
     resposta = {
@@ -805,6 +820,7 @@ def criar_pagamento_cartao_mercadopago(
                 cadeira_local.status = StatusCadeira.OCUPADA
                 cadeira_local.ocupada_em = datetime.now()
                 cadeira_local.chamado_id = chamado_local.id
+        _liberar_presenca_pos_conclusao(db, chamado_local.barbeiro_id)
         db.commit()
         return MercadoPagoResponse(
             id=pagamento.id,
@@ -873,8 +889,9 @@ def criar_pagamento_cartao_mercadopago(
                     metodo_pagamento="cartao",
                     valor_total=float(pagamento.valor_total or 0.0),
                 )
+                _liberar_presenca_pos_conclusao(db, pagamento.chamado.barbeiro_id)
                 db.commit()
-            
+
             return MercadoPagoResponse(
                 id=payment_response["id"],
                 status=payment_response["status"],
@@ -899,6 +916,7 @@ def criar_pagamento_cartao_mercadopago(
                 metodo_pagamento="cartao",
                 valor_total=float(pagamento.valor_total or 0.0),
             )
+            _liberar_presenca_pos_conclusao(db, chamado_local.barbeiro_id)
             db.commit()
             return MercadoPagoResponse(
                 id=pagamento.id,
@@ -971,7 +989,8 @@ def webhook_mercadopago(
                     metodo_pagamento="pix",
                     valor_total=float(pagamento.valor_total or 0.0),
                 )
-            
+                _liberar_presenca_pos_conclusao(db, pagamento.chamado.barbeiro_id)
+
             # 2️⃣ Buscar e atualizar Corte (sistema novo)
             # O Corte pode estar vinculado através do chamado ou diretamente
             corte = None

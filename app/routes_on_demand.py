@@ -1112,13 +1112,17 @@ async def aceitar_cadeira_acionada_como_barbeiro(
             cadeira_atual.ocupada_em = datetime.utcnow()
             cadeira_atual.liberada_em = None
 
-    # Ao assumir a vaga relampago, o barbeiro passa a ser considerado
-    # presente no local da barbearia vinculada.
+    # Ao assumir a vaga relampago, o barbeiro fica PRESENTE na barbearia vinculada.
+    # Etapa 7: assumir cadeira = fixar o local de atendimento. Sai do "disponivel na
+    # regiao" e passa a so poder ser agendado nessa barbearia (guarda em criar_chamado).
     usuario_db = db.query(Usuario).filter(Usuario.id == current_user.id).first()
     if usuario_db:
         usuario_db.presente_em_local = True
+        usuario_db.online_regiao = False
+        usuario_db.disponivel = True
         usuario_db.barbearia_atual_id = vaga.barbearia_id
         usuario_db.horario_chegada = datetime.utcnow()
+        usuario_db.saida_pendente = None
 
     db.commit()
     vaga = db.query(CadeiraAcionada).filter(CadeiraAcionada.id == vaga_id).first()
@@ -1128,6 +1132,16 @@ async def aceitar_cadeira_acionada_como_barbeiro(
         vaga=_serializar_cadeira_acionada(vaga, eta_min_usuario_atual=eta_min),
         accepted_by="barbeiro",
     )
+    if usuario_db:
+        await broadcast_event(
+            "freelancer_status_changed",
+            freelancer_id=usuario_db.id,
+            barbearia_id=usuario_db.barbearia_atual_id,
+            presente_em_local=True,
+            online_regiao=False,
+            disponivel=True,
+            saida_pendente=None,
+        )
 
     return _serializar_cadeira_acionada(vaga, eta_min_usuario_atual=eta_min)
 

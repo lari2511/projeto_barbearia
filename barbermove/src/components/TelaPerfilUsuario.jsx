@@ -361,6 +361,9 @@ export function TelaPerfilUsuario({
   const [copiouPixPlano, setCopiouPixPlano] = useState(false);
 
   const [barberStatus, setBarberStatus] = useState('offline');
+  // Etapa 7: freelancer presente pediu para sair mas ainda tem atendimentos pendentes.
+  const [saidaPendente, setSaidaPendente] = useState(null); // 'online' | 'offline' | null
+  const [atendimentosPendentes, setAtendimentosPendentes] = useState(0);
   const [barbeariaPresencaId, setBarbeariaPresencaId] = useState('');
   const [barbeariasDisponiveis, setBarbeariasDisponiveis] = useState([]);
   const [barbeariaAtualNome, setBarbeariaAtualNome] = useState('');
@@ -424,6 +427,7 @@ export function TelaPerfilUsuario({
         if (perfilTipo === 'barbeiro') {
           setBarbeariaAtualNome(data?.barbearia_atual_nome || '');
           setBarbeariaAtualEndereco(data?.barbearia_atual_endereco || '');
+          setSaidaPendente(data?.saida_pendente || null);
           if (data?.presente_em_local && data?.barbearia_atual_id) {
             setBarberStatus('presente');
             setBarbeariaPresencaId(String(data.barbearia_atual_id));
@@ -819,14 +823,19 @@ export function TelaPerfilUsuario({
 
   const statusAtualTexto = useMemo(() => {
     if (barberStatus === 'presente') {
-      return barbeariaAtualNome
+      const base = barbeariaAtualNome
         ? `Presente na ${barbeariaAtualNome}`
         : 'Presente na barbearia selecionada';
+      if (saidaPendente) {
+        const destino = saidaPendente === 'offline' ? 'offline' : 'disponível na região';
+        return `${base} — saindo para ${destino} após ${atendimentosPendentes} atendimento(s)`;
+      }
+      return base;
     }
 
     if (barberStatus === 'online') return 'Disponível na região';
     return 'Offline';
-  }, [barberStatus, barbeariaAtualNome]);
+  }, [barberStatus, barbeariaAtualNome, saidaPendente, atendimentosPendentes]);
 
   const selecionarBarbeariaPresenca = useCallback((value) => {
     const proximaBarbeariaId = String(value || '');
@@ -874,8 +883,14 @@ export function TelaPerfilUsuario({
         throw new Error(data?.detail || 'Nao foi possivel atualizar status');
       }
 
-      setBarberStatus(statusDesejado);
-      if (statusDesejado === 'presente') {
+      // Etapa 7: pediu para sair mas ainda tem atendimentos -> continua PRESENTE
+      const saidaRegistrada = Boolean(data?.saida_pendente) && data?.status_atual === 'presente';
+      const statusEfetivo = saidaRegistrada ? 'presente' : statusDesejado;
+      setSaidaPendente(data?.saida_pendente || null);
+      setAtendimentosPendentes(Number(data?.atendimentos_pendentes || 0));
+
+      setBarberStatus(statusEfetivo);
+      if (statusEfetivo === 'presente') {
         const nomePresenca = String(data?.barbearia_atual_nome || '').trim();
         if (data?.barbearia_atual_id) {
           setBarbeariaPresencaId(String(data.barbearia_atual_id));
@@ -891,16 +906,21 @@ export function TelaPerfilUsuario({
 
       if (typeof onStatusAtualizado === 'function') {
         onStatusAtualizado({
-          status_atual: statusDesejado,
-          presente_em_local: statusDesejado === 'presente',
-          online_regiao: statusDesejado === 'online',
-          disponivel: statusDesejado !== 'offline',
-          barbearia_atual_id: data?.barbearia_atual_id || (statusDesejado === 'presente' ? Number(barbeariaIdForcada || barbeariaPresencaId || 0) : null),
-          barbearia_atual_nome: data?.barbearia_atual_nome || (statusDesejado === 'presente' ? barbeariaAtualNome : null),
+          status_atual: statusEfetivo,
+          presente_em_local: statusEfetivo === 'presente',
+          online_regiao: statusEfetivo === 'online',
+          disponivel: statusEfetivo !== 'offline',
+          saida_pendente: data?.saida_pendente || null,
+          barbearia_atual_id: data?.barbearia_atual_id || (statusEfetivo === 'presente' ? Number(barbeariaIdForcada || barbeariaPresencaId || 0) : null),
+          barbearia_atual_nome: data?.barbearia_atual_nome || (statusEfetivo === 'presente' ? barbeariaAtualNome : null),
         });
       }
 
-      onNotify?.(`Status atualizado para ${statusDesejado.toUpperCase()}`, 'success');
+      if (saidaRegistrada) {
+        onNotify?.(data?.message || `Você tem ${data?.atendimentos_pendentes} atendimento(s) pendente(s). O status muda sozinho ao terminar.`, 'info');
+      } else {
+        onNotify?.(`Status atualizado para ${statusEfetivo.toUpperCase()}`, 'success');
+      }
       await carregarPerfil();
     } catch (e) {
       onNotify?.(e?.message || 'Erro ao atualizar status', 'error');

@@ -4,6 +4,7 @@ Gerencia os 3 status (OFFLINE, ONLINE, PRESENTE) e bloqueios
 """
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 from app.database import get_db
 from app import models
@@ -33,6 +34,111 @@ class AvaliarFreelancerRequest(BaseModel):
     chamado_id: int
     nota: int  # 1-5
     comentario: Optional[str] = None
+
+# ============================================================
+# ETAPA 7 - PRESENÇA NA BARBEARIA E SAÍDA PENDENTE
+# ============================================================
+
+# Status de chamado que ainda "prende" o freelancer na barbearia.
+STATUS_CHAMADO_ATIVO = ["pendente", "aceito", "confirmado", "em_atendimento"]
+
+
+def contar_atendimentos_ativos(db: Session, freelancer_usuario_id: int, barbearia_id: int) -> int:
+    """Quantos chamados ainda em aberto o freelancer tem naquela barbearia."""
+    if not barbearia_id:
+        return 0
+    return db.query(models.Chamado).filter(
+        models.Chamado.barbeiro_id == freelancer_usuario_id,
+        models.Chamado.barbearia_id == barbearia_id,
+        models.Chamado.status.in_(STATUS_CHAMADO_ATIVO),
+    ).count()
+
+
+def liberar_cadeira_do_freelancer(db: Session, freelancer_usuario_id: int, barbearia_id: int) -> None:
+    """Libera qualquer cadeira ocupada por este freelancer na barbearia informada. Sem commit."""
+    if not barbearia_id:
+        return
+    # Chamados desse freelancer nessa barbearia (para pegar cadeiras vinculadas por chamado_id,
+    # ja que alguns fluxos ocupam a cadeira sem preencher freelancer_id).
+    chamados_ids = [
+        row[0] for row in db.query(models.Chamado.id).filter(
+            models.Chamado.barbeiro_id == freelancer_usuario_id,
+            models.Chamado.barbearia_id == barbearia_id,
+        ).all()
+    ]
+    condicoes = [models.Cadeira.freelancer_id == freelancer_usuario_id]
+    if chamados_ids:
+        condicoes.append(models.Cadeira.chamado_id.in_(chamados_ids))
+
+    cadeiras = db.query(models.Cadeira).filter(
+        models.Cadeira.barbearia_id == barbearia_id,
+        or_(*condicoes),
+    ).all()
+    for cadeira in cadeiras:
+        cadeira.status = models.StatusCadeira.DISPONIVEL
+        cadeira.freelancer_id = None
+        cadeira.chamado_id = None
+        cadeira.liberada_em = datetime.utcnow()
+
+
+def _broadcast_status(freelancer: models.Usuario) -> None:
+    """Emite o evento de status via WS quando há event loop (contexto async).
+    Em contexto sync (threadpool/scripts) apenas ignora — o WS é best-effort e os
+    clientes também recarregam o status ao voltar pro app."""
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        return
+    loop.create_task(
+        broadcast_event(
+            "freelancer_status_changed",
+            freelancer_id=freelancer.id,
+            barbearia_id=freelancer.barbearia_atual_id,
+            presente_em_local=freelancer.presente_em_local,
+            online_regiao=freelancer.online_regiao,
+            disponivel=freelancer.disponivel,
+            saida_pendente=freelancer.saida_pendente,
+        )
+    )
+
+
+def liberar_presenca_se_sem_pendencias(db: Session, freelancer_usuario_id: int) -> bool:
+    """
+    Etapa 7: se o freelancer pediu para sair (saida_pendente) e não há mais
+    atendimentos pendentes na barbearia onde está presente, aplica a saída:
+    libera a cadeira, remove a presença e ativa o status desejado.
+
+    Não faz commit — quem chama é responsável por isso.
+    Retorna True se aplicou a saída.
+    """
+    freelancer = db.query(models.Usuario).filter(
+        models.Usuario.id == freelancer_usuario_id
+    ).first()
+    if not freelancer or not freelancer.saida_pendente or not freelancer.barbearia_atual_id:
+        return False
+
+    barbearia_id = freelancer.barbearia_atual_id
+    if contar_atendimentos_ativos(db, freelancer_usuario_id, barbearia_id) > 0:
+        return False
+
+    destino = freelancer.saida_pendente
+    liberar_cadeira_do_freelancer(db, freelancer_usuario_id, barbearia_id)
+
+    freelancer.presente_em_local = False
+    freelancer.barbearia_atual_id = None
+    freelancer.horario_chegada = None
+    freelancer.saida_pendente = None
+
+    if destino == "online":
+        freelancer.online_regiao = True
+        freelancer.disponivel = True
+    else:  # offline
+        freelancer.online_regiao = False
+        freelancer.disponivel = False
+
+    _broadcast_status(freelancer)
+    return True
+
 
 # ============================================================
 # ENDPOINTS - CONTROLE DE STATUS (FREELANCER + DONO)
@@ -115,21 +221,40 @@ def alterar_status_freelancer(
     # ============================================================
     # APLICAR O STATUS
     # ============================================================
-    
-    if request.status == "offline":
-        # OFFLINE: Não trabalha
-        freelancer.presente_em_local = False
-        freelancer.online_regiao = False
-        freelancer.disponivel = False
-        freelancer.barbearia_atual_id = None
-        
-    elif request.status == "online":
-        # ONLINE: Marketplace aberto
-        freelancer.presente_em_local = False
-        freelancer.online_regiao = True
-        freelancer.disponivel = True
-        freelancer.barbearia_atual_id = None
-        
+
+    saida_registrada = False
+    atendimentos_pendentes = 0
+
+    if request.status in ("offline", "online"):
+        destino = "offline" if request.status == "offline" else "online"
+        esta_presente = bool(freelancer.presente_em_local and freelancer.barbearia_atual_id)
+        atendimentos_pendentes = (
+            contar_atendimentos_ativos(db, freelancer.id, freelancer.barbearia_atual_id)
+            if esta_presente else 0
+        )
+
+        if esta_presente and atendimentos_pendentes > 0:
+            # ETAPA 7: saída pendente. Mantém a presença e a cadeira até concluir a fila.
+            freelancer.saida_pendente = destino
+            if destino == "offline":
+                freelancer.disponivel = False  # para de receber novos chamados
+            # online: continua "disponível", mas a Regra 2 de criar_chamado trava fora da barbearia
+            saida_registrada = True
+        else:
+            # Saída limpa: libera a cadeira e aplica o status na hora.
+            if esta_presente:
+                liberar_cadeira_do_freelancer(db, freelancer.id, freelancer.barbearia_atual_id)
+            freelancer.presente_em_local = False
+            freelancer.barbearia_atual_id = None
+            freelancer.horario_chegada = None
+            freelancer.saida_pendente = None
+            if destino == "offline":
+                freelancer.online_regiao = False
+                freelancer.disponivel = False
+            else:
+                freelancer.online_regiao = True
+                freelancer.disponivel = True
+
     elif request.status == "presente":
         # PRESENTE: Exclusividade da unidade
         if not request.barbearia_id:
@@ -179,6 +304,7 @@ def alterar_status_freelancer(
         freelancer.disponivel = True
         freelancer.barbearia_atual_id = request.barbearia_id
         freelancer.horario_chegada = datetime.utcnow()
+        freelancer.saida_pendente = None  # entrou/reentrou como presente: cancela saída pendente
         
     else:
         raise HTTPException(status_code=400, detail="Status inválido. Use: offline, online ou presente")
@@ -186,31 +312,30 @@ def alterar_status_freelancer(
     db.commit()
     db.refresh(freelancer)
 
-    try:
-        asyncio.create_task(
-            broadcast_event(
-                "freelancer_status_changed",
-                freelancer_id=freelancer.id,
-                barbearia_id=freelancer.barbearia_atual_id,
-                presente_em_local=freelancer.presente_em_local,
-                online_regiao=freelancer.online_regiao,
-                disponivel=freelancer.disponivel,
-            )
-        )
-    except Exception:
-        pass
-    
+    _broadcast_status(freelancer)
+
     # Preparar resposta
+    # Se houve saída pendente, o freelancer AINDA está presente — o status efetivo é "presente".
+    status_efetivo = "presente" if saida_registrada else request.status
     response = {
         "id": freelancer.id,
         "nome": freelancer.nome,
-        "status_atual": request.status,
+        "status_atual": status_efetivo,
         "presente_em_local": freelancer.presente_em_local,
         "online_regiao": freelancer.online_regiao,
         "disponivel": freelancer.disponivel,
-        "barbearia_atual_id": freelancer.barbearia_atual_id
+        "barbearia_atual_id": freelancer.barbearia_atual_id,
+        "saida_pendente": freelancer.saida_pendente,
+        "atendimentos_pendentes": atendimentos_pendentes,
     }
-    
+
+    if saida_registrada:
+        destino_txt = "offline" if freelancer.saida_pendente == "offline" else "disponível na região"
+        response["message"] = (
+            f"Você tem {atendimentos_pendentes} atendimento(s) pendente(s). "
+            f"Ao concluí-los, seu status muda para {destino_txt} e a cadeira é liberada automaticamente."
+        )
+
     # Se estiver presente, incluir nome da barbearia
     if freelancer.barbearia_atual_id:
         barbearia = db.query(models.Barbearia).filter(
@@ -218,7 +343,7 @@ def alterar_status_freelancer(
         ).first()
         if barbearia:
             response["barbearia_atual_nome"] = barbearia.nome
-    
+
     return response
 
 

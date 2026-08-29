@@ -54,6 +54,12 @@ def init_db():
                 connection.execute(text("ALTER TABLE usuarios ADD COLUMN token_verificacao VARCHAR(255)"))
                 print("✅ Coluna token_verificacao criada")
 
+        # Etapa 7: saída pendente do freelancer presente (aguardando concluir atendimentos)
+        if "saida_pendente" not in colunas_existentes:
+            with engine.begin() as connection:
+                connection.execute(text("ALTER TABLE usuarios ADD COLUMN saida_pendente VARCHAR(20)"))
+                print("[migracao] Coluna saida_pendente criada")
+
     if "chamados" in inspector.get_table_names():
         colunas_existentes = {coluna["name"] for coluna in inspector.get_columns("chamados")}
         colunas_esperadas = {

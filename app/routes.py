@@ -316,14 +316,12 @@ def _finalizar_chamado_e_avancar_fila(db: Session, chamado: models.Chamado, barb
             "cadeira_liberada_id": cadeira_liberada_id,
         }
 
-    # Fila vazia nessa barbearia: o trabalho dele ali acabou, entao desmarca
-    # presenca. Quem quiser continuar disponivel no local so precisa apertar
-    # "PRESENTE" de novo (1 toque) - evita ficar preso "presente" pra sempre
-    # so porque ninguem desmarcava manualmente ao sair.
-    if barber and barber.barbearia_atual_id and int(barber.barbearia_atual_id) == int(chamado.barbearia_id):
-        barber.presente_em_local = False
-        barber.barbearia_atual_id = None
-        barber.horario_chegada = None
+    # Etapa 7: a presenca so termina por escolha do freelancer. Se ele pediu para
+    # sair (saida_pendente) e a fila esvaziou, aplica a saida agora (libera cadeira,
+    # remove presenca e ativa online/offline). Sem saida pendente, continua presente.
+    if barber:
+        from app.routes_freelancer_status import liberar_presenca_se_sem_pendencias
+        liberar_presenca_se_sem_pendencias(db, barber.id)
 
     return {
         "status_anterior": status_anterior,
@@ -1292,14 +1290,21 @@ def criar_chamado(chamado: schemas.ChamadoCreate, token: str = Depends(oauth2_sc
     if chamado.barbeiro_id:
         barbeiro = db.query(models.Usuario).filter(models.Usuario.id == chamado.barbeiro_id).first()
         if barbeiro:
-            # Regra 1: Freelancer OFFLINE não pode receber chamados
-            barbeiro_offline = bool(getattr(barbeiro, "offline", False))
-            if barbeiro_offline:
+            # Regra 1: Freelancer sem status ativo (offline) não pode receber chamados.
+            # "apto" = presente numa barbearia, OU online na região, OU disponível,
+            # OU dentro da janela de liberação antecipada (fim de atendimento em <=10 min).
+            barbeiro_apto = bool(
+                barbeiro.presente_em_local
+                or barbeiro.online_regiao
+                or barbeiro.disponivel
+                or _esta_na_janela_liberacao_antecipada(barbeiro, janela_min=10)
+            )
+            if not barbeiro_apto:
                 raise HTTPException(
                     status_code=400,
-                    detail="Barbeiro está OFFLINE. Não pode receber chamados."
+                    detail="Este profissional não está disponível para novos agendamentos."
                 )
-            
+
             # Regra 2: Freelancer PRESENT_LOCAL só pode receber de uma barbearia específica
             if barbeiro.presente_em_local and barbeiro.barbearia_atual_id:
                 if barbeiro.barbearia_atual_id != barbearia.id:
@@ -2483,6 +2488,14 @@ def cancelar_chamado_cliente(id: int, token: str = Depends(oauth2_scheme), db: S
             referencia_id=chamado.id
         ))
 
+    # Etapa 7: cancelamento pode ter esvaziado a fila do freelancer com saída pendente.
+    if barbeiro:
+        try:
+            from app.routes_freelancer_status import liberar_presenca_se_sem_pendencias
+            liberar_presenca_se_sem_pendencias(db, barbeiro.id)
+        except Exception:
+            pass
+
     db.commit()
     db.refresh(chamado)
 
@@ -2632,11 +2645,19 @@ def rejeitar_chamado(id: int, token: str = Depends(oauth2_scheme), db: Session =
         raise HTTPException(status_code=404, detail="Chamado não encontrado")
     
     status_anterior = chamado.status
+    barbeiro_original_id = chamado.barbeiro_id
     chamado.status = models.StatusAgendamento.CANCELADO.value
     chamado.barbeiro_id = None  # Remove o barbeiro associado
+    # Etapa 7: se o freelancer tinha saída pendente e esse era o último ativo, libera a presença.
+    if barbeiro_original_id:
+        try:
+            from app.routes_freelancer_status import liberar_presenca_se_sem_pendencias
+            liberar_presenca_se_sem_pendencias(db, barbeiro_original_id)
+        except Exception:
+            pass
     db.commit()
     db.refresh(chamado)
-    
+
     # Criar histórico
     historico = models.ChamadoHistorico(
         chamado_id=chamado.id,
@@ -3661,6 +3682,11 @@ def listar_barbeiros_priorizados_barbearia(
             barbeiro.presente_em_local and
             barbeiro.barbearia_atual_id == barbearia_id
         )
+
+        # Etapa 7: freelancer PRESENTE em OUTRA barbearia so pode ser agendado la.
+        # Nao deve aparecer como opcao nesta barbearia.
+        if barbeiro.presente_em_local and barbeiro.barbearia_atual_id and barbeiro.barbearia_atual_id != barbearia_id:
+            continue
 
         if not profissional_da_casa and not online_regiao_real:
             continue
