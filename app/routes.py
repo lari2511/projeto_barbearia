@@ -243,11 +243,11 @@ def _iniciar_atendimento_chamado(db: Session, chamado: models.Chamado, barbeiro:
     agora = datetime.utcnow()
 
     servico = db.query(models.Servico).filter(models.Servico.id == chamado.servico_id).first()
-    duracao_minutos = servico.duracao_minutos if (servico and servico.duracao_minutos) else 30
 
     chamado.status = models.StatusAgendamento.EM_ATENDIMENTO.value
-    chamado.data_hora_inicio = agora
-    chamado.data_hora_fim = agora + timedelta(minutes=duracao_minutos)
+    # Etapa 8: cronometro = soma das duracoes do grupo. No avanco de fila o cronograma
+    # do grupo ja esta ancorado -> o helper preserva o data_hora_fim escalonado.
+    _agendar_janela_grupo(db, chamado, agora)
 
     barber = db.query(models.Usuario).filter(models.Usuario.id == barbeiro.id).first()
     if barber:
@@ -545,6 +545,66 @@ def _montar_payload_tracking(db: Session, chamado: models.Chamado, ativo: models
         "freelancer_eta_ate_barbearia_min": barbeiro_eta,
         "atualizado_em": datetime.utcnow().isoformat(),
     }
+
+def _duracao_servico_min(db: Session, servico_id) -> int:
+    """Duracao cadastrada do servico em minutos (fallback 30)."""
+    if not servico_id:
+        return 30
+    servico = db.query(models.Servico).filter(models.Servico.id == servico_id).first()
+    return int((servico.duracao_minutos if servico and servico.duracao_minutos else 0) or 30)
+
+
+def _agendar_janela_grupo(db: Session, chamado: models.Chamado, inicio: datetime) -> None:
+    """
+    Etapa 8: o cronometro do atendimento deve iniciar na SOMA das duracoes de todos
+    os servicos selecionados pelo cliente.
+
+    Quando o cliente escolhe varios servicos, cada um vira um Chamado com o mesmo
+    grupo_id, sequenciais no tempo. No 1o start do grupo re-ancoramos o cronograma
+    inteiro a partir do horario real de inicio, mantendo o escalonamento por duracao
+    -> max(data_hora_fim do grupo) = inicio + soma das duracoes.
+
+    Nos avancos de fila seguintes o cronograma ja esta ancorado: preservamos o
+    data_hora_fim escalonado (contagem continua, sem "pulo"). Sem commit.
+    """
+    STATUS_ATIVOS = [
+        models.StatusAgendamento.PENDENTE.value,
+        models.StatusAgendamento.CONFIRMADO.value,
+        models.StatusAgendamento.EM_ATENDIMENTO.value,
+    ]
+
+    if not chamado.grupo_id:
+        chamado.data_hora_inicio = inicio
+        chamado.data_hora_fim = inicio + timedelta(minutes=_duracao_servico_min(db, chamado.servico_id))
+        return
+
+    grupo_ja_iniciado = db.query(models.Chamado).filter(
+        models.Chamado.grupo_id == chamado.grupo_id,
+        models.Chamado.id != chamado.id,
+        models.Chamado.status.in_([
+            models.StatusAgendamento.EM_ATENDIMENTO.value,
+            models.StatusAgendamento.CONCLUIDO.value,
+        ]),
+    ).first() is not None
+
+    if grupo_ja_iniciado:
+        chamado.data_hora_inicio = inicio
+        if not chamado.data_hora_fim or chamado.data_hora_fim <= inicio:
+            chamado.data_hora_fim = inicio + timedelta(minutes=_duracao_servico_min(db, chamado.servico_id))
+        return
+
+    # 1o do grupo a iniciar: re-escalona todos os ativos a partir de `inicio`.
+    irmaos = db.query(models.Chamado).filter(
+        models.Chamado.grupo_id == chamado.grupo_id,
+        models.Chamado.status.in_(STATUS_ATIVOS),
+    ).order_by(models.Chamado.id.asc()).all()
+    cursor = inicio
+    for irmao in irmaos:
+        dur = _duracao_servico_min(db, irmao.servico_id)
+        irmao.data_hora_inicio = cursor
+        irmao.data_hora_fim = cursor + timedelta(minutes=dur)
+        cursor = cursor + timedelta(minutes=dur)
+
 
 def _calcular_fim_grupo(db: Session, chamado: models.Chamado) -> datetime | None:
     # Quando o cliente seleciona varios servicos juntos, cada um vira um Chamado
@@ -2339,12 +2399,11 @@ async def chegar_chamado(id: int, token: str = Depends(oauth2_scheme), db: Sessi
 
     if cliente_chegou and barbeiro_chegou and status_normalizado != models.StatusAgendamento.EM_ATENDIMENTO.value:
         agora_inicio = datetime.utcnow()
-        servico = db.query(models.Servico).filter(models.Servico.id == chamado.servico_id).first() if chamado.servico_id else None
-        duracao_minutos = int(getattr(servico, 'duracao_minutos', None) or 30)
 
         chamado.status = models.StatusAgendamento.EM_ATENDIMENTO.value
-        chamado.data_hora_inicio = agora_inicio
-        chamado.data_hora_fim = agora_inicio + timedelta(minutes=duracao_minutos)
+        # Etapa 8: cronometro = soma das duracoes de TODOS os servicos selecionados.
+        # 1o start do grupo -> re-ancora o cronograma inteiro a partir de agora.
+        _agendar_janela_grupo(db, chamado, agora_inicio)
         virou_em_atendimento = True
 
         if barbeiro:
@@ -2566,12 +2625,13 @@ def iniciar_corte(id: int, token: str = Depends(oauth2_scheme), db: Session = De
     if not servico:
         raise HTTPException(status_code=404, detail="Serviço não encontrado")
 
-    agora = datetime.now()
-    duracao_minutos = servico.duracao_minutos if servico.duracao_minutos else 30
+    # utcnow para bater com o resto do fluxo (data_hora_* sao serializados como UTC
+    # e o cronometro do app interpreta como UTC).
+    agora = datetime.utcnow()
     status_anterior = chamado.status
     chamado.status = models.StatusAgendamento.EM_ATENDIMENTO.value
-    chamado.data_hora_inicio = agora
-    chamado.data_hora_fim = agora + timedelta(minutes=duracao_minutos)
+    # Etapa 8: cronometro = soma das duracoes de TODOS os servicos selecionados.
+    _agendar_janela_grupo(db, chamado, agora)
 
     barbeiro = db.query(models.Usuario).filter(models.Usuario.id == user.id).first()
     if barbeiro:
@@ -2629,7 +2689,7 @@ def iniciar_corte(id: int, token: str = Depends(oauth2_scheme), db: Session = De
         "status": chamado.status,
         "data_hora_inicio": chamado.data_hora_inicio.isoformat() if chamado.data_hora_inicio else None,
         "data_hora_fim": chamado.data_hora_fim.isoformat() if chamado.data_hora_fim else None,
-        "duracao_minutos": duracao_minutos,
+        "duracao_minutos": _duracao_servico_min(db, chamado.servico_id),
         "message": "Atendimento iniciado"
     }
 
