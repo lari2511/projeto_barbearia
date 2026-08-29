@@ -43,6 +43,7 @@ from .routes_firebase import router as router_firebase  # 🔔 Gerenciamento de 
 from .routes_on_demand import router as router_on_demand  # 📍 Sistema On-Demand com geolocalização (estilo Uber)
 from .routes_pagamento_perfis import router as router_pagamento_perfis  # 💳 Conta do barbeiro e split admin
 from .routes_senha import router as router_senha  # 🔑 Reset de senha
+from .routes_visibilidade import router as router_visibilidade  # 👁️ Camada de visibilidade do ecossistema local (somente leitura)
 from .realtime import realtime_manager
 from .database import Base, engine, init_db
 from sqlalchemy import text
@@ -131,6 +132,7 @@ app.include_router(router_on_demand)  # 📍 On-Demand com geolocalização
 app.include_router(router_admin_avaliacoes)  # 🛡️ Gerenciamento admin de avaliações e bloqueios
 app.include_router(router_pagamento_perfis)  # 💳 Configurações de pagamento
 app.include_router(router_senha)  # 🔑 Reset de senha
+app.include_router(router_visibilidade)  # 👁️ Visibilidade do ecossistema local (freelancer vê barbearias / dono vê freelancers)
 # Rotas legais (Termos e Privacidade)
 app.include_router(router_legais, prefix="/api/v1")
 

@@ -72,6 +72,7 @@ export default function PainelBarberMovePremium({ token: tokenProp, logout: logo
   const [filtroHistorico, setFiltroHistorico] = useState('todos');
   const [chamadoParaFinalizarId, setChamadoParaFinalizarId] = useState(null);
   const [barbeariaParaAvaliar, setBarbeariaParaAvaliar] = useState(null); // { id, nome }
+  const [barbeariasProximas, setBarbeariasProximas] = useState([]); // visibilidade: barbearias BarberMove na regiao
   const scrollRef = useRef(null);
   const ultimaSyncGpsRef = useRef(0);
   const barbeariaPresenteRef = useRef(null); // ultima barbearia onde o freelancer esteve presente
@@ -508,9 +509,33 @@ export default function PainelBarberMovePremium({ token: tokenProp, logout: logo
     }
   };
 
+  // Visibilidade (somente leitura): quais barbearias BarberMove existem perto.
+  // Usa a localizacao ja salva no perfil (sincronizada via /on-demand/atualizar-localizacao).
+  const carregarBarbeariasProximas = useCallback(async () => {
+    if (!token) return;
+    try {
+      const res = await fetch(`${API_URL}/api/v1/visibilidade/barbearias-proximas?raio_km=10`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) {
+        setBarbeariasProximas([]);
+        return;
+      }
+      const data = await res.json();
+      setBarbeariasProximas(Array.isArray(data?.barbearias) ? data.barbearias : []);
+    } catch (_) {
+      setBarbeariasProximas([]);
+    }
+  }, [token, API_URL]);
+
   useEffect(() => { carregarChamados(); }, [carregarChamados]);
   useEffect(() => { carregarGanhos(); }, [carregarGanhos]);
   useEffect(() => { carregarVagasRelampago(); }, [carregarVagasRelampago]);
+  useEffect(() => {
+    carregarBarbeariasProximas();
+    const t = setInterval(carregarBarbeariasProximas, 60000);
+    return () => clearInterval(t);
+  }, [carregarBarbeariasProximas]);
   useEffect(() => {
     const t = setInterval(() => {
       carregarChamados();
@@ -851,6 +876,42 @@ export default function PainelBarberMovePremium({ token: tokenProp, logout: logo
                   </div>
                 ) : (
                   <p className="text-xs text-zinc-400">Nenhuma vaga anunciada no momento.</p>
+                )}
+              </div>
+
+              {/* VISIBILIDADE: barbearias BarberMove perto de voce (somente visualizacao) */}
+              <div className="rounded-2xl border border-zinc-800 bg-zinc-900 p-4 space-y-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-xs font-black uppercase tracking-widest text-zinc-300">Barbearias BarberMove perto de voce</p>
+                    <p className="text-[11px] text-zinc-500">Quem ja esta na plataforma na sua regiao.</p>
+                  </div>
+                  <span className="rounded-full border border-zinc-700 bg-zinc-800 px-3 py-1 text-xs font-bold text-zinc-300">
+                    {barbeariasProximas.length}
+                  </span>
+                </div>
+
+                {barbeariasProximas.length === 0 ? (
+                  <p className="text-xs text-zinc-500">Nenhuma barbearia BarberMove encontrada por perto ainda.</p>
+                ) : (
+                  <div className="space-y-2">
+                    {barbeariasProximas.slice(0, 6).map((b) => (
+                      <div key={b.id} className="rounded-xl border border-zinc-800 bg-zinc-950/70 p-3 flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="text-sm font-bold text-white truncate">
+                            {b.cadeira_disponivel ? '🔥' : '💈'} {b.nome}
+                          </p>
+                          <p className="text-[11px] text-zinc-400 truncate">{b.endereco || 'Endereco nao informado'}</p>
+                          <span className={`mt-1 inline-block rounded-full px-2 py-0.5 text-[10px] font-black uppercase tracking-wide ${b.cadeira_disponivel ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30' : 'bg-zinc-800 text-zinc-400 border border-zinc-700'}`}>
+                            {b.cadeira_disponivel ? 'Cadeira disponivel' : 'Cadastrada no BarberMove'}
+                          </span>
+                        </div>
+                        <span className="shrink-0 text-[11px] text-zinc-400 font-semibold">
+                          {typeof b.distancia_km === 'number' ? `${b.distancia_km.toFixed(1)} km` : ''}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
                 )}
               </div>
             </div>

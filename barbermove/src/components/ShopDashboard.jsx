@@ -59,6 +59,7 @@ export default function ShopDashboard({ token, logout, notify, API_URL }) {
     const [freelancersPresentes, setFreelancersPresentes] = useState([]);
     const [freelancersDisponiveis, setFreelancersDisponiveis] = useState([]);
     const [freelancersPendentesAprovacao, setFreelancersPendentesAprovacao] = useState([]);
+    const [freelancersProximosRegiao, setFreelancersProximosRegiao] = useState([]); // visibilidade: freelancers BarberMove perto da barbearia
     const [cadeirasBarbearia, setCadeirasBarbearia] = useState([]);
     const [loadingCadeirasBarbearia, setLoadingCadeirasBarbearia] = useState(false);
     const [ultimaAtualizacaoFreelancers, setUltimaAtualizacaoFreelancers] = useState(null);
@@ -357,6 +358,25 @@ export default function ShopDashboard({ token, logout, notify, API_URL }) {
         }
     }, [API_URL, barbeariaId, token]);
 
+    // Visibilidade (somente leitura): freelancers do BarberMove disponiveis perto
+    // da barbearia. Centro = endereco fixo da loja; distancia so aproximada.
+    const carregarFreelancersProximosRegiao = useCallback(async () => {
+        if (!barbeariaId) return;
+        try {
+            const res = await fetch(`${API_URL}/api/v1/visibilidade/freelancers-proximos?raio_km=10`, {
+                headers: {'Authorization': `Bearer ${token}`}
+            });
+            if (!res.ok) {
+                setFreelancersProximosRegiao([]);
+                return;
+            }
+            const data = await res.json();
+            setFreelancersProximosRegiao(Array.isArray(data?.freelancers) ? data.freelancers : []);
+        } catch (_err) {
+            setFreelancersProximosRegiao([]);
+        }
+    }, [API_URL, barbeariaId, token]);
+
     const carregarCadeirasBarbearia = useCallback(async () => {
         if (!barbeariaId) return;
 
@@ -556,6 +576,14 @@ export default function ShopDashboard({ token, logout, notify, API_URL }) {
         }, 5000);
         return () => clearInterval(interval);
     }, [barbeariaId, tab, wsConectado, carregarFreelancersDisponiveis, carregarFreelancersPresentes, carregarCadeirasBarbearia, carregarVagasRelampago]);
+
+    useEffect(() => {
+        if (!barbeariaId || tab !== 'freelancers') return;
+
+        carregarFreelancersProximosRegiao();
+        const interval = setInterval(carregarFreelancersProximosRegiao, 15000);
+        return () => clearInterval(interval);
+    }, [barbeariaId, tab, carregarFreelancersProximosRegiao]);
 
     useEffect(() => {
         if (!barbeariaId || tab !== 'barbeiros') return;
@@ -1231,6 +1259,32 @@ export default function ShopDashboard({ token, logout, notify, API_URL }) {
                                             >
                                                 <Star size={14} />
                                             </button>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+
+                        {/* FREELANCERS DO BARBERMOVE NA REGIÃO (camada de visibilidade) */}
+                        <div className="bm-card p-3 space-y-2">
+                            <div className="flex items-center justify-between">
+                                <h3 className="text-xs font-bold text-zinc-400 uppercase tracking-wide">Freelancers do BarberMove perto daqui</h3>
+                                <span className="text-[11px] text-green-400 font-bold">{freelancersProximosRegiao.length}</span>
+                            </div>
+                            <p className="text-[11px] text-zinc-500">Profissionais na sua região. Para chamar, use “Anunciar vaga” numa cadeira.</p>
+                            {freelancersProximosRegiao.length === 0 ? (
+                                <p className="text-zinc-600 text-xs">Nenhum freelancer do BarberMove disponível na região agora.</p>
+                            ) : (
+                                <div className="space-y-2">
+                                    {freelancersProximosRegiao.map((f) => (
+                                        <div key={f.usuario_id} className="bg-black/40 border border-zinc-700 rounded p-2 flex items-center justify-between gap-2">
+                                            <div className="min-w-0">
+                                                <p className="text-sm font-bold text-white truncate">{f.nome}</p>
+                                                <p className="text-[11px] text-zinc-400">
+                                                    {f.status === 'presente' ? '💈 Presente na barbearia' : '🟢 Disponível na região'}
+                                                </p>
+                                            </div>
+                                            <span className="shrink-0 text-[11px] text-zinc-400 font-semibold">📍 {f.distancia_aproximada}</span>
                                         </div>
                                     ))}
                                 </div>
