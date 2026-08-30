@@ -3447,6 +3447,7 @@ def listar_meus_pedidos_cliente(token: str = Depends(oauth2_scheme), db: Session
             "barbearia_latitude": barbearia.latitude if barbearia else None,
             "barbearia_longitude": barbearia.longitude if barbearia else None,
             "barbeiro_nome": barbeiro.nome if barbeiro else None,
+            "barbeiro_foto_perfil": barbeiro.foto_perfil if barbeiro else None,
             "cliente_latitude": user.latitude,
             "cliente_longitude": user.longitude,
             "barbeiro_latitude": barbeiro.latitude if barbeiro else None,

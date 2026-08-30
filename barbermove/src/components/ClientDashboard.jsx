@@ -1072,6 +1072,31 @@ export default function ClientDashboard({ token, logout, API_URL: apiUrlProp, no
     const totalSelecionado = selectedServices.reduce((acc, s) => acc + (Number(s.valor) || 0), 0);
     const duracaoSelecionada = selectedServices.reduce((acc, s) => acc + (Number(s.duracao_minutos) || 0), 0);
 
+    // Atendimento iniciado: painel do cliente entra em modo "acompanhar" (somente visualizacao).
+    const atendimentoEmAndamento =
+        String(activeChamado?.status || '').toLowerCase() === 'em_atendimento';
+
+    // Servico(s) do atendimento atual (lista quando o cliente contratou varios servicos no mesmo grupo).
+    const servicosDoAtendimento = useMemo(() => {
+        if (!activeChamado) return [];
+        const base = Array.isArray(myOrders) ? myOrders : [];
+        const membros = activeChamado.grupo_id
+            ? base.filter((o) => o.grupo_id === activeChamado.grupo_id)
+            : [activeChamado];
+        const nomes = membros.map((m) => m?.servico_nome || m?.descricao).filter(Boolean);
+        return [...new Set(nomes)];
+    }, [activeChamado, myOrders]);
+
+    // Primeiro servico concluido e ainda nao pago -> destaque de pagamento na tela inicial (fluxo de pagamento inalterado).
+    const pagamentoPendenteHome = useMemo(() => {
+        const base = Array.isArray(myOrders) ? myOrders : [];
+        return base.find((o) => {
+            const concluido = (o.status || '').toString().toLowerCase().includes('conclu');
+            const pago = o.pagamento_concluido === true || Boolean(o.pagamento_pago_em);
+            return concluido && !pago;
+        }) || null;
+    }, [myOrders]);
+
     const localizacaoCliente = userLocation || (
         normalizarNumero(userData?.latitude) != null && normalizarNumero(userData?.longitude) != null
             ? { latitude: normalizarNumero(userData.latitude), longitude: normalizarNumero(userData.longitude) }
@@ -1382,7 +1407,71 @@ export default function ClientDashboard({ token, logout, API_URL: apiUrlProp, no
         </div>
 
         {/* Painel de rastreamento/chat ativo (quando há um chamado imediato) */}
-        {!isPerfilTab && isChamadoVisivel(activeChamado) && (
+        {!isPerfilTab && isChamadoVisivel(activeChamado) && atendimentoEmAndamento && (
+            <div className="px-3 pt-2">
+                {/* ATENDIMENTO EM ANDAMENTO: interface enxuta, o cliente apenas acompanha.
+                    Sem mapa/GPS/ETA/ID/cancelamento e sem controle de cronometro. */}
+                <div className="dashboard-card space-y-4 p-4">
+                    <span className="inline-flex items-center gap-2 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-3 py-1 text-[11px] font-black uppercase tracking-[0.18em] text-emerald-300">
+                        🟢 Atendimento em andamento
+                    </span>
+
+                    <div className="flex items-center gap-3">
+                        {resolverFoto(activeChamado.barbeiro_foto_perfil) ? (
+                            <img
+                                src={resolverFoto(activeChamado.barbeiro_foto_perfil)}
+                                alt={activeChamado.barbeiro_nome || 'Freelancer'}
+                                className="w-12 h-12 rounded-full object-cover border border-zinc-700"
+                            />
+                        ) : (
+                            <div className="w-12 h-12 rounded-full bg-zinc-800 border border-zinc-700 flex items-center justify-center text-zinc-400">
+                                <User size={20} />
+                            </div>
+                        )}
+                        <div className="min-w-0">
+                            <p className="text-[10px] uppercase tracking-[0.15em] text-zinc-500 font-semibold">Freelancer</p>
+                            <p className="text-sm font-bold text-white truncate">{activeChamado.barbeiro_nome || 'Freelancer'}</p>
+                        </div>
+                    </div>
+
+                    <div>
+                        <p className="text-[10px] uppercase tracking-[0.15em] text-zinc-500 font-semibold mb-1">
+                            {servicosDoAtendimento.length > 1 ? '✂️ Serviços' : '✂️ Serviço'}
+                        </p>
+                        {servicosDoAtendimento.length > 0 ? (
+                            <ul className="space-y-0.5">
+                                {servicosDoAtendimento.map((nome, i) => (
+                                    <li key={i} className="text-sm font-semibold text-zinc-100">{nome}</li>
+                                ))}
+                            </ul>
+                        ) : (
+                            <p className="text-sm font-semibold text-zinc-100">
+                                {activeChamado.servico_nome || activeChamado.descricao || 'Serviço'}
+                            </p>
+                        )}
+                    </div>
+
+                    <CronometroAtendimento
+                        chamado={activeChamado}
+                        chamadosGrupo={myOrders}
+                        chamadoAtivoId={activeChamado.id}
+                        isPausado={Boolean(activeChamado.pausado)}
+                        pausadoEmMs={activeChamado.pausado_em ? parseDataServidorUTC(activeChamado.pausado_em) : null}
+                        pausaAcumuladaMs={Math.round((Number(activeChamado.pausa_acumulada_segundos) || 0) * 1000)}
+                        agoraMs={agoraMsCronometro}
+                        variante="circular"
+                    />
+
+                    <div>
+                        <p className="text-[10px] uppercase tracking-[0.15em] text-zinc-500 font-semibold mb-2">💬 Conversa</p>
+                        <ChatRoom chamadoId={activeChamado.id} token={token} API_URL={API_URL} compact={true} />
+                    </div>
+                </div>
+            </div>
+        )}
+
+        {/* Painel completo (deslocamento): so antes do atendimento comecar. */}
+        {!isPerfilTab && isChamadoVisivel(activeChamado) && !atendimentoEmAndamento && (
             <div className="px-3 pt-2">
                 <div className="dashboard-card space-y-4 p-4">
                     <div className="flex items-start justify-between gap-3">
@@ -1400,17 +1489,6 @@ export default function ClientDashboard({ token, logout, API_URL: apiUrlProp, no
                             </div>
                         </div>
                     </div>
-                    {String(activeChamado.status || '').toLowerCase() === 'em_atendimento' && (
-                        <CronometroAtendimento
-                            chamado={activeChamado}
-                            chamadosGrupo={myOrders}
-                            chamadoAtivoId={activeChamado.id}
-                            isPausado={Boolean(activeChamado.pausado)}
-                            pausadoEmMs={activeChamado.pausado_em ? parseDataServidorUTC(activeChamado.pausado_em) : null}
-                            pausaAcumuladaMs={Math.round((Number(activeChamado.pausa_acumulada_segundos) || 0) * 1000)}
-                            agoraMs={agoraMsCronometro}
-                        />
-                    )}
                     <div className="grid grid-cols-1 gap-2">
                         {typeof onChamadoAceito === 'function' && (
                             <button
@@ -1521,6 +1599,27 @@ export default function ClientDashboard({ token, logout, API_URL: apiUrlProp, no
                         </div>
                         <p className="text-sm text-zinc-400">Encontre barbeiros próximos, acompanhe seus chamados e gerencie seus pagamentos.</p>
                     </div>
+
+                    {pagamentoPendenteHome && (
+                        <button
+                            onClick={() => {
+                                setChamadoParaPagar({
+                                    id: pagamentoPendenteHome.id,
+                                    valor: Number(pagamentoPendenteHome.valor || 0),
+                                    descricao: pagamentoPendenteHome.servico_nome || pagamentoPendenteHome.descricao || 'Serviço',
+                                });
+                                setTab('pagamento');
+                            }}
+                            className="w-full text-left dashboard-card rounded-2xl p-4 border border-emerald-500/40 bg-emerald-500/10 hover:border-emerald-400 transition-colors"
+                        >
+                            <p className="text-[11px] font-black uppercase tracking-[0.18em] text-emerald-300">💳 Pagamento pendente</p>
+                            <p className="text-sm text-zinc-200 mt-1">Seu atendimento foi finalizado.</p>
+                            <span className="mt-2 inline-flex items-center gap-1 rounded-lg bg-emerald-500 px-3 py-1.5 text-sm font-bold text-black">
+                                Pagar agora <ArrowRight size={14} />
+                            </span>
+                        </button>
+                    )}
+
                     <div className="grid grid-cols-2 gap-3">
                         <button onClick={() => setTab('buscar')} className="dashboard-card bg-zinc-900 rounded-2xl p-4 border border-zinc-800/60 flex flex-col items-center gap-2 hover:border-orange-500 transition-colors">
                             <Search size={22} className="text-orange-400" />
