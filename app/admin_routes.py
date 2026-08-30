@@ -277,7 +277,12 @@ def buscar_usuario(
 @router.get("/", response_class=HTMLResponse)
 def dashboard_page():
     """Página do dashboard admin - com login integrado"""
-    return """
+    # no-store: o painel é servido pelo backend (não passa pelo build do PWA);
+    # sem isso o navegador guardava a versão antiga e o admin não via as atualizações.
+    return HTMLResponse(content=_DASHBOARD_HTML, headers={"Cache-Control": "no-store, must-revalidate"})
+
+
+_DASHBOARD_HTML = """
     <!DOCTYPE html>
     <html lang="pt-BR">
     <head>
@@ -459,10 +464,13 @@ def dashboard_page():
             }
             .thumb-grid {
                 display: grid;
-                grid-template-columns: repeat(auto-fill, minmax(84px, 1fr));
-                gap: 8px;
+                grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+                gap: 10px;
             }
-            .thumb-grid.docs { grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); }
+            .thumb-grid.docs { grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); }
+            @media (max-width: 640px) {
+                .thumb-grid, .thumb-grid.docs { grid-template-columns: repeat(3, 1fr); }
+            }
             .thumb {
                 position: relative;
                 display: block;
@@ -482,6 +490,18 @@ def dashboard_page():
                 display: block;
                 transition: transform 0.2s;
             }
+            .thumb:not(.faltando)::after {
+                content: "🔍";
+                position: absolute;
+                top: 4px; right: 4px;
+                font-size: 11px;
+                background: rgba(0,0,0,0.55);
+                border-radius: 5px;
+                padding: 1px 3px;
+                opacity: 0;
+                transition: opacity 0.15s;
+            }
+            .thumb:hover::after { opacity: 1; }
             .thumb:hover img { transform: scale(1.06); }
             .thumb .thumb-cap {
                 position: absolute;
@@ -536,18 +556,24 @@ def dashboard_page():
                 position: absolute;
                 top: 50%;
                 transform: translateY(-50%);
-                font-size: 44px;
+                font-size: 40px;
+                line-height: 1;
                 color: #fff;
-                background: rgba(255,255,255,0.08);
+                background: rgba(255,255,255,0.12);
                 border: none;
                 cursor: pointer;
-                padding: 8px 18px;
-                border-radius: 10px;
+                width: 52px;
+                height: 64px;
+                border-radius: 12px;
                 user-select: none;
+                display: flex;
+                align-items: center;
+                justify-content: center;
             }
-            .lightbox .lb-nav:hover { background: rgba(255,255,255,0.2); }
-            .lightbox .lb-prev { left: 20px; }
-            .lightbox .lb-next { right: 20px; }
+            .lightbox .lb-nav:hover { background: rgba(255,255,255,0.25); }
+            .lightbox .lb-nav[disabled] { opacity: 0.25; cursor: default; }
+            .lightbox .lb-prev { left: 12px; }
+            .lightbox .lb-next { right: 12px; }
             .lightbox .lb-info {
                 position: absolute;
                 bottom: 20px;
@@ -613,9 +639,9 @@ def dashboard_page():
         <!-- LIGHTBOX -->
         <div class="lightbox" id="lightbox" onclick="if(event.target===this)fecharLightbox()">
             <button class="lb-fechar" onclick="fecharLightbox()" title="Fechar (Esc)">&times;</button>
-            <button class="lb-nav lb-prev" onclick="navLightbox(-1)" title="Anterior (←)">&#8249;</button>
+            <button class="lb-nav lb-prev" id="lbPrev" onclick="navLightbox(-1)" title="Anterior (←)">&#8249;</button>
             <img id="lightboxImg" src="" alt="">
-            <button class="lb-nav lb-next" onclick="navLightbox(1)" title="Próxima (→)">&#8250;</button>
+            <button class="lb-nav lb-next" id="lbNext" onclick="navLightbox(1)" title="Próxima (→)">&#8250;</button>
             <div class="lb-info" id="lightboxInfo"></div>
         </div>
 
@@ -793,11 +819,14 @@ def dashboard_page():
                 document.getElementById('lightboxImg').src = item.url;
                 document.getElementById('lightboxInfo').textContent =
                     `${lbIdx + 1} / ${g.length}` + (item.descricao ? ` — ${item.descricao}` : '');
+                const solo = g.length <= 1;
+                document.getElementById('lbPrev').hidden = solo;
+                document.getElementById('lbNext').hidden = solo;
             }
 
             function navLightbox(delta) {
                 const g = galerias[lbChave];
-                if (!g) return;
+                if (!g || g.length <= 1) return;
                 lbIdx = (lbIdx + delta + g.length) % g.length;
                 renderLightbox();
             }
@@ -814,6 +843,19 @@ def dashboard_page():
                 else if (e.key === 'ArrowLeft') navLightbox(-1);
                 else if (e.key === 'ArrowRight') navLightbox(1);
             });
+
+            // Swipe no lightbox (celular)
+            (function () {
+                let x0 = null;
+                const lb = document.getElementById('lightbox');
+                lb.addEventListener('touchstart', e => { x0 = e.changedTouches[0].clientX; }, { passive: true });
+                lb.addEventListener('touchend', e => {
+                    if (x0 === null) return;
+                    const dx = e.changedTouches[0].clientX - x0;
+                    if (Math.abs(dx) > 45) navLightbox(dx < 0 ? 1 : -1);
+                    x0 = null;
+                }, { passive: true });
+            })();
 
             async function carregarUsuarios() {
                 const endpoint = abaAtual === 'pendentes' ? '/pendentes' : '/aprovados';
