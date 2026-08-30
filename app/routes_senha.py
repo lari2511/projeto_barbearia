@@ -4,6 +4,7 @@ from sqlalchemy import func
 from pydantic import BaseModel
 from datetime import datetime, timedelta
 from jose import jwt, JWTError
+import logging
 import os
 
 from .database import get_db
@@ -11,6 +12,7 @@ from . import models
 from .email_utils import send_email
 
 router = APIRouter(prefix="/api/v1", tags=["senha"])
+logger = logging.getLogger(__name__)
 
 SECRET_KEY = os.getenv("SECRET_KEY", "INSEGURO_MUDE_ISSO_AGORA")
 ALGORITHM = "HS256"
@@ -52,8 +54,10 @@ def solicitar_reset(dados: SolicitarResetRequest, background_tasks: BackgroundTa
 
     # Sempre retorna 200 para não revelar se email existe
     if not usuario:
+        logger.info("reset de senha solicitado para email SEM conta: %r", email)
         return {"mensagem": "Se o email existir, você receberá as instruções."}
 
+    logger.info("reset de senha: gerando token e enviando email para %s (id=%s)", usuario.email, usuario.id)
     token = _gerar_token_reset(usuario.email)
     link = f"{FRONTEND_URL}?reset_token={token}"
 
@@ -76,8 +80,8 @@ def solicitar_reset(dados: SolicitarResetRequest, background_tasks: BackgroundTa
         text_body=f"Acesse: {link}"
     )
 
-    # Mostra o token no terminal para testes sem SMTP
-    print(f"\n[RESET SENHA] Token para {usuario.email}:\n{link}\n")
+    # Mostra o link no log para testes sem SMTP
+    logger.info("[RESET SENHA] link para %s: %s", usuario.email, link)
 
     return {"mensagem": "Se o email existir, você receberá as instruções."}
 

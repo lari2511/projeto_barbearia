@@ -5,6 +5,7 @@ from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconn
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from dotenv import load_dotenv
+import logging
 import os
 import hashlib
 import json
@@ -12,6 +13,13 @@ import shutil
 
 # Carrega variáveis do .env
 load_dotenv()
+
+# Garante que os logs de app (logger.info/warning/...) apareçam no stdout do Railway.
+# Sem isso, o root logger fica sem handler sob o uvicorn e o output some.
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
+)
 
 from .routes import router  # Importa as rotas do arquivo routes.py
 from .routes_extras import router as router_extras  # Importa rotas extras

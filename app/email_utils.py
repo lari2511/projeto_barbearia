@@ -1,3 +1,4 @@
+import logging
 import os
 import smtplib
 import ssl
@@ -5,6 +6,8 @@ from email.message import EmailMessage
 from typing import Optional
 
 import requests
+
+logger = logging.getLogger(__name__)
 
 SMTP_HOST = os.getenv("SMTP_HOST") or os.getenv("MAIL_SERVER")
 SMTP_PORT = int(os.getenv("SMTP_PORT") or os.getenv("MAIL_PORT") or "587")
@@ -51,13 +54,14 @@ def _send_via_brevo_api(to_email: str, subject: str, html_body: str, text_body: 
             timeout=20,
         )
         if response.status_code in (200, 201, 202):
-            print(f"✅ [BREVO API] Email enviado para {to_email}")
+            logger.info("[BREVO API] email enviado para %s", to_email)
             return True
 
-        print(f"❌ [BREVO API] Falha no envio para {to_email}: HTTP {response.status_code}")
+        logger.warning("[BREVO API] falha no envio para %s: HTTP %s - %s",
+                       to_email, response.status_code, response.text[:300])
         return False
     except Exception as exc:  # noqa: BLE001
-        print(f"❌ [BREVO API] Excecao ao enviar para {to_email}: {type(exc).__name__}: {exc}")
+        logger.warning("[BREVO API] excecao ao enviar para %s: %s: %s", to_email, type(exc).__name__, exc)
         return False
 
 
@@ -83,13 +87,14 @@ def _send_via_resend_api(to_email: str, subject: str, html_body: str, text_body:
             timeout=20,
         )
         if response.status_code in (200, 201, 202):
-            print(f"✅ [RESEND API] Email enviado para {to_email}")
+            logger.info("[RESEND API] email enviado para %s", to_email)
             return True
 
-        print(f"❌ [RESEND API] Falha no envio para {to_email}: HTTP {response.status_code}")
+        logger.warning("[RESEND API] falha no envio para %s: HTTP %s - %s",
+                       to_email, response.status_code, response.text[:300])
         return False
     except Exception as exc:  # noqa: BLE001
-        print(f"❌ [RESEND API] Excecao ao enviar para {to_email}: {type(exc).__name__}: {exc}")
+        logger.warning("[RESEND API] excecao ao enviar para %s: %s: %s", to_email, type(exc).__name__, exc)
         return False
 
 
@@ -104,9 +109,8 @@ def send_email(subject: str, to_email: str, html_body: str, text_body: Optional[
         return True
 
     if not SMTP_HOST or not SMTP_USER or not SMTP_PASSWORD:
-        print(f"⚠️ SMTP não configurado; email NÃO enviado para {to_email}.")
-        print(f"📧 Assunto: {subject}")
-        print(f"📝 Corpo: {html_body[:200]}...")
+        logger.error("nenhum canal de email disponivel (Brevo/Resend falharam e SMTP nao configurado); "
+                     "email NAO enviado para %s | assunto=%r", to_email, subject)
         return False
 
     message = EmailMessage()
@@ -117,7 +121,7 @@ def send_email(subject: str, to_email: str, html_body: str, text_body: Optional[
     message.add_alternative(html_body, subtype="html")
 
     try:
-        print(f"📤 Tentando enviar email para {to_email} via {SMTP_HOST}:{SMTP_PORT}...")
+        logger.info("tentando enviar email para %s via SMTP %s:%s", to_email, SMTP_HOST, SMTP_PORT)
 
         if SMTP_USE_SSL:
             context = ssl.create_default_context()
@@ -132,9 +136,9 @@ def send_email(subject: str, to_email: str, html_body: str, text_body: Optional[
                 server.login(SMTP_USER, SMTP_PASSWORD)
                 server.send_message(message)
         
-        print(f"✅ Email enviado com sucesso para {to_email}!")
+        logger.info("[SMTP] email enviado para %s", to_email)
         return True
     except Exception as exc:  # noqa: BLE001
-        print(f"❌ Erro ao enviar email para {to_email}: {type(exc).__name__}: {exc}")
+        logger.warning("[SMTP] erro ao enviar para %s: %s: %s", to_email, type(exc).__name__, exc)
         return False
 

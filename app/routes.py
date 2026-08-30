@@ -702,19 +702,28 @@ def pode_receber_chamado(barbeiro_id: int, db: Session = Depends(get_db)):
         "minutos_para_liberar": int(math.ceil(minutos_restantes - 10))
     }
 
+def _senha_para_hash(password: str) -> str:
+    """Normaliza a senha antes de gerar/conferir o hash.
+
+    O bcrypt ignora tudo além de 72 bytes. Isso PRECISA ser aplicado tanto ao
+    gerar o hash quanto ao verificar, senão uma senha longa gera hash da senha
+    inteira mas o login só confere os 72 primeiros bytes -> "senha incorreta".
+    """
+    b = (password or "").encode("utf-8")
+    if len(b) > 72:
+        return b[:72].decode("utf-8", errors="ignore")
+    return password or ""
+
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     if not hashed_password:
         return False
     try:
-        # Trunca para 72 bytes (limite do bcrypt) antes de verificar
-        if len(plain_password.encode('utf-8')) > 72:
-            plain_password = plain_password.encode('utf-8')[:72].decode('utf-8', errors='ignore')
-        return pwd_context.verify(plain_password, hashed_password)
+        return pwd_context.verify(_senha_para_hash(plain_password), hashed_password)
     except (UnknownHashError, ValueError):
         return False
 
 def get_password_hash(password: str) -> str:
-    return pwd_context.hash(password)
+    return pwd_context.hash(_senha_para_hash(password))
 
 def create_access_token(data: dict, expires_delta: timedelta | None = None) -> str:
     to_encode = data.copy()
