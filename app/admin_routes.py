@@ -441,6 +441,121 @@ def dashboard_page():
             }
             .empty-state p { font-size: 14px; margin-bottom: 10px; }
             .empty-state .emoji { font-size: 48px; margin-bottom: 10px; }
+
+            /* Documentos + portfólio ocupam a largura toda do card */
+            .user-card { flex-direction: column; align-items: stretch; }
+            .user-card-top {
+                display: flex;
+                justify-content: space-between;
+                align-items: flex-start;
+                gap: 12px;
+            }
+            .media-bloco { margin-top: 12px; }
+            .media-bloco > .media-titulo {
+                color: #fbbf24;
+                font-size: 12px;
+                font-weight: bold;
+                margin-bottom: 8px;
+            }
+            .thumb-grid {
+                display: grid;
+                grid-template-columns: repeat(auto-fill, minmax(84px, 1fr));
+                gap: 8px;
+            }
+            .thumb-grid.docs { grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); }
+            .thumb {
+                position: relative;
+                display: block;
+                width: 100%;
+                aspect-ratio: 1 / 1;
+                border: 1px solid #374151;
+                border-radius: 8px;
+                overflow: hidden;
+                cursor: pointer;
+                background: #111827;
+                padding: 0;
+            }
+            .thumb img {
+                width: 100%;
+                height: 100%;
+                object-fit: cover;
+                display: block;
+                transition: transform 0.2s;
+            }
+            .thumb:hover img { transform: scale(1.06); }
+            .thumb .thumb-cap {
+                position: absolute;
+                left: 0; right: 0; bottom: 0;
+                background: linear-gradient(transparent, rgba(0,0,0,0.75));
+                color: #fff;
+                font-size: 10px;
+                padding: 10px 4px 3px;
+                text-align: left;
+                white-space: nowrap;
+                overflow: hidden;
+                text-overflow: ellipsis;
+            }
+            .thumb.faltando {
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                color: #6b7280;
+                font-size: 11px;
+                cursor: default;
+                text-align: center;
+            }
+
+            /* Lightbox */
+            .lightbox {
+                position: fixed;
+                inset: 0;
+                background: rgba(0,0,0,0.92);
+                display: none;
+                align-items: center;
+                justify-content: center;
+                z-index: 1000;
+            }
+            .lightbox.aberto { display: flex; }
+            .lightbox img {
+                max-width: 90vw;
+                max-height: 82vh;
+                object-fit: contain;
+                border-radius: 8px;
+            }
+            .lightbox .lb-fechar {
+                position: absolute;
+                top: 16px; right: 20px;
+                font-size: 34px;
+                color: #fff;
+                background: none;
+                border: none;
+                cursor: pointer;
+                line-height: 1;
+            }
+            .lightbox .lb-nav {
+                position: absolute;
+                top: 50%;
+                transform: translateY(-50%);
+                font-size: 44px;
+                color: #fff;
+                background: rgba(255,255,255,0.08);
+                border: none;
+                cursor: pointer;
+                padding: 8px 18px;
+                border-radius: 10px;
+                user-select: none;
+            }
+            .lightbox .lb-nav:hover { background: rgba(255,255,255,0.2); }
+            .lightbox .lb-prev { left: 20px; }
+            .lightbox .lb-next { right: 20px; }
+            .lightbox .lb-info {
+                position: absolute;
+                bottom: 20px;
+                left: 0; right: 0;
+                text-align: center;
+                color: #d4d4d8;
+                font-size: 13px;
+            }
         </style>
     </head>
     <body>
@@ -494,7 +609,16 @@ def dashboard_page():
                 <div class="loading">Carregando...</div>
             </div>
         </div>
-        
+
+        <!-- LIGHTBOX -->
+        <div class="lightbox" id="lightbox" onclick="if(event.target===this)fecharLightbox()">
+            <button class="lb-fechar" onclick="fecharLightbox()" title="Fechar (Esc)">&times;</button>
+            <button class="lb-nav lb-prev" onclick="navLightbox(-1)" title="Anterior (←)">&#8249;</button>
+            <img id="lightboxImg" src="" alt="">
+            <button class="lb-nav lb-next" onclick="navLightbox(1)" title="Próxima (→)">&#8250;</button>
+            <div class="lb-info" id="lightboxInfo"></div>
+        </div>
+
         <script>
             const API_URL = "/admin/api";
             let token = localStorage.getItem('token');
@@ -597,32 +721,99 @@ def dashboard_page():
                 }
             }
             
-            function documentoLink(url, label) {
-                if (!url) {
-                    return `<span style="opacity:0.4;margin-right:6px;" title="${label} não enviado">❌ ${label}</span>`;
-                }
-                return `<a href="${url}" target="_blank" rel="noopener" title="Abrir ${label}" style="display:inline-flex;align-items:center;gap:4px;margin-right:10px;color:#f97316;text-decoration:none;">
-                    <img src="${url}" alt="${label}" style="width:36px;height:36px;object-fit:cover;border-radius:6px;border:1px solid #374151;" />
-                    <span style="font-size:12px;">${label}</span>
-                </a>`;
+            // Galerias abertas no lightbox, indexadas por chave do card
+            const galerias = {};
+
+            function esc(t) {
+                return String(t == null ? '' : t).replace(/[&<>"']/g, c => ({
+                    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+                }[c]));
             }
 
-            function portfolioGaleria(portfolio) {
-                if (!portfolio || portfolio.length === 0) {
-                    return '';
-                }
-                const thumbs = portfolio.map(p => `
-                    <a href="${p.url}" target="_blank" rel="noopener" title="${(p.descricao || 'Foto').replace(/"/g, '')}" style="display:inline-block;margin:0 6px 6px 0;">
-                        <img src="${p.url}" alt="${(p.descricao || 'Portfólio').replace(/"/g, '')}" style="width:56px;height:56px;object-fit:cover;border-radius:6px;border:1px solid #374151;" />
-                    </a>
-                `).join('');
+            function thumbBtn(chave, idx, item) {
+                const cap = item.descricao ? `<span class="thumb-cap">${esc(item.descricao)}</span>` : '';
+                return `<button class="thumb" onclick="abrirLightbox('${chave}', ${idx})" title="${esc(item.descricao || 'Abrir')}">
+                    <img src="${esc(item.url)}" alt="${esc(item.descricao || 'Foto')}" loading="lazy">${cap}
+                </button>`;
+            }
+
+            function mediaBloco(titulo, chave, itens, faltando, classeExtra) {
+                if ((!itens || itens.length === 0) && (!faltando || faltando.length === 0)) return '';
+                const thumbs = itens.map((it, i) => thumbBtn(chave, i, it)).join('');
+                const vazios = (faltando || []).map(l => `<div class="thumb faltando">❌ ${esc(l)}</div>`).join('');
                 return `
-                    <div style="margin-top: 8px;">
-                        <p style="color: #fbbf24; margin-bottom: 6px;">🖼️ Portfólio (${portfolio.length}):</p>
-                        <div style="display:flex; flex-wrap:wrap;">${thumbs}</div>
+                    <div class="media-bloco">
+                        <div class="media-titulo">${titulo}</div>
+                        <div class="thumb-grid ${classeExtra || ''}">${thumbs}${vazios}</div>
                     </div>
                 `;
             }
+
+            function blocoDocumentos(u) {
+                const mapa = [
+                    ['Frente', u.documento_frente_url],
+                    ['Verso', u.documento_verso_url],
+                    ['Selfie', u.selfie_documento_url],
+                ];
+                const itens = [], faltando = [];
+                mapa.forEach(([label, url]) => {
+                    if (url) itens.push({ url, descricao: label });
+                    else faltando.push(label);
+                });
+                if (itens.length === 0) return '';
+                const chave = 'doc-' + abaAtual + '-' + u.id;
+                galerias[chave] = itens;
+                return mediaBloco('📄 Documentos', chave, itens, faltando, 'docs');
+            }
+
+            function blocoPortfolio(u) {
+                const itens = (u.portfolio || []).filter(p => p && p.url);
+                if (itens.length === 0) return '';
+                const chave = 'pf-' + abaAtual + '-' + u.id;
+                galerias[chave] = itens;
+                return mediaBloco(`🖼️ Portfólio (${itens.length})`, chave, itens, [], '');
+            }
+
+            // ---- Lightbox ----
+            let lbChave = null, lbIdx = 0;
+
+            function abrirLightbox(chave, idx) {
+                const g = galerias[chave];
+                if (!g || !g.length) return;
+                lbChave = chave;
+                lbIdx = idx;
+                renderLightbox();
+                document.getElementById('lightbox').classList.add('aberto');
+            }
+
+            function renderLightbox() {
+                const g = galerias[lbChave];
+                if (!g) return;
+                const item = g[lbIdx];
+                document.getElementById('lightboxImg').src = item.url;
+                document.getElementById('lightboxInfo').textContent =
+                    `${lbIdx + 1} / ${g.length}` + (item.descricao ? ` — ${item.descricao}` : '');
+            }
+
+            function navLightbox(delta) {
+                const g = galerias[lbChave];
+                if (!g) return;
+                lbIdx = (lbIdx + delta + g.length) % g.length;
+                renderLightbox();
+            }
+
+            function fecharLightbox() {
+                document.getElementById('lightbox').classList.remove('aberto');
+                document.getElementById('lightboxImg').src = '';
+                lbChave = null;
+            }
+
+            document.addEventListener('keydown', e => {
+                if (!document.getElementById('lightbox').classList.contains('aberto')) return;
+                if (e.key === 'Escape') fecharLightbox();
+                else if (e.key === 'ArrowLeft') navLightbox(-1);
+                else if (e.key === 'ArrowRight') navLightbox(1);
+            });
 
             async function carregarUsuarios() {
                 const endpoint = abaAtual === 'pendentes' ? '/pendentes' : '/aprovados';
@@ -646,31 +837,24 @@ def dashboard_page():
                     
                     usersList.innerHTML = usuarios.map(u => `
                         <div class="user-card">
-                            <div class="user-info">
-                                <div>
-                                    <span class="user-badge ${u.tipo}">${u.tipo.toUpperCase()}</span>
-                                    <h3>${u.nome}</h3>
-                                </div>
-                                <p>📧 ${u.email}</p>
-                                <p>📞 ${u.telefone || 'Sem telefone'}</p>
-                                ${(u.documento_frente_url || u.documento_verso_url || u.selfie_documento_url) ? `
-                                    <div style="margin-top: 8px;">
-                                        <p style="color: #fbbf24; margin-bottom: 6px;">📄 Documentos:</p>
-                                        <div style="display:flex; flex-wrap:wrap; gap:4px;">
-                                            ${documentoLink(u.documento_frente_url, 'Frente')}
-                                            ${documentoLink(u.documento_verso_url, 'Verso')}
-                                            ${documentoLink(u.selfie_documento_url, 'Selfie')}
-                                        </div>
+                            <div class="user-card-top">
+                                <div class="user-info">
+                                    <div>
+                                        <span class="user-badge ${u.tipo}">${u.tipo.toUpperCase()}</span>
+                                        <h3>${u.nome}</h3>
                                     </div>
-                                ` : ''}
-                                ${portfolioGaleria(u.portfolio)}
+                                    <p>📧 ${u.email}</p>
+                                    <p>📞 ${u.telefone || 'Sem telefone'}</p>
+                                </div>
+                                <div class="user-actions">
+                                    ${abaAtual === 'pendentes' ? `
+                                        <button class="btn btn-approve" onclick="aprovar(${u.id})">✅ Aprovar</button>
+                                        <button class="btn btn-reject" onclick="rejeitar(${u.id})">❌ Rejeitar</button>
+                                    ` : ''}
+                                </div>
                             </div>
-                            <div class="user-actions">
-                                ${abaAtual === 'pendentes' ? `
-                                    <button class="btn btn-approve" onclick="aprovar(${u.id})">✅ Aprovar</button>
-                                    <button class="btn btn-reject" onclick="rejeitar(${u.id})">❌ Rejeitar</button>
-                                ` : ''}
-                            </div>
+                            ${blocoDocumentos(u)}
+                            ${blocoPortfolio(u)}
                         </div>
                     `).join('');
                 } catch (err) {
