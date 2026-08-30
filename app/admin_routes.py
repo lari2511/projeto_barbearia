@@ -10,10 +10,40 @@ from sqlalchemy.orm import Session
 from datetime import datetime
 
 from app.database import get_db
-from app.models import Usuario
+from app.models import Usuario, Foto, Freelancer, PortfolioFreelancer
 from app.routes import get_current_user
 
 router = APIRouter(prefix="/admin", tags=["Admin"])
+
+
+def _portfolio_de_usuario(db: Session, usuario: Usuario):
+    """Fotos de portfólio de um usuário.
+
+    Barbeiro salva portfólio na tabela `fotos` (usuario_id); freelancer
+    cadastrado salva em `portfolio_freelancer` (freelancer_id). Reúne as duas.
+    """
+    itens = []
+
+    for f in (
+        db.query(Foto)
+        .filter(Foto.usuario_id == usuario.id)
+        .order_by(Foto.criado_em.desc())
+        .all()
+    ):
+        itens.append({"url": f.url, "descricao": f.descricao})
+
+    freelancer = db.query(Freelancer).filter(Freelancer.usuario_id == usuario.id).first()
+    if freelancer:
+        for p in (
+            db.query(PortfolioFreelancer)
+            .filter(PortfolioFreelancer.freelancer_id == freelancer.id)
+            .order_by(PortfolioFreelancer.tipo_servico, PortfolioFreelancer.ordem)
+            .all()
+        ):
+            desc = p.descricao or p.tipo_servico
+            itens.append({"url": p.url_imagem, "descricao": desc})
+
+    return itens
 
 # Verificar se é admin ou barbearia (permitir ambos)
 def verificar_admin(usuario = Depends(get_current_user)):
@@ -71,6 +101,7 @@ def listar_pendentes(
         "documento_frente_url": u.documento_frente_url,
         "documento_verso_url": u.documento_verso_url,
         "selfie_documento_url": u.selfie_documento_url,
+        "portfolio": _portfolio_de_usuario(db, u),
     } for u in pendentes]
 
 @router.get("/api/aprovados")
@@ -94,6 +125,7 @@ def listar_aprovados(
         "documento_frente_url": u.documento_frente_url,
         "documento_verso_url": u.documento_verso_url,
         "selfie_documento_url": u.selfie_documento_url,
+        "portfolio": _portfolio_de_usuario(db, u),
     } for u in aprovados]
 
 @router.get("/api/estatisticas")
@@ -146,17 +178,8 @@ def obter_usuario_detalhes(
     if not usuario:
         raise HTTPException(status_code=404, detail="Usuário não encontrado")
     
-    # Buscar portfólio se barbeiro
-    portfolio = []
-    if usuario.tipo == 'barbeiro' and hasattr(usuario, 'portfolio'):
-        portfolio = [
-            {
-                "id": p.id,
-                "foto_url": p.foto_url,
-                "descricao": p.descricao
-            } for p in usuario.portfolio
-        ]
-    
+    portfolio = _portfolio_de_usuario(db, usuario)
+
     return {
         "id": usuario.id,
         "nome": usuario.nome,
@@ -584,6 +607,23 @@ def dashboard_page():
                 </a>`;
             }
 
+            function portfolioGaleria(portfolio) {
+                if (!portfolio || portfolio.length === 0) {
+                    return '';
+                }
+                const thumbs = portfolio.map(p => `
+                    <a href="${p.url}" target="_blank" rel="noopener" title="${(p.descricao || 'Foto').replace(/"/g, '')}" style="display:inline-block;margin:0 6px 6px 0;">
+                        <img src="${p.url}" alt="${(p.descricao || 'Portfólio').replace(/"/g, '')}" style="width:56px;height:56px;object-fit:cover;border-radius:6px;border:1px solid #374151;" />
+                    </a>
+                `).join('');
+                return `
+                    <div style="margin-top: 8px;">
+                        <p style="color: #fbbf24; margin-bottom: 6px;">🖼️ Portfólio (${portfolio.length}):</p>
+                        <div style="display:flex; flex-wrap:wrap;">${thumbs}</div>
+                    </div>
+                `;
+            }
+
             async function carregarUsuarios() {
                 const endpoint = abaAtual === 'pendentes' ? '/pendentes' : '/aprovados';
                 const usersList = document.getElementById('usersList');
@@ -623,6 +663,7 @@ def dashboard_page():
                                         </div>
                                     </div>
                                 ` : ''}
+                                ${portfolioGaleria(u.portfolio)}
                             </div>
                             <div class="user-actions">
                                 ${abaAtual === 'pendentes' ? `
