@@ -141,7 +141,7 @@ def liberar_presenca_se_sem_pendencias(db: Session, freelancer_usuario_id: int) 
 
 
 # ============================================================
-# ENDPOINTS - CONTROLE DE STATUS (FREELANCER + DONO)
+# ENDPOINTS - CONTROLE DE STATUS (SOMENTE O PRÓPRIO FREELANCER)
 # ============================================================
 
 @router.post("/freelancer/{freelancer_id}/alterar-status")
@@ -153,7 +153,7 @@ def alterar_status_freelancer(
 ):
     """
     Altera o status do freelancer entre OFFLINE, ONLINE ou PRESENTE.
-    Pode ser chamado pelo próprio freelancer ou pelo dono da barbearia (controle duplo).
+    Somente o próprio freelancer pode alterar o seu status.
     """
     # Buscar freelancer
     freelancer = db.query(models.Usuario).filter(
@@ -164,60 +164,16 @@ def alterar_status_freelancer(
     if not freelancer:
         raise HTTPException(status_code=404, detail="Freelancer não encontrado")
     
-    # Verificar permissão
+    # Verificar permissão: somente o próprio freelancer controla o próprio status.
+    # O proprietário da barbearia é apenas observador — não pode alterar status de terceiros.
     is_proprio_freelancer = current_user.id == freelancer_id
-    is_dono_barbearia = current_user.tipo == "barbearia"
-    
-    if not is_proprio_freelancer and not is_dono_barbearia:
+
+    if not is_proprio_freelancer:
         raise HTTPException(
             status_code=403,
-            detail="Apenas o freelancer ou o dono da barbearia podem alterar o status"
+            detail="Apenas o próprio freelancer pode alterar o seu status"
         )
-    
-    # Se é o dono alterando, validar que o freelancer está na barbearia dele
-    if is_dono_barbearia and request.status == "presente":
-        if not request.barbearia_id:
-            raise HTTPException(status_code=400, detail="barbearia_id é obrigatório para status 'presente'")
-        
-        # Verificar se a barbearia pertence ao dono
-        barbearia = db.query(models.Barbearia).filter(
-            models.Barbearia.id == request.barbearia_id,
-            models.Barbearia.usuario_id == current_user.id
-        ).first()
-        
-        if not barbearia:
-            raise HTTPException(status_code=403, detail="Você não é dono desta barbearia")
-        
-        # Verificar se o freelancer está bloqueado nesta barbearia
-        bloqueio = db.query(models.BarbeariaFreelancer).filter(
-            models.BarbeariaFreelancer.barbearia_id == request.barbearia_id,
-            models.BarbeariaFreelancer.freelancer_id == freelancer_id,
-            models.BarbeariaFreelancer.bloqueado == True
-        ).first()
-        
-        if bloqueio:
-            raise HTTPException(
-                status_code=403,
-                detail=f"Este freelancer está bloqueado nesta barbearia. Motivo: {bloqueio.motivo}"
-            )
-        
-        # Verificar cadeiras disponíveis
-        total_cadeiras = db.query(models.Cadeira).filter(
-            models.Cadeira.barbearia_id == request.barbearia_id
-        ).count()
-        
-        freelancers_presentes = db.query(models.Usuario).filter(
-            models.Usuario.barbearia_atual_id == request.barbearia_id,
-            models.Usuario.presente_em_local == True,
-            models.Usuario.id != freelancer_id  # Não contar ele mesmo
-        ).count()
-        
-        if freelancers_presentes >= total_cadeiras:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Não há cadeiras disponíveis. {freelancers_presentes}/{total_cadeiras} ocupadas"
-            )
-    
+
     # ============================================================
     # APLICAR O STATUS
     # ============================================================

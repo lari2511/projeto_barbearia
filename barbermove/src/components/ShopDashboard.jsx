@@ -216,37 +216,6 @@ export default function ShopDashboard({ token, logout, notify, API_URL }) {
         carregarServicosBarbearia();
     }, [barbeariaId, carregarServicosBarbearia]);
 
-    // Alterar status do freelancer (controle duplo)
-    const alterarStatusFreelancer = async (freelancerId, novoStatus, barbeariaIdAlvo = null) => {
-        try {
-            const res = await fetch(`${API_URL}/api/v1/freelancer/${freelancerId}/alterar-status`, {
-                method: 'POST',
-                headers: {
-                    'Authorization': `Bearer ${token}`,
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({
-                    status: novoStatus,
-                    barbearia_id: barbeariaIdAlvo || barbeariaId
-                })
-            });
-
-            if (res.ok) {
-                await res.json();
-                notify(`Status do freelancer alterado para ${novoStatus.toUpperCase()}`, 'success');
-                // Recarregar dados
-                if (barbeariaId) {
-                    carregarFreelancersPresentes();
-                }
-            } else {
-                const error = await res.json().catch(() => ({}));
-                notify(error.detail || 'Erro ao alterar status', 'error');
-            }
-        } catch (_err) {
-            notify('Erro ao conectar com servidor', 'error');
-        }
-    };
-
     // Bloquear freelancer
     const bloquearFreelancer = async (freelancerId, motivo) => {
         if (!barbeariaId) {
@@ -961,14 +930,8 @@ export default function ShopDashboard({ token, logout, notify, API_URL }) {
                                             </button>
                                           </>
                                         )}
-                                                                                {!disponivel && status === 'ocupada' && (
-                                          <button 
-                                            onClick={() => desbloquearCadeira(cadeira.id)}
-                                            className="bg-orange-600 hover:bg-orange-700 text-white px-3 py-2 rounded-lg text-xs font-bold transition-all"
-                                          >
-                                            Finalizar
-                                          </button>
-                                        )}
+                                                                                {/* O proprietário apenas visualiza a cadeira ocupada. Quem finaliza o
+                                                                                    atendimento é somente o próprio freelancer, no painel dele. */}
                                                                                 {status === 'bloqueada' && (
                                           <button 
                                             onClick={() => desbloquearCadeira(cadeira.id)}
@@ -1202,28 +1165,13 @@ export default function ShopDashboard({ token, logout, notify, API_URL }) {
                                                     <p className="font-bold text-sm truncate">{freelancer.nome}</p>
                                                     <p className="text-xs text-zinc-400 truncate">{freelancer.email}</p>
                                                 </div>
-                                                <div className="h-2 w-2 bg-green-500 rounded-full animate-pulse"></div>
+                                                <div className="flex items-center gap-1.5 shrink-0">
+                                                    <span className="h-2 w-2 bg-green-500 rounded-full animate-pulse"></span>
+                                                    <span className="text-[11px] font-bold text-green-400">Presente</span>
+                                                </div>
                                             </div>
-                                            <div className="grid grid-cols-3 gap-2">
-                                                <button
-                                                    onClick={() => alterarStatusFreelancer(freelancer.id, 'offline')}
-                                                    className="py-2 px-2 bg-red-600/20 hover:bg-red-600/30 border border-red-600/50 text-red-400 rounded text-xs font-bold"
-                                                >
-                                                    OFFLINE
-                                                </button>
-                                                <button
-                                                    onClick={() => alterarStatusFreelancer(freelancer.id, 'online')}
-                                                    className="py-2 px-2 bg-green-600/20 hover:bg-green-600/30 border border-green-600/50 text-green-400 rounded text-xs font-bold"
-                                                >
-                                                    ONLINE
-                                                </button>
-                                                <button
-                                                    onClick={() => alterarStatusFreelancer(freelancer.id, 'presente', barbeariaId)}
-                                                    className="py-2 px-2 bg-blue-600/20 hover:bg-blue-600/30 border border-blue-600/50 text-blue-400 rounded text-xs font-bold"
-                                                >
-                                                    PRESENTE
-                                                </button>
-                                            </div>
+                                            {/* O proprietário é apenas observador do status. Só o próprio
+                                                freelancer altera o status dele, no painel do freelancer. */}
                                             <button
                                                 onClick={() => setFreelancerParaAvaliar({ id: freelancer.id, nome: freelancer.nome, foto: freelancer.foto_perfil })}
                                                 className="mt-2 w-full py-2 bg-orange-600/15 hover:bg-orange-600/25 border border-orange-600/40 text-orange-300 rounded text-xs font-bold flex items-center justify-center gap-1.5"
