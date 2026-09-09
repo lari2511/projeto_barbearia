@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { LogOut, Search, MapPin, Star, Calendar, ArrowRight, CheckCircle, User, CreditCard, MessageSquare, DollarSign, QrCode, X } from 'lucide-react';
+import { LogOut, Search, MapPin, Star, Calendar, ArrowRight, CheckCircle, User, CreditCard, MessageSquare, DollarSign, QrCode } from 'lucide-react';
 import TelaPagamento from './TelaPagamento';
 import TelaPerfilUsuario from './TelaPerfilUsuario';
 import MapEmbed from './MapEmbed';
@@ -14,6 +14,7 @@ import MapaBarbeiros from './MapaBarbeiros';
 import { obterLocalizacaoAtual, obterPosicaoAltaPrecisa } from '../utils/location';
 import { getApiBaseUrl, getWsBaseUrl, resolveMediaUrl } from '../utils/api';
 import { useBackHandler } from '../utils/useBackHandler';
+import BotaoVoltar from './BotaoVoltar';
 const getShopImage = (id) => `https://images.unsplash.com/photo-${id % 2 === 0 ? '1521590832874-552721032d00' : '1503951914290-d20607416905'}?auto=format&fit=crop&w=800&q=80`;
 const BARBEIROS_CACHE_KEY = 'barbermove.client.barbeiros_cache';
 const GPS_PREFERENCE_KEY = 'barbermove.client.gps_preference';
@@ -1396,9 +1397,12 @@ export default function ClientDashboard({ token, logout, API_URL: apiUrlProp, no
         {/* HEADER */}
         <div className="sticky top-0 z-20 px-3 pt-3 pb-2 bg-[#050505]/95 backdrop-blur-xl flex-shrink-0">
             <div className="dashboard-card bg-zinc-900 rounded-2xl p-4 border border-zinc-800/60 flex justify-between items-center">
-                <div>
-                    <p className="text-[10px] uppercase tracking-[0.2em] text-zinc-500 font-semibold">BarberMove</p>
-                    <h1 className="text-lg font-black tracking-tight">Buscar Barbeiros</h1>
+                <div className="flex items-center gap-2 min-w-0">
+                    {tab !== 'inicio' && <BotaoVoltar />}
+                    <div className="min-w-0">
+                        <p className="text-[10px] uppercase tracking-[0.2em] text-zinc-500 font-semibold">BarberMove</p>
+                        <h1 className="text-lg font-black tracking-tight">Buscar Barbeiros</h1>
+                    </div>
                 </div>
                 <button onClick={logout} className="h-10 w-10 rounded-full bg-zinc-900 border border-zinc-800 flex items-center justify-center text-zinc-400 hover:text-white hover:bg-zinc-800 transition-colors" aria-label="Sair da conta">
                     <LogOut size={18}/>
@@ -1837,9 +1841,6 @@ export default function ClientDashboard({ token, logout, API_URL: apiUrlProp, no
 
                     {step === 'barbearias' && (
                         <>
-                            <button onClick={voltarParaBarbeiros} className="text-xs text-zinc-400 hover:text-white flex items-center gap-1">
-                                <ArrowRight size={12} className="rotate-180" /> Voltar para barbeiros
-                            </button>
                             <h2 className="text-sm font-bold text-zinc-300">Escolha uma barbearia para {selectedBarber?.nome}</h2>
                             <div className="space-y-2">
                                 {selectedBarber && barbearias.length > 1 && (
@@ -1910,9 +1911,6 @@ export default function ClientDashboard({ token, logout, API_URL: apiUrlProp, no
 
                     {step === 'servicos' && (
                         <>
-                            <button onClick={voltarParaBarbearias} className="text-xs text-zinc-400 hover:text-white flex items-center gap-1">
-                                <ArrowRight size={12} className="rotate-180" /> Voltar para barbearias
-                            </button>
                             <h2 className="text-sm font-bold text-zinc-300">Escolha um ou mais servicos em {selectedBarbearia?.nome}</h2>
                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                                 <div className={`rounded-lg p-3 border shadow-sm ${localizacaoCliente ? (clienteDentroDoLimite ? 'bg-green-950/40 border-green-500/40' : 'bg-amber-950/30 border-amber-500/40') : 'bg-red-950/30 border-red-500/40'}`}>
@@ -2193,12 +2191,6 @@ export default function ClientDashboard({ token, logout, API_URL: apiUrlProp, no
             {/* TELA DE PAGAMENTO (modal overlay) */}
             {tab === 'pagamento' && chamadoParaPagar && (
                 <div className="p-2 sm:p-4 pb-20 max-w-3xl mx-auto w-full">
-                    <button
-                        onClick={() => setChamadoParaPagar(null)}
-                        className="flex items-center gap-1 text-zinc-400 hover:text-white text-xs mb-3"
-                    >
-                        <X size={14} /> Voltar
-                    </button>
                     <TelaPagamento
                         chamadoId={chamadoParaPagar.id}
                         valor={chamadoParaPagar.valor}
@@ -2260,8 +2252,8 @@ export default function ClientDashboard({ token, logout, API_URL: apiUrlProp, no
             </div>
         )}
 
-        {/* Mostrar rotas quando chamado está confirmado */}
-                {!isPerfilTab && activeChamado && ['aceito', 'confirmado', 'em_atendimento'].includes((activeChamado.status || '').toLowerCase()) && (
+        {/* Mostrar rotas somente durante o deslocamento (antes de iniciar o atendimento). */}
+                {!isPerfilTab && activeChamado && !atendimentoEmAndamento && ['aceito', 'confirmado'].includes((activeChamado.status || '').toLowerCase()) && (
           <TelaRotasAtivos
             chamado={activeChamado}
             userType="cliente"

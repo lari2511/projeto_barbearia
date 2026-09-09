@@ -742,6 +742,8 @@ export default function PainelBarberMovePremium({ token: tokenProp, logout: logo
     .filter((c) => c.id !== chamadoAtivo?.id && ['pendente', 'confirmado'].includes((c.status || '').toLowerCase()))
     .sort((a, b) => new Date(a.data_hora_inicio || a.data_agendamento || 0) - new Date(b.data_hora_inicio || b.data_agendamento || 0));
   const proximoNaFila = filaEspera[0] || null;
+  // Depois que o atendimento inicia, a tela fica enxuta: sem mapa/GPS/ETA/deslocamento.
+  const chamadoAtivoEmAtendimento = String(chamadoAtivo?.status || '').toLowerCase() === 'em_atendimento';
   const historicoFiltrado = historicoChamados.filter((c) => {
     if (filtroHistorico === 'todos') return true;
     const dataRef = c.data_hora_inicio || c.data_agendamento;
@@ -1007,7 +1009,7 @@ export default function PainelBarberMovePremium({ token: tokenProp, logout: logo
                     </div>
                   </div>
 
-                  {String(chamadoAtivo.status || '').toLowerCase() === 'em_atendimento' && (
+                  {chamadoAtivoEmAtendimento && (
                     <CronometroAtendimento
                       variante="circular"
                       chamado={chamadoAtivo}
@@ -1022,21 +1024,35 @@ export default function PainelBarberMovePremium({ token: tokenProp, logout: logo
                     />
                   )}
 
-                  {chamadoAtivo.nome_barbearia && (
+                  {/* Atendimento iniciado: botao de finalizar fica logo abaixo do cronometro, sem rolar a tela. */}
+                  {chamadoAtivoEmAtendimento && (
+                    <button
+                      onClick={() => setChamadoParaFinalizarId(chamadoAtivo.id)}
+                      className="w-full inline-flex items-center justify-center gap-2 bg-orange-600 hover:bg-orange-500 text-white font-black rounded-xl py-3.5 text-sm"
+                    >
+                      <Scissors size={16} />
+                      Finalizar corte
+                    </button>
+                  )}
+
+                  {/* Deslocamento (mapa/GPS/ETA/Cheguei): so antes de iniciar o atendimento. */}
+                  {!chamadoAtivoEmAtendimento && chamadoAtivo.nome_barbearia && (
                     <div className="flex items-center gap-2 rounded-xl border border-zinc-800 bg-zinc-950/60 px-3 py-2.5">
                       <MapPin size={14} className="text-zinc-400 shrink-0" />
                       <p className="text-xs text-zinc-400 truncate">{chamadoAtivo.nome_barbearia}</p>
                     </div>
                   )}
 
-                  <TrackingPanel
-                    chamado={chamadoAtivo}
-                    token={token}
-                    API_URL={API_URL}
-                    notify={notify}
-                    modo="barbeiro"
-                    minhaPosicao={minhaPosicao}
-                  />
+                  {!chamadoAtivoEmAtendimento && (
+                    <TrackingPanel
+                      chamado={chamadoAtivo}
+                      token={token}
+                      API_URL={API_URL}
+                      notify={notify}
+                      modo="barbeiro"
+                      minhaPosicao={minhaPosicao}
+                    />
+                  )}
                   <ChatRoom chamadoId={chamadoAtivo.id} token={token} API_URL={API_URL} compact />
                   {['pendente'].includes((chamadoAtivo.status||'').toLowerCase()) && (
                     <div className="flex gap-2">
@@ -1054,15 +1070,6 @@ export default function PainelBarberMovePremium({ token: tokenProp, logout: logo
                         ❌ Recusar
                       </button>
                     </div>
-                  )}
-                  {['em_atendimento'].includes((chamadoAtivo.status||'').toLowerCase()) && (
-                    <button
-                      onClick={() => setChamadoParaFinalizarId(chamadoAtivo.id)}
-                      className="w-full inline-flex items-center justify-center gap-2 bg-orange-600 hover:bg-orange-500 text-white font-black rounded-xl py-3.5 text-sm"
-                    >
-                      <Scissors size={16} />
-                      Finalizar corte
-                    </button>
                   )}
 
                   {proximoNaFila && (
