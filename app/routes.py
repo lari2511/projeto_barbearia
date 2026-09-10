@@ -908,7 +908,11 @@ def cadastrar_barbeiro(
         cpf=barbeiro.cpf,
         tipo="barbeiro",
         token_verificacao=token_verificacao,
-        email_verificado=False,  # Inicia como não verificado
+        # Login liberado logo apos o cadastro: a mesma senha (email + senha)
+        # tem que funcionar depois que o usuario sai e volta ao app.
+        email_verificado=True,
+        perfil_aprovado=True,
+        perfil_aprovado_em=datetime.now(),
     )
     db.add(novo_usuario)
     db.commit()
@@ -987,7 +991,11 @@ def cadastrar_barbearia(
         senha_hash=get_password_hash(barbearia.senha),
         tipo="barbearia",
         token_verificacao=token_verificacao,
-        email_verificado=False,  # Inicia como não verificado
+        # Login liberado logo apos o cadastro: a mesma senha (email + senha)
+        # tem que funcionar depois que o usuario sai e volta ao app.
+        email_verificado=True,
+        perfil_aprovado=True,
+        perfil_aprovado_em=datetime.now(),
     )
     db.add(novo_usuario)
     db.commit()
@@ -1163,18 +1171,10 @@ def login_barbeiro(form_data: OAuth2PasswordRequestForm = Depends(), db: Session
     if not usuario or not verify_password(senha, usuario.senha_hash):
         raise HTTPException(status_code=401, detail="Email ou senha incorretos")
 
-    if REQUIRE_EMAIL_VERIFIED and not usuario.email_verificado:
-        raise HTTPException(
-            status_code=403,
-            detail="Email não verificado. Verifique sua caixa de entrada ou reenvie o link.",
-        )
+    # Sem trava de verificacao de email / aprovacao manual: quem se cadastrou
+    # com email + senha tem que conseguir entrar de novo com a mesma senha
+    # depois de sair do app.
 
-    if not usuario.perfil_aprovado:
-        raise HTTPException(
-            status_code=403,
-            detail="Perfil em análise pela equipe. Aguarde aprovação do administrador.",
-        )
-    
     access_token = create_access_token(data={"sub": str(usuario.id), "tipo": usuario.tipo})
     return {
         "access_token": access_token,
@@ -1217,18 +1217,10 @@ def login_barbearia(form_data: OAuth2PasswordRequestForm = Depends(), db: Sessio
         print(f"❌ Senha incorreta para {email}")
         raise HTTPException(status_code=401, detail="Email ou senha incorretos")
 
-    if REQUIRE_EMAIL_VERIFIED and not usuario.email_verificado:
-        raise HTTPException(
-            status_code=403,
-            detail="Email não verificado. Verifique sua caixa de entrada ou reenvie o link.",
-        )
+    # Sem trava de verificacao de email / aprovacao manual: quem se cadastrou
+    # com email + senha tem que conseguir entrar de novo com a mesma senha
+    # depois de sair do app.
 
-    if not usuario.perfil_aprovado:
-        raise HTTPException(
-            status_code=403,
-            detail="Perfil em análise pela equipe. Aguarde aprovação do administrador.",
-        )
-    
     access_token = create_access_token(data={"sub": str(usuario.id), "tipo": usuario.tipo})
     return {
         "access_token": access_token,
