@@ -1759,7 +1759,13 @@ export default function ClientDashboard({ token, logout, API_URL: apiUrlProp, no
                                     };
 
                                     return (
-                                    <div key={barber.id} className="barber-card bm-card bg-zinc-900 rounded-2xl border border-zinc-800/60 hover:border-orange-500 transition-colors p-2 flex gap-3 items-start">
+                                    <div
+                                        key={barber.id}
+                                        onClick={() => setPerfilModal({ id: barber.id, tipo: 'barbeiro' })}
+                                        role="button"
+                                        tabIndex={0}
+                                        className="barber-card bm-card bg-zinc-900 rounded-2xl border border-zinc-800/60 hover:border-orange-500 transition-colors p-2 flex gap-3 items-start cursor-pointer"
+                                    >
                                         <div className="barber-image relative w-24 h-24 sm:w-28 sm:h-28 md:w-32 md:h-32 shrink-0 rounded-xl overflow-hidden bg-gradient-to-r from-zinc-800 to-zinc-900">
                                             <img
                                                 src={resolverFotoBarbeiro(barber) || getShopImage(barber.id)}
@@ -1798,7 +1804,7 @@ export default function ClientDashboard({ token, logout, API_URL: apiUrlProp, no
                                                 <div className="text-xs text-zinc-400 truncate mt-1">{barber.servico_principal || ''}</div>
                                             </div>
                                             <div className="relative z-10">
-                                                <div className="actions grid grid-cols-2 gap-2">
+                                                <div className="actions grid grid-cols-2 gap-2" onClick={(e) => e.stopPropagation()}>
                                                     <button
                                                         onClick={() => handleSelectShop(barber)}
                                                         disabled={!barbeiroDeTeste && (statusInfo.texto === 'INDISPONÍVEL' || statusInfo.texto === 'OFFLINE')}
@@ -1852,7 +1858,13 @@ export default function ClientDashboard({ token, logout, API_URL: apiUrlProp, no
                                     </div>
                                 )}
                                 {barbearias && barbearias.length > 0 ? barbearias.map(barbearia => (
-                                    <div key={barbearia.id} className="bm-card bg-zinc-900 rounded-2xl border border-zinc-800/60 hover:border-orange-500 transition-colors p-2 flex gap-3 items-start">
+                                    <div
+                                        key={barbearia.id}
+                                        onClick={() => setPerfilModal({ id: barbearia.usuario_id || barbearia.id, tipo: 'barbearia' })}
+                                        role="button"
+                                        tabIndex={0}
+                                        className="bm-card bg-zinc-900 rounded-2xl border border-zinc-800/60 hover:border-orange-500 transition-colors p-2 flex gap-3 items-start cursor-pointer"
+                                    >
                                         <div className="relative w-24 h-24 sm:w-28 sm:h-28 md:w-32 md:h-32 shrink-0 rounded-xl overflow-hidden bg-gradient-to-r from-zinc-800 to-zinc-900">
                                             <img
                                                 src={resolverFotoBarbearia(barbearia) || getShopImage(barbearia.id)}
@@ -1886,7 +1898,7 @@ export default function ClientDashboard({ token, logout, API_URL: apiUrlProp, no
                                                     )}
                                                 </div>
                                             )}
-                                            <div className="grid grid-cols-2 gap-2">
+                                            <div className="grid grid-cols-2 gap-2" onClick={(e) => e.stopPropagation()}>
                                                 <button
                                                     onClick={() => handleSelectBarbeariaInicial(barbearia)}
                                                     className="w-full bg-orange-600 hover:bg-orange-700 text-white py-2 px-2 rounded-lg text-xs font-bold"

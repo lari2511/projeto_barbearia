@@ -8,6 +8,7 @@ import TelaPerfilUsuario from './TelaPerfilUsuario';
 import TelaMensalidadeAssinatura from './TelaMensalidadeAssinatura';
 import { useBackHandler } from '../utils/useBackHandler';
 import BotaoVoltar from './BotaoVoltar';
+import ProfileCard from './ProfileCard';
 import CronometroAtendimento, { parseDataServidorUTC } from './CronometroAtendimento';
 import DeslocamentoAtendimento from './DeslocamentoAtendimento';
 import ChatRoom from './ChatRoom';
@@ -48,14 +49,16 @@ export default function ShopDashboard({ token, logout, notify, API_URL }) {
         const tabSalva = localStorage.getItem('barbearia_dashboard_tab') || 'inicio';
         return TABS_VALIDAS.includes(tabSalva) ? tabSalva : 'inicio';
     });
+    const [freelancerPerfilModal, setFreelancerPerfilModal] = useState(null); // { id, nome } — só abre o perfil, nenhuma outra ação
     useBackHandler(() => {
+        if (freelancerPerfilModal) { setFreelancerPerfilModal(null); return true; }
         if (tab === 'freelancers' || tab === 'servicos') { setTab('barbeiros'); return true; }
         if (tab === 'avaliar') { setTab('agenda'); return true; }
         if (tab === 'pagamento') { setTab('perfil'); return true; }
         if (tab === 'assinatura') { setTab('barbeiros'); return true; }
         if (tab !== 'inicio') { setTab('inicio'); return true; }
         return false;
-    }, [tab]);
+    }, [tab, freelancerPerfilModal]);
 
     const [agendamentos, setAgendamentos] = useState([]);
     const [freelancersPresentes, setFreelancersPresentes] = useState([]);
@@ -66,6 +69,11 @@ export default function ShopDashboard({ token, logout, notify, API_URL }) {
     const [loadingCadeirasBarbearia, setLoadingCadeirasBarbearia] = useState(false);
     const [ultimaAtualizacaoFreelancers, setUltimaAtualizacaoFreelancers] = useState(null);
     const [freelancerParaAvaliar, setFreelancerParaAvaliar] = useState(null); // { id, nome, foto }
+    // Toque no card do freelancer: abre APENAS o perfil (id real do usuário).
+    const abrirPerfilFreelancer = (id, nome) => {
+        const idNum = Number(id || 0);
+        if (idNum) setFreelancerPerfilModal({ id: idNum, nome: nome || 'Freelancer' });
+    };
     const [wsConectado, setWsConectado] = useState(false);
     const [_loading, _setLoading] = useState(false);
     const [barbeariaId, setBarbeariaId] = useState(null);
@@ -1163,7 +1171,13 @@ export default function ShopDashboard({ token, logout, notify, API_URL }) {
                             ) : (
                                 <div className="space-y-2">
                                     {freelancersPresentesNaBarbearia.map(freelancer => (
-                                        <div key={freelancer.id} className="bg-black/40 border border-zinc-700 rounded p-3 overflow-hidden">
+                                        <div
+                                            key={freelancer.id}
+                                            onClick={() => abrirPerfilFreelancer(freelancer.id, freelancer.nome)}
+                                            role="button"
+                                            tabIndex={0}
+                                            className="bg-black/40 border border-zinc-700 rounded p-3 overflow-hidden cursor-pointer hover:border-zinc-500"
+                                        >
                                             <div className="flex justify-between items-start mb-2">
                                                 <div className="min-w-0 pr-2">
                                                     <p className="font-bold text-sm truncate">{freelancer.nome}</p>
@@ -1177,7 +1191,7 @@ export default function ShopDashboard({ token, logout, notify, API_URL }) {
                                             {/* O proprietário é apenas observador do status. Só o próprio
                                                 freelancer altera o status dele, no painel do freelancer. */}
                                             <button
-                                                onClick={() => setFreelancerParaAvaliar({ id: freelancer.id, nome: freelancer.nome, foto: freelancer.foto_perfil })}
+                                                onClick={(e) => { e.stopPropagation(); setFreelancerParaAvaliar({ id: freelancer.id, nome: freelancer.nome, foto: freelancer.foto_perfil }); }}
                                                 className="mt-2 w-full py-2 bg-orange-600/15 hover:bg-orange-600/25 border border-orange-600/40 text-orange-300 rounded text-xs font-bold flex items-center justify-center gap-1.5"
                                             >
                                                 <Star size={12} /> Avaliar freelancer
@@ -1199,13 +1213,19 @@ export default function ShopDashboard({ token, logout, notify, API_URL }) {
                             ) : (
                                 <div className="space-y-2">
                                     {freelancersDisponiveis.map((f) => (
-                                        <div key={f.usuario_id} className="bg-black/40 border border-zinc-700 rounded p-2 flex items-center justify-between gap-2">
+                                        <div
+                                            key={f.id ?? f.usuario_id}
+                                            onClick={() => abrirPerfilFreelancer(f.id ?? f.usuario_id, f.nome)}
+                                            role="button"
+                                            tabIndex={0}
+                                            className="bg-black/40 border border-zinc-700 rounded p-2 flex items-center justify-between gap-2 cursor-pointer hover:border-zinc-500"
+                                        >
                                             <div className="min-w-0">
                                                 <p className="text-sm font-bold text-white truncate">{f.nome}</p>
                                                 <p className="text-[11px] text-zinc-400">{f.presente_em_local ? 'Disponível no local' : 'Disponível na região'}</p>
                                             </div>
                                             <button
-                                                onClick={() => setFreelancerParaAvaliar({ id: f.usuario_id, nome: f.nome, foto: f.foto_perfil })}
+                                                onClick={(e) => { e.stopPropagation(); setFreelancerParaAvaliar({ id: f.id ?? f.usuario_id, nome: f.nome, foto: f.foto_perfil }); }}
                                                 className="shrink-0 p-2 bg-orange-600/15 hover:bg-orange-600/25 border border-orange-600/40 text-orange-300 rounded"
                                                 title="Avaliar freelancer"
                                             >
@@ -1229,7 +1249,13 @@ export default function ShopDashboard({ token, logout, notify, API_URL }) {
                             ) : (
                                 <div className="space-y-2">
                                     {freelancersProximosRegiao.map((f) => (
-                                        <div key={f.usuario_id} className="bg-black/40 border border-zinc-700 rounded p-2 flex items-center justify-between gap-2">
+                                        <div
+                                            key={f.usuario_id}
+                                            onClick={() => abrirPerfilFreelancer(f.usuario_id, f.nome)}
+                                            role="button"
+                                            tabIndex={0}
+                                            className="bg-black/40 border border-zinc-700 rounded p-2 flex items-center justify-between gap-2 cursor-pointer hover:border-zinc-500"
+                                        >
                                             <div className="min-w-0">
                                                 <p className="text-sm font-bold text-white truncate">{f.nome}</p>
                                                 <p className="text-[11px] text-zinc-400">
@@ -1254,7 +1280,13 @@ export default function ShopDashboard({ token, logout, notify, API_URL }) {
                             ) : (
                                 <div className="space-y-2">
                                     {freelancersPendentesAprovacao.map((f) => (
-                                        <div key={f.usuario_id} className="bg-black/40 border border-zinc-700 rounded p-2">
+                                        <div
+                                            key={f.id ?? f.usuario_id}
+                                            onClick={() => abrirPerfilFreelancer(f.id ?? f.usuario_id, f.nome)}
+                                            role="button"
+                                            tabIndex={0}
+                                            className="bg-black/40 border border-zinc-700 rounded p-2 cursor-pointer hover:border-zinc-500"
+                                        >
                                             <p className="text-sm font-bold text-white">{f.nome}</p>
                                             <p className="text-[11px] text-zinc-400">Perfil em análise</p>
                                         </div>
@@ -1372,7 +1404,18 @@ export default function ShopDashboard({ token, logout, notify, API_URL }) {
                                             <div className="min-w-0 pr-2">
                                                 <p className="font-bold text-sm truncate">{ag.servico_nome || ag.descricao || 'Serviço'}</p>
                                                 <p className="text-xs text-zinc-400 truncate">Cliente: {ag.cliente_nome || ag.nome_cliente}</p>
-                                                <p className="text-xs text-zinc-400 truncate">Freelancer: {ag.barbeiro_nome || ag.nome_barbeiro}</p>
+                                                <p className="text-xs text-zinc-400 truncate">
+                                                    Freelancer:{' '}
+                                                    {ag.barbeiro_id ? (
+                                                        <button
+                                                            type="button"
+                                                            onClick={(e) => { e.stopPropagation(); abrirPerfilFreelancer(ag.barbeiro_id, ag.barbeiro_nome || ag.nome_barbeiro); }}
+                                                            className="font-semibold text-orange-300 underline underline-offset-2"
+                                                        >
+                                                            {ag.barbeiro_nome || ag.nome_barbeiro}
+                                                        </button>
+                                                    ) : (ag.barbeiro_nome || ag.nome_barbeiro)}
+                                                </p>
                                                 <p className="text-xs text-zinc-300">
                                                     {ag.data_hora_inicio ? new Date(ag.data_hora_inicio).toLocaleString('pt-BR') : 'Horário não definido'}
                                                 </p>
@@ -1519,6 +1562,23 @@ export default function ShopDashboard({ token, logout, notify, API_URL }) {
                 <button data-active={tab === 'perfil' || tab === 'pagamento'} onClick={() => setTab('perfil')} className={`bm-bottom-nav-btn flex flex-col items-center justify-center gap-0.5 h-full text-center rounded-xl ${tab === 'perfil' || tab === 'pagamento' ? 'text-orange-500 bg-orange-500/5' : 'text-zinc-400 hover:text-zinc-200'}`}><User size={14} /><span className="text-[10px] leading-none">Perfil</span></button>
             </div>
             </div>
+
+            {freelancerPerfilModal && (
+                <div className="fixed inset-0 bg-black/80 z-[2200] flex items-center justify-center p-4">
+                    <div className="bg-zinc-950 border border-zinc-800 rounded-2xl w-full max-w-[420px] max-h-[90vh] overflow-y-auto p-4">
+                        <div className="flex justify-between items-center mb-3">
+                            <h3 className="text-sm font-bold text-white truncate">{freelancerPerfilModal.nome || 'Freelancer'}</h3>
+                            <button onClick={() => setFreelancerPerfilModal(null)} className="text-zinc-400 px-2" aria-label="Fechar">✕</button>
+                        </div>
+                        <ProfileCard
+                            usuarioId={freelancerPerfilModal.id}
+                            userType="barbeiro"
+                            token={token}
+                            onNotify={notify}
+                        />
+                    </div>
+                </div>
+            )}
 
             {freelancerParaAvaliar && (
                 <AvaliacaoModal
