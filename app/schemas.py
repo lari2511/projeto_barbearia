@@ -124,12 +124,20 @@ class BarbeiroCreate(UsuarioBase):
 
 
 class BarbeariaCreate(UsuarioBase):
+    nome_barbearia: str  # Nome público do estabelecimento (diferente do nome do dono)
     endereco: str  # OBRIGATÓRIO - localização física fixa
     cep: Optional[str] = None
     cpf: Optional[str] = None  # Dono usa CPF OU CNPJ, nunca os dois obrigatórios
     cnpj: Optional[str] = None  # CNPJ da empresa
     latitude: Optional[float] = None  # IMPORTANTE: Localização física da barbearia
     longitude: Optional[float] = None  # IMPORTANTE: Localização física da barbearia
+
+    @field_validator("nome_barbearia")
+    @classmethod
+    def validate_nome_barbearia(cls, v: str) -> str:
+        if len(v.strip()) < 2:
+            raise ValueError("Nome da barbearia precisa de pelo menos 2 caracteres")
+        return v.strip()
 
     @field_validator("cpf")
     @classmethod

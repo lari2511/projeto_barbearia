@@ -343,6 +343,7 @@ export function TelaPerfilUsuario({
   const [fotoPerfilFalhou, setFotoPerfilFalhou] = useState(false);
 
   const [barbeariaId, setBarbeariaId] = useState(null);
+  const [nomeBarbearia, setNomeBarbearia] = useState('');
   const [enderecoBarbearia, setEnderecoBarbearia] = useState('');
   const [cepBarbearia, setCepBarbearia] = useState('');
   const [numeroBarbearia, setNumeroBarbearia] = useState('');
@@ -424,6 +425,10 @@ export function TelaPerfilUsuario({
         setTelefone(data?.telefone || '');
         setFotoPerfil(data?.foto_perfil || '');
 
+        if (perfilTipo === 'barbearia' && data?.nome_barbearia) {
+          setNomeBarbearia(data.nome_barbearia);
+        }
+
         if (perfilTipo === 'barbeiro') {
           setBarbeariaAtualNome(data?.barbearia_atual_nome || '');
           setBarbeariaAtualEndereco(data?.barbearia_atual_endereco || '');
@@ -482,6 +487,7 @@ export function TelaPerfilUsuario({
           const id = Number(barbearia?.id || 0);
           if (id) {
             setBarbeariaId(id);
+            if (barbearia?.nome) setNomeBarbearia(String(barbearia.nome));
             setEnderecoBarbearia(String(barbearia?.endereco || ''));
             setLatitudeBarbearia(
               Number.isFinite(Number(barbearia?.latitude)) ? Number(barbearia.latitude) : null
@@ -945,6 +951,9 @@ export function TelaPerfilUsuario({
           nome: String(nome || '').trim(),
           email: String(email || '').trim(),
           telefone: String(telefone || '').trim(),
+          ...(perfilTipo === 'barbearia'
+            ? { nome_barbearia: String(nomeBarbearia || '').trim() }
+            : {}),
         }),
       });
 
@@ -1575,6 +1584,13 @@ export function TelaPerfilUsuario({
             <div>
               <label className={styles.label}>Nome Completo</label>
               <input type="text" value={nome} onChange={(e) => setNome(e.target.value)} className={styles.input + ' mt-2'} />
+              <p className="mt-1 text-[11px] text-zinc-500">Nome pessoal do proprietário.</p>
+            </div>
+
+            <div>
+              <label className={styles.label}>Nome da Barbearia</label>
+              <input type="text" value={nomeBarbearia} onChange={(e) => setNomeBarbearia(e.target.value)} className={styles.input + ' mt-2'} placeholder="Ex: Barbearia Guilhermina" />
+              <p className="mt-1 text-[11px] text-zinc-500">Nome público que clientes e freelancers veem.</p>
             </div>
 
             <div>

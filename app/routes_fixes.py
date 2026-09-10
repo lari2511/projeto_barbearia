@@ -105,10 +105,20 @@ def get_perfil_completo(db: Session = Depends(get_db), usuario = Depends(get_cur
             barbearia_atual_nome = barbearia_atual.nome
             barbearia_atual_endereco = barbearia_atual.endereco
 
+    # Nome público do estabelecimento do próprio dono (entidade separada do nome pessoal).
+    nome_barbearia = None
+    if usuario.tipo == "barbearia":
+        minha_barbearia = db.query(models.Barbearia).filter(
+            models.Barbearia.usuario_id == usuario.id
+        ).first()
+        if minha_barbearia:
+            nome_barbearia = minha_barbearia.nome
+
     return {
         "id": usuario.id,
         "email": usuario.email,
         "nome": usuario.nome,
+        "nome_barbearia": nome_barbearia,
         "tipo": usuario.tipo,
         "telefone": usuario.telefone,
         "endereco": usuario.endereco,
@@ -206,11 +216,23 @@ def atualizar_perfil_usuario(
     if "foto_perfil" in payload:
         u.foto_perfil = _normalizar_path_upload(payload.get("foto_perfil"))
 
+    # Nome público da barbearia: entidade separada do nome pessoal do dono.
+    nome_barbearia = None
+    if u.tipo == "barbearia" and payload.get("nome_barbearia") is not None:
+        novo_nome_barbearia = str(payload.get("nome_barbearia") or "").strip()
+        if len(novo_nome_barbearia) < 2:
+            raise HTTPException(status_code=400, detail="Nome da barbearia precisa de pelo menos 2 caracteres")
+        barbearia = db.query(models.Barbearia).filter(models.Barbearia.usuario_id == u.id).first()
+        if barbearia:
+            barbearia.nome = novo_nome_barbearia
+            nome_barbearia = novo_nome_barbearia
+
     db.commit()
     db.refresh(u)
     return {
         "message": "Perfil atualizado",
         "nome": u.nome,
+        "nome_barbearia": nome_barbearia,
         "email": u.email,
         "telefone": u.telefone,
         "endereco": u.endereco,

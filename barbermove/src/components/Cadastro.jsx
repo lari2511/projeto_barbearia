@@ -53,6 +53,7 @@ const userTypes = [
 
 const emptyForm = {
   nome: '',
+  nomeBarbearia: '', // nome público do estabelecimento — só usado no cadastro de barbearia
   email: '',
   senha: '',
   telefone: '',
@@ -93,6 +94,7 @@ function buildPayload(tipo, form) {
 
   return {
     ...base,
+    nome_barbearia: form.nomeBarbearia.trim(),
     endereco: form.endereco.trim(),
     cep: form.cep.trim(),
     cpf: form.cpf.trim(),
@@ -315,6 +317,12 @@ export default function Cadastro({ initialType = 'cliente', onBack, onSuccess })
       }
 
       if (selectedType === 'barbearia') {
+        if (!form.nomeBarbearia.trim()) {
+          void enviarDiagnosticoCadastro(API_URL, 'submit:validacao-falhou', 'Nome da barbearia faltando', { selectedType })
+          setLocalError('Nome da barbearia é obrigatório')
+          return
+        }
+
         if (!form.cep.trim()) {
           void enviarDiagnosticoCadastro(API_URL, 'submit:validacao-falhou', 'CEP faltando', { selectedType, cep: form.cep })
           setLocalError('CEP é obrigatório para barbearia')
@@ -453,6 +461,17 @@ export default function Cadastro({ initialType = 'cliente', onBack, onSuccess })
             placeholder="Seu nome"
             required
           />
+
+          {selectedType === 'barbearia' && (
+            <Input
+              label="Nome da barbearia"
+              icon={Store}
+              value={form.nomeBarbearia}
+              onChange={handleChange('nomeBarbearia')}
+              placeholder="Ex: Barbearia Guilhermina"
+              required
+            />
+          )}
 
           <Input
             label="Email"

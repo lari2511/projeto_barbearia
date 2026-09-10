@@ -41,6 +41,7 @@ export default function ShopDashboard({ token, logout, notify, API_URL }) {
     const [savingServiceEdit, setSavingServiceEdit] = useState(false);
     const [user, setUser] = useState(null);
     const [userData, setUserData] = useState(null);
+    const [barbeariaNome, setBarbeariaNome] = useState('');
     const [tab, setTab] = useState(() => {
         if (typeof window === 'undefined') return 'barbeiros';
         const tabSalva = localStorage.getItem('barbearia_dashboard_tab') || 'inicio';
@@ -101,6 +102,7 @@ export default function ShopDashboard({ token, logout, notify, API_URL }) {
         .then(data => {
             if (data && data.id) {
                 setBarbeariaId(data.id);
+                if (data.nome) setBarbeariaNome(data.nome);
                 setUserData(prev => ({ ...(prev || {}), id: data.usuario_id || prev?.id }));
             }
         })
@@ -427,7 +429,7 @@ export default function ShopDashboard({ token, logout, notify, API_URL }) {
                             id: data.id || Date.now(),
                             cadeira_id: data.cadeira_id,
                             numero: data.numero,
-                            barbearia_nome: userData?.nome || 'Barbearia',
+                            barbearia_nome: barbeariaNome || data?.barbearia_nome || 'Barbearia',
                             barbearia_endereco: userData?.endereco || '',
                             status: 'disponivel',
                         };

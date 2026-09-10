@@ -995,7 +995,7 @@ def cadastrar_barbearia(
 
     nova_barbearia = models.Barbearia(
         usuario_id=novo_usuario.id,
-        nome=barbearia.nome,
+        nome=barbearia.nome_barbearia,  # nome público do estabelecimento (NÃO o nome do dono)
         endereco=barbearia.endereco,
         telefone=barbearia.telefone,
         cep=barbearia.cep,

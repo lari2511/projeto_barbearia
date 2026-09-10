@@ -86,7 +86,7 @@ def listar_barbearias_proximas(
                 barbearias_proximas.append({
                     "id": barbearia.id,
                     "usuario_id": user.id,
-                    "nome": user.nome,
+                    "nome": barbearia.nome or user.nome,  # nome público do estabelecimento
                     "email": user.email,
                     "telefone": user.telefone,
                     "endereco": barbearia.endereco,
@@ -177,7 +177,7 @@ def listar_todas_barbearias_aprovadas(
             barbearias.append({
                 "id": barbearia.id,
                 "usuario_id": user.id,
-                "nome": user.nome,
+                "nome": barbearia.nome or user.nome,  # nome público do estabelecimento
                 "email": user.email,
                 "telefone": user.telefone,
                 "endereco": barbearia.endereco,
@@ -252,7 +252,7 @@ def obter_detalhes_barbearia(
     return {
         "id": barbearia.id,
         "usuario_id": user.id,
-        "nome": user.nome,
+        "nome": barbearia.nome or user.nome,  # nome público do estabelecimento
         "email": user.email,
         "telefone": user.telefone,
         "endereco": barbearia.endereco,
