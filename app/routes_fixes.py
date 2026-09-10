@@ -703,8 +703,80 @@ def deletar_portfolio_barbeiro(
     
     db.delete(foto)
     db.commit()
-    
+
     return {"message": "Foto deletada com sucesso"}
+
+
+# ==================== PORTFÓLIO DA BARBEARIA ====================
+# Reaproveita a tabela `fotos` (keyed por usuario_id do dono), mesma usada no
+# portfólio de barbeiro e lida pelo perfil público em GET /usuario/{id}.
+
+def _dono_barbearia_ou_403(usuario):
+    if usuario.tipo != "barbearia":
+        raise HTTPException(status_code=403, detail="Apenas a barbearia pode gerenciar o portfólio")
+
+
+@router.get("/barbearia/portfolio")
+def listar_portfolio_barbearia(db: Session = Depends(get_db), usuario = Depends(get_current_user)):
+    """Lista as fotos do portfólio da barbearia logada (com id, para gerenciar)."""
+    _dono_barbearia_ou_403(usuario)
+    fotos = db.query(models.Foto).filter(
+        models.Foto.usuario_id == usuario.id
+    ).order_by(models.Foto.criado_em.desc()).all()
+    return [
+        {"id": f.id, "url": _normalizar_path_upload(f.url), "criado_em": f.criado_em}
+        for f in fotos
+    ]
+
+
+@router.post("/barbearia/portfolio")
+def adicionar_portfolio_barbearia(payload: dict, db: Session = Depends(get_db), usuario = Depends(get_current_user)):
+    """Adiciona uma foto ao portfólio da barbearia. Body: {"url_imagem": "..."}"""
+    _dono_barbearia_ou_403(usuario)
+    url = str(payload.get("url_imagem") or payload.get("url") or "").strip()
+    if not url:
+        raise HTTPException(status_code=400, detail="URL da imagem é obrigatória")
+
+    foto = models.Foto(usuario_id=usuario.id, url=url, descricao="portfolio")
+    db.add(foto)
+    db.commit()
+    db.refresh(foto)
+    return {"id": foto.id, "url": _normalizar_path_upload(foto.url), "criado_em": foto.criado_em}
+
+
+@router.put("/barbearia/portfolio/{foto_id}")
+def substituir_portfolio_barbearia(foto_id: int, payload: dict, db: Session = Depends(get_db), usuario = Depends(get_current_user)):
+    """Substitui a imagem de uma foto do portfólio (mantém id/posição). Body: {"url_imagem": "..."}"""
+    _dono_barbearia_ou_403(usuario)
+    url = str(payload.get("url_imagem") or payload.get("url") or "").strip()
+    if not url:
+        raise HTTPException(status_code=400, detail="URL da imagem é obrigatória")
+
+    foto = db.query(models.Foto).filter(
+        and_(models.Foto.id == foto_id, models.Foto.usuario_id == usuario.id)
+    ).first()
+    if not foto:
+        raise HTTPException(status_code=404, detail="Foto não encontrada")
+
+    foto.url = url
+    db.commit()
+    db.refresh(foto)
+    return {"id": foto.id, "url": _normalizar_path_upload(foto.url), "criado_em": foto.criado_em}
+
+
+@router.delete("/barbearia/portfolio/{foto_id}")
+def deletar_portfolio_barbearia(foto_id: int, db: Session = Depends(get_db), usuario = Depends(get_current_user)):
+    """Remove uma foto do portfólio da barbearia."""
+    _dono_barbearia_ou_403(usuario)
+    foto = db.query(models.Foto).filter(
+        and_(models.Foto.id == foto_id, models.Foto.usuario_id == usuario.id)
+    ).first()
+    if not foto:
+        raise HTTPException(status_code=404, detail="Foto não encontrada")
+
+    db.delete(foto)
+    db.commit()
+    return {"message": "Foto removida do portfólio"}
 
 
 @router.patch("/barbearias/me/presenca")

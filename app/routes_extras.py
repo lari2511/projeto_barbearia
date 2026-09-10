@@ -792,9 +792,14 @@ def obter_usuario_publico(usuario_id: int, db: Session = Depends(get_db)):
         barbearia_atual_latitude = barbearia_vinculada.latitude
         barbearia_atual_longitude = barbearia_vinculada.longitude
 
+    # Nome público: para barbearia vem de BARBEARIA.nome, nunca do nome pessoal do dono.
+    nome_publico = usuario.nome
+    if usuario.tipo == 'barbearia' and barbearia_vinculada and barbearia_vinculada.nome:
+        nome_publico = barbearia_vinculada.nome
+
     return {
         "id": usuario.id,
-        "nome": usuario.nome,
+        "nome": nome_publico,
         "tipo": usuario.tipo,
         "telefone": usuario.telefone,
         "endereco": barbearia_atual_endereco or usuario.endereco,

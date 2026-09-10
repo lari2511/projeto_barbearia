@@ -7,6 +7,7 @@ import AvaliacaoModal from './AvaliacaoModal';
 import TelaPerfilUsuario from './TelaPerfilUsuario';
 import TelaMensalidadeAssinatura from './TelaMensalidadeAssinatura';
 import { useBackHandler } from '../utils/useBackHandler';
+import BotaoVoltar from './BotaoVoltar';
 import CronometroAtendimento, { parseDataServidorUTC } from './CronometroAtendimento';
 import DeslocamentoAtendimento from './DeslocamentoAtendimento';
 import ChatRoom from './ChatRoom';
@@ -730,6 +731,7 @@ export default function ShopDashboard({ token, logout, notify, API_URL }) {
             <div className="sticky top-0 z-20 px-3 pt-3 pb-2 bg-[#050505]/95 backdrop-blur-xl flex-shrink-0">
                 <div className="flex justify-between items-center rounded-[1.5rem] border border-zinc-800/80 bg-zinc-950/90 px-4 py-3 shadow-xl shadow-black/25">
                     <div className="flex items-center gap-2 min-w-0">
+                        {tab !== 'inicio' && <BotaoVoltar />}
                         <h1 className="text-lg font-black tracking-tight flex items-center gap-2 truncate">
                             <Store size={18} className="text-orange-500"/> Loja
                         </h1>

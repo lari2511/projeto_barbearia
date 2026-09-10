@@ -7,6 +7,7 @@ import AvaliacaoModal from './AvaliacaoModal';
 import TelaPerfilUsuario from './TelaPerfilUsuario';
 import TrackingPanel from './TrackingPanel';
 import ChatRoom from './ChatRoom';
+import ProfileCard from './ProfileCard';
 import CronometroAtendimento, { parseDataServidorUTC } from './CronometroAtendimento';
 import { useBackHandler } from '../utils/useBackHandler';
 
@@ -73,6 +74,7 @@ export default function PainelBarberMovePremium({ token: tokenProp, logout: logo
   const [chamadoParaFinalizarId, setChamadoParaFinalizarId] = useState(null);
   const [barbeariaParaAvaliar, setBarbeariaParaAvaliar] = useState(null); // { id, nome }
   const [barbeariasProximas, setBarbeariasProximas] = useState([]); // visibilidade: barbearias BarberMove na regiao
+  const [barbeariaPerfilModal, setBarbeariaPerfilModal] = useState(null); // { usuario_id, nome } — perfil publico da barbearia
   const scrollRef = useRef(null);
   const ultimaSyncGpsRef = useRef(0);
   const barbeariaPresenteRef = useRef(null); // ultima barbearia onde o freelancer esteve presente
@@ -233,6 +235,10 @@ export default function PainelBarberMovePremium({ token: tokenProp, logout: logo
   }, [carregarPerfil]);
 
   useBackHandler(() => {
+    if (barbeariaPerfilModal) {
+      setBarbeariaPerfilModal(null);
+      return true;
+    }
     if (tab === 'perfil' && perfilSection !== 'dados') {
       setPerfilSection('dados');
       return true;
@@ -242,7 +248,7 @@ export default function PainelBarberMovePremium({ token: tokenProp, logout: logo
       return true;
     }
     return false;
-  }, [tab, perfilSection]);
+  }, [tab, perfilSection, barbeariaPerfilModal]);
 
   const carregarGanhos = useCallback(async () => {
     if (!token) return;
@@ -898,20 +904,30 @@ export default function PainelBarberMovePremium({ token: tokenProp, logout: logo
                 ) : (
                   <div className="space-y-2">
                     {barbeariasProximas.slice(0, 6).map((b) => (
-                      <div key={b.id} className="rounded-xl border border-zinc-800 bg-zinc-950/70 p-3 flex items-start justify-between gap-3">
+                      <button
+                        type="button"
+                        key={b.id}
+                        onClick={() => b.usuario_id && setBarbeariaPerfilModal({ usuario_id: b.usuario_id, nome: b.nome })}
+                        className="w-full text-left rounded-xl border border-zinc-800 bg-zinc-950/70 p-3 flex items-start justify-between gap-3 hover:border-zinc-700"
+                      >
                         <div className="min-w-0">
                           <p className="text-sm font-bold text-white truncate">
                             {b.cadeira_disponivel ? '🔥' : '💈'} {b.nome}
                           </p>
                           <p className="text-[11px] text-zinc-400 truncate">{b.endereco || 'Endereco nao informado'}</p>
-                          <span className={`mt-1 inline-block rounded-full px-2 py-0.5 text-[10px] font-black uppercase tracking-wide ${b.cadeira_disponivel ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30' : 'bg-zinc-800 text-zinc-400 border border-zinc-700'}`}>
-                            {b.cadeira_disponivel ? 'Cadeira disponivel' : 'Cadastrada no BarberMove'}
-                          </span>
+                          <div className="mt-1 flex items-center gap-2">
+                            <span className={`inline-block rounded-full px-2 py-0.5 text-[10px] font-black uppercase tracking-wide ${b.cadeira_disponivel ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30' : 'bg-zinc-800 text-zinc-400 border border-zinc-700'}`}>
+                              {b.cadeira_disponivel ? 'Cadeira disponivel' : 'Cadastrada no BarberMove'}
+                            </span>
+                            {Array.isArray(b.portfolio_fotos) && b.portfolio_fotos.length > 0 && (
+                              <span className="text-[10px] text-zinc-500">📷 {b.portfolio_fotos.length}</span>
+                            )}
+                          </div>
                         </div>
                         <span className="shrink-0 text-[11px] text-zinc-400 font-semibold">
                           {typeof b.distancia_km === 'number' ? `${b.distancia_km.toFixed(1)} km` : ''}
                         </span>
-                      </div>
+                      </button>
                     ))}
                   </div>
                 )}
@@ -1382,6 +1398,23 @@ export default function PainelBarberMovePremium({ token: tokenProp, logout: logo
             onClose={() => setBarbeariaParaAvaliar(null)}
             onSubmit={enviarAvaliacaoBarbearia}
           />
+        )}
+
+        {barbeariaPerfilModal && (
+          <div className="fixed inset-0 bg-black/80 z-[2200] flex items-center justify-center p-4">
+            <div className="bg-zinc-950 border border-zinc-800 rounded-2xl w-full max-w-[420px] max-h-[90vh] overflow-y-auto p-4">
+              <div className="flex justify-between items-center mb-3">
+                <h3 className="text-sm font-bold text-white truncate">{barbeariaPerfilModal.nome || 'Barbearia'}</h3>
+                <button onClick={() => setBarbeariaPerfilModal(null)} className="text-zinc-400 px-2" aria-label="Fechar">✕</button>
+              </div>
+              <ProfileCard
+                usuarioId={barbeariaPerfilModal.usuario_id}
+                userType="barbearia"
+                token={token}
+                onNotify={notify}
+              />
+            </div>
+          </div>
         )}
       </div>
     </div>

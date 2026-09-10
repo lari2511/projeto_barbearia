@@ -6,6 +6,8 @@ import Header from './Header';
 import styles from './TelaPerfilUsuario.module.css';
 import { getApiBaseUrl, resolveMediaUrl } from '../utils/api';
 import { formatarEndereco } from '../utils/address';
+import { useBackHandler } from '../utils/useBackHandler';
+import BotaoVoltar from './BotaoVoltar';
 import { gerarQrDataUrl, salvarMetodoPreferidoCliente, validarCartaoBasico } from './checkout/core';
 
 const PERFIL_META = {
@@ -344,6 +346,13 @@ export function TelaPerfilUsuario({
 
   const [barbeariaId, setBarbeariaId] = useState(null);
   const [nomeBarbearia, setNomeBarbearia] = useState('');
+  // Perfil da barbearia: abre em modo visualizacao (limpo); o formulario so
+  // aparece ao tocar "Editar perfil".
+  const [editMode, setEditMode] = useState(false);
+  const [mediaAvaliacao, setMediaAvaliacao] = useState(null); // { media, total } | null
+  const [fotoMenuId, setFotoMenuId] = useState(null); // portfólio da barbearia: foto com menu aberto
+  const substituirFotoInputRef = useRef(null);
+  const fotoParaSubstituirRef = useRef(null);
   const [enderecoBarbearia, setEnderecoBarbearia] = useState('');
   const [cepBarbearia, setCepBarbearia] = useState('');
   const [numeroBarbearia, setNumeroBarbearia] = useState('');
@@ -397,6 +406,16 @@ export function TelaPerfilUsuario({
   useEffect(() => {
     setFotoPerfilFalhou(false);
   }, [fotoPerfilResolvida]);
+
+  // Back (app + Android): dentro do "Editar perfil" da barbearia, volta para o
+  // perfil limpo antes de deixar a tela.
+  useBackHandler(() => {
+    if (perfilTipo === 'barbearia' && editMode) {
+      setEditMode(false);
+      return true;
+    }
+    return false;
+  }, [perfilTipo, editMode]);
 
   const initial = (nome || '?').charAt(0).toUpperCase();
 
@@ -512,11 +531,38 @@ export function TelaPerfilUsuario({
               const limiteData = await safeReadJson(limiteRes, {});
               setPerfilBarbeariaTeste(Boolean(limiteData?.perfil_teste));
             }
+
+            const donoId = Number(barbearia?.usuario_id || 0);
+            if (donoId) {
+              try {
+                const mediaRes = await fetch(`${apiBase}/api/v1/usuario/${donoId}/media_avaliacao`);
+                if (mediaRes.ok) {
+                  const m = await safeReadJson(mediaRes, {});
+                  const total = Number(m?.total_avaliacoes ?? m?.total ?? 0);
+                  const media = Number(m?.media ?? 0);
+                  setMediaAvaliacao(total > 0 ? { media, total } : null);
+                }
+              } catch (_e) {
+                setMediaAvaliacao(null);
+              }
+            }
           }
         }
       } catch (_e) {
         // ignora erro de assinatura
         setPerfilBarbeariaTeste(false);
+      }
+
+      try {
+        const portRes = await fetch(`${apiBase}/api/v1/barbearia/portfolio`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (portRes.ok) {
+          const lista = await safeReadJson(portRes, []);
+          setPortfolioFotos(Array.isArray(lista) ? lista : []);
+        }
+      } catch (_e) {
+        setPortfolioFotos([]);
       }
     }
   }, [apiBase, token, perfilTipo]);
@@ -827,6 +873,86 @@ export function TelaPerfilUsuario({
     setPortfolioFalhas((prev) => (prev[fotoId] ? prev : { ...prev, [fotoId]: true }));
   }, []);
 
+  // ---- Portfólio da barbearia (só o dono; reaproveita a tabela de fotos) ----
+  const adicionarFotosBarbearia = async (event) => {
+    const files = Array.from(event.target.files || []).slice(0, 8);
+    event.target.value = '';
+    if (files.length === 0 || !token || !apiBase || perfilTipo !== 'barbearia') return;
+
+    try {
+      setUploading(true);
+      for (const file of files) {
+        const url = await uploadImagem(file, 'portfolio');
+        const res = await fetch(`${apiBase}/api/v1/barbearia/portfolio`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url_imagem: url }),
+        });
+        if (res.ok) {
+          const novaFoto = await res.json();
+          setPortfolioFotos((prev) => [novaFoto, ...prev]);
+        }
+      }
+      onNotify?.('Fotos adicionadas ao portfólio', 'success');
+    } catch (_e) {
+      onNotify?.('Erro ao enviar as fotos', 'error');
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const pedirSubstituicaoFotoBarbearia = (fotoId) => {
+    fotoParaSubstituirRef.current = fotoId;
+    substituirFotoInputRef.current?.click();
+  };
+
+  const substituirFotoBarbearia = async (event) => {
+    const file = (event.target.files || [])[0];
+    event.target.value = '';
+    const fotoId = fotoParaSubstituirRef.current;
+    fotoParaSubstituirRef.current = null;
+    if (!file || !fotoId || !token || !apiBase || perfilTipo !== 'barbearia') return;
+
+    try {
+      setUploading(true);
+      const url = await uploadImagem(file, 'portfolio');
+      const res = await fetch(`${apiBase}/api/v1/barbearia/portfolio/${fotoId}`, {
+        method: 'PUT',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url_imagem: url }),
+      });
+      if (!res.ok) throw new Error('falha');
+      const atualizada = await res.json();
+      setPortfolioFotos((prev) => prev.map((item) => (item.id === fotoId ? atualizada : item)));
+      setPortfolioFalhas((prev) => {
+        if (!prev[fotoId]) return prev;
+        const proximo = { ...prev };
+        delete proximo[fotoId];
+        return proximo;
+      });
+      onNotify?.('Foto substituída', 'success');
+    } catch (_e) {
+      onNotify?.('Não foi possível substituir a foto', 'error');
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const excluirFotoBarbearia = async (fotoId) => {
+    if (!fotoId || !token || !apiBase || perfilTipo !== 'barbearia') return;
+    try {
+      const res = await fetch(`${apiBase}/api/v1/barbearia/portfolio/${fotoId}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) throw new Error('falha');
+      setPortfolioFotos((prev) => prev.filter((item) => item.id !== fotoId));
+      onNotify?.('Foto excluída', 'success');
+    } catch (_e) {
+      onNotify?.('Não foi possível excluir a foto', 'error');
+    }
+  };
+
   const statusAtualTexto = useMemo(() => {
     if (barberStatus === 'presente') {
       const base = barbeariaAtualNome
@@ -1108,6 +1234,8 @@ export function TelaPerfilUsuario({
         saveSuccessTimeoutRef.current = setTimeout(() => {
           setSaveSuccess(false);
         }, 1800);
+        // Barbearia: volta para o perfil limpo depois de salvar.
+        if (perfilTipo === 'barbearia') setEditMode(false);
       }
       onNotify?.(
         perfilBarbeariaTeste
@@ -1155,6 +1283,7 @@ export function TelaPerfilUsuario({
       saveSuccessTimeoutRef.current = setTimeout(() => {
         setSaveSuccess(false);
       }, 1800);
+      if (perfilTipo === 'barbearia') setEditMode(false);
       onNotify?.(data?.message || 'Pagamento PIX confirmado com sucesso', 'success');
     } catch (e) {
       onNotify?.(e?.message || 'Nao foi possivel confirmar o PIX', 'error');
@@ -1252,6 +1381,29 @@ export function TelaPerfilUsuario({
         <Header title={meta.titulo} actionButton={{ icon: <LogOut size={14} />, label: 'Sair', onClick: onLogout }} />
       )}
 
+      {perfilTipo === 'barbearia' && (
+        <div className="flex items-center justify-between px-1 pb-1">
+          {editMode ? (
+            <>
+              <BotaoVoltar onClick={() => setEditMode(false)} />
+              <span className="text-sm font-bold text-zinc-300">Editar perfil</span>
+              <span className="w-9" />
+            </>
+          ) : (
+            <>
+              <span />
+              <button
+                type="button"
+                onClick={() => setEditMode(true)}
+                className="text-xs font-bold text-orange-400 hover:text-orange-300"
+              >
+                Editar perfil
+              </button>
+            </>
+          )}
+        </div>
+      )}
+
       <AppCard className="large">
         <div className={styles.profileHeader}>
           <div className={styles.profileAvatar}>
@@ -1269,18 +1421,30 @@ export function TelaPerfilUsuario({
             )}
           </div>
           <div className={styles.profileInfo}>
-            <h2 className="card-title text-ui-lg tracking-wide">{nome || 'Usuario'}</h2>
+            <h2 className="card-title text-ui-lg tracking-wide">
+              {perfilTipo === 'barbearia' ? (nomeBarbearia || nome || 'Barbearia') : (nome || 'Usuario')}
+            </h2>
             <div>
               <span className={styles.badge}>{meta.badge}</span>
             </div>
-            {permitirEdicaoFoto && (
+            {perfilTipo === 'barbearia' && !editMode && (
+              <p className="text-xs text-zinc-400 mt-1">
+                {mediaAvaliacao
+                  ? `⭐ ${mediaAvaliacao.media.toFixed(1)} · ${mediaAvaliacao.total} avaliação${mediaAvaliacao.total === 1 ? '' : 'es'}`
+                  : 'Sem avaliações ainda'}
+              </p>
+            )}
+            {perfilTipo === 'barbearia' && !editMode && formatarEndereco(enderecoBarbearia) && (
+              <p className="text-xs text-zinc-400 mt-1">📍 {formatarEndereco(enderecoBarbearia)}</p>
+            )}
+            {permitirEdicaoFoto && (perfilTipo !== 'barbearia' || editMode) && (
               <label className={styles.fileBtn}>
                 <Camera size={14} />
                 {uploading ? 'Enviando...' : 'Trocar foto'}
                 <input type="file" accept="image/*" onChange={handleFotoPerfil} className={styles.hiddenInput} disabled={uploading} />
               </label>
             )}
-            {permitirEdicaoFoto && avatarSourceFile && (
+            {permitirEdicaoFoto && avatarSourceFile && (perfilTipo !== 'barbearia' || editMode) && (
               <button
                 type="button"
                 className={styles.fileBtn}
@@ -1376,6 +1540,78 @@ export function TelaPerfilUsuario({
         </AppCard>
       )}
 
+      {perfilTipo === 'barbearia' && (
+        <AppCard>
+          <div className="space-y-3">
+            <div className={styles.sectionHeader}>
+              <p className={styles.labelStrong}>Portfólio</p>
+              <label className={styles.fileBtn}>
+                <Upload size={14} />
+                {uploading ? 'Enviando...' : 'Adicionar foto'}
+                <input type="file" accept="image/*" multiple onChange={adicionarFotosBarbearia} className={styles.hiddenInput} disabled={uploading} />
+              </label>
+            </div>
+
+            <input
+              ref={substituirFotoInputRef}
+              type="file"
+              accept="image/*"
+              onChange={substituirFotoBarbearia}
+              className={styles.hiddenInput}
+            />
+
+            {portfolioFotos.length === 0 ? (
+              <p className={styles.emptyText}>Nenhuma foto no portfólio ainda. Adicione fotos da sua barbearia.</p>
+            ) : (
+              <div className={styles.portfolioGrid}>
+                {portfolioFotos.map((foto) => (
+                  <div
+                    key={foto.id}
+                    className={styles.portfolioItem}
+                    onClick={() => setFotoMenuId((atual) => (atual === foto.id ? null : foto.id))}
+                    role="button"
+                    tabIndex={0}
+                  >
+                    {portfolioFalhas[foto.id] ? (
+                      <div className={`${styles.portfolioImg} flex items-center justify-center bg-black/20 px-2 text-center text-xs text-zinc-400`}>
+                        Imagem indisponivel
+                      </div>
+                    ) : (
+                      <img
+                        src={resolveMediaUrl(foto.url, apiBase)}
+                        alt="Foto da barbearia"
+                        className={styles.portfolioImg}
+                        onError={() => marcarFalhaPortfolio(foto.id)}
+                      />
+                    )}
+                    {fotoMenuId === foto.id && (
+                      <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-black/70">
+                        <button
+                          type="button"
+                          onClick={(e) => { e.stopPropagation(); setFotoMenuId(null); pedirSubstituicaoFotoBarbearia(foto.id); }}
+                          className="rounded-lg bg-zinc-100 px-3 py-1 text-xs font-bold text-zinc-900"
+                          disabled={uploading}
+                        >
+                          Substituir
+                        </button>
+                        <button
+                          type="button"
+                          onClick={(e) => { e.stopPropagation(); setFotoMenuId(null); excluirFotoBarbearia(foto.id); }}
+                          className="rounded-lg bg-red-600 px-3 py-1 text-xs font-bold text-white"
+                        >
+                          Excluir
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+            <p className="text-[11px] text-zinc-500">Toque em uma foto para substituir ou excluir.</p>
+          </div>
+        </AppCard>
+      )}
+
       {perfilTipo !== 'barbearia' && (
         <AppCard>
           <div className="grid gap-3">
@@ -1397,7 +1633,7 @@ export function TelaPerfilUsuario({
         </AppCard>
       )}
 
-      {perfilTipo === 'barbearia' && (
+      {perfilTipo === 'barbearia' && editMode && (
         <AppCard>
           <div className="space-y-3">
             <p className={styles.labelStrong}>Plano da barbearia por cadeira</p>
@@ -1578,7 +1814,7 @@ export function TelaPerfilUsuario({
         </AppCard>
       )}
 
-      {perfilTipo === 'barbearia' && (
+      {perfilTipo === 'barbearia' && editMode && (
         <AppCard>
           <div className="grid gap-3">
             <div>
@@ -1655,6 +1891,7 @@ export function TelaPerfilUsuario({
         </AppCard>
       )}
 
+      {(perfilTipo !== 'barbearia' || editMode) && (
       <AppCard>
         <div className={styles.actions}>
           <button type="button" onClick={salvar} className={styles.saveBtn} disabled={saving}>
@@ -1667,6 +1904,7 @@ export function TelaPerfilUsuario({
           </button>
         </div>
       </AppCard>
+      )}
 
       {avatarEditorOpen && avatarSourceFile && (
         <div className={styles.editorOverlay} role="dialog" aria-modal="true">

@@ -29,6 +29,7 @@ from app.models import (
     Barbearia,
     BarbeariaFreelancer,
     Cadeira,
+    Foto,
     RadarFreelancer,
     StatusCadeira,
     Usuario,
@@ -119,9 +120,19 @@ def barbearias_proximas_do_freelancer(
             is not None
         )
 
+        fotos = [
+            f.url
+            for f in db.query(Foto.url)
+            .filter(Foto.usuario_id == dono.id)
+            .order_by(Foto.criado_em.desc())
+            .all()
+            if f.url
+        ]
+
         itens.append(
             {
                 "id": barbearia.id,
+                "usuario_id": dono.id,
                 "nome": barbearia.nome or dono.nome,
                 "endereco": barbearia.endereco,
                 # Estabelecimento comercial: pode expor a localizacao exata (regra 4).
@@ -130,6 +141,7 @@ def barbearias_proximas_do_freelancer(
                 "distancia_km": round(dist, 2),
                 "cadastrada": True,
                 "cadeira_disponivel": cadeira_disponivel,
+                "portfolio_fotos": fotos,
             }
         )
 
