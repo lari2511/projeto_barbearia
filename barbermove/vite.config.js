@@ -69,7 +69,20 @@ export default defineConfig({
         globPatterns: ['**/*.{js,css,html,ico,png,svg}'],
         cleanupOutdatedCaches: true,
         skipWaiting: true,
-        clientsClaim: true
+        clientsClaim: true,
+        // Rotas servidas pelo backend (nao pela SPA). Sem isso o service worker
+        // devolvia o index.html pra /admin e a tela ficava preta.
+        navigateFallbackDenylist: [
+          /^\/admin/,
+          /^\/api\//,
+          /^\/docs/,
+          /^\/redoc/,
+          /^\/openapi\.json/,
+          /^\/uploads\//,
+          /^\/downloads?\//,
+          /^\/apk/,
+          /^\/health/
+        ]
       }
     })
   ]
