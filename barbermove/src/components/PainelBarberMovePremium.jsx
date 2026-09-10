@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { Home, ClipboardList, Star, User, CreditCard, LogOut, CheckCircle, XCircle, DollarSign, Copy, Phone, Scissors, MapPin } from 'lucide-react';
+import { Home, ClipboardList, Star, User, CreditCard, LogOut, CheckCircle, XCircle, DollarSign, Copy, Phone, Scissors, MapPin, RefreshCw } from 'lucide-react';
 import { useApp } from '../contexts/AppContext';
 import { getApiBaseUrl, getWsBaseUrl, resolveMediaUrl } from '../utils/api';
+import { obterLocalizacaoAtual } from '../utils/location';
 import AbaPadronizadaAvaliacoes from './AbaPadronizadaAvaliacoes';
 import AvaliacaoModal from './AvaliacaoModal';
 import TelaPerfilUsuario from './TelaPerfilUsuario';
@@ -517,10 +518,16 @@ export default function PainelBarberMovePremium({ token: tokenProp, logout: logo
 
   // Visibilidade (somente leitura): quais barbearias BarberMove existem perto.
   // Usa a localizacao ja salva no perfil (sincronizada via /on-demand/atualizar-localizacao).
-  const carregarBarbeariasProximas = useCallback(async () => {
+  // `coords` opcional: quando o freelancer toca em "atualizar GPS", passa a
+  // posicao recem-obtida para o recalculo ser imediato (sem esperar o sync).
+  const carregarBarbeariasProximas = useCallback(async (coords) => {
     if (!token) return;
     try {
-      const res = await fetch(`${API_URL}/api/v1/visibilidade/barbearias-proximas?raio_km=10`, {
+      let url = `${API_URL}/api/v1/visibilidade/barbearias-proximas?raio_km=10`;
+      if (coords?.latitude != null && coords?.longitude != null) {
+        url += `&latitude=${coords.latitude}&longitude=${coords.longitude}`;
+      }
+      const res = await fetch(url, {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (!res.ok) {
@@ -533,6 +540,34 @@ export default function PainelBarberMovePremium({ token: tokenProp, logout: logo
       setBarbeariasProximas([]);
     }
   }, [token, API_URL]);
+
+  const [atualizandoGpsBarbearias, setAtualizandoGpsBarbearias] = useState(false);
+  // Toque manual em "atualizar GPS": obtem a posicao atual, persiste para
+  // descoberta (mesmo endpoint do sync automatico) e recalcula a lista/distancias.
+  const atualizarGpsBarbeariasProximas = useCallback(async () => {
+    if (!token || atualizandoGpsBarbearias) return;
+    setAtualizandoGpsBarbearias(true);
+    try {
+      const loc = await obterLocalizacaoAtual();
+      if (loc?.latitude == null || loc?.longitude == null) {
+        notify?.('Não foi possível obter sua localização agora', 'error');
+        return;
+      }
+      setMinhaPosicao({ latitude: loc.latitude, longitude: loc.longitude });
+      ultimaSyncGpsRef.current = Date.now();
+      await fetch(`${API_URL}/api/v1/on-demand/atualizar-localizacao`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ latitude: loc.latitude, longitude: loc.longitude }),
+      }).catch(() => {});
+      await carregarBarbeariasProximas({ latitude: loc.latitude, longitude: loc.longitude });
+      notify?.('Localização atualizada', 'success');
+    } catch (_e) {
+      notify?.('Não foi possível obter sua localização agora', 'error');
+    } finally {
+      setAtualizandoGpsBarbearias(false);
+    }
+  }, [token, API_URL, atualizandoGpsBarbearias, carregarBarbeariasProximas, notify]);
 
   useEffect(() => { carregarChamados(); }, [carregarChamados]);
   useEffect(() => { carregarGanhos(); }, [carregarGanhos]);
@@ -890,9 +925,21 @@ export default function PainelBarberMovePremium({ token: tokenProp, logout: logo
               {/* VISIBILIDADE: barbearias BarberMove perto de voce (somente visualizacao) */}
               <div className="rounded-2xl border border-zinc-800 bg-zinc-900 p-4 space-y-3">
                 <div className="flex items-center justify-between gap-3">
-                  <div>
-                    <p className="text-xs font-black uppercase tracking-widest text-zinc-300">Barbearias BarberMove perto de voce</p>
-                    <p className="text-[11px] text-zinc-500">Quem ja esta na plataforma na sua regiao.</p>
+                  <div className="flex items-center gap-2 min-w-0">
+                    <div className="min-w-0">
+                      <p className="text-xs font-black uppercase tracking-widest text-zinc-300">Barbearias BarberMove perto de voce</p>
+                      <p className="text-[11px] text-zinc-500">Quem ja esta na plataforma na sua regiao.</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={atualizarGpsBarbeariasProximas}
+                      disabled={atualizandoGpsBarbearias}
+                      title="Atualizar minha localizacao"
+                      aria-label="Atualizar minha localizacao"
+                      className="shrink-0 rounded-full border border-zinc-700 bg-zinc-800 p-1.5 text-zinc-300 hover:text-white hover:border-zinc-500 disabled:opacity-50"
+                    >
+                      <RefreshCw size={13} className={atualizandoGpsBarbearias ? 'animate-spin' : ''} />
+                    </button>
                   </div>
                   <span className="rounded-full border border-zinc-700 bg-zinc-800 px-3 py-1 text-xs font-bold text-zinc-300">
                     {barbeariasProximas.length}
