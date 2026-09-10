@@ -38,7 +38,12 @@ export default defineConfig({
   },
   plugins: [
     react(),
+    // O app nao usa mais service worker (o main.jsx ja desregistra qualquer SW
+    // e limpa os caches no load). O SW antigo servia o index.html da SPA pra
+    // rotas do backend como /admin -> tela preta. selfDestroying gera um sw.js
+    // que se desinstala sozinho, limpando o SW velho de quem ja tinha o PWA.
     VitePWA({
+      selfDestroying: true,
       registerType: 'autoUpdate',
       includeAssets: ['favicon.ico', 'apple-touch-icon.png', 'masked-icon.svg'],
       manifest: {
@@ -63,25 +68,6 @@ export default defineConfig({
             type: 'image/png',
             purpose: 'any maskable'
           }
-        ]
-      },
-      workbox: {
-        globPatterns: ['**/*.{js,css,html,ico,png,svg}'],
-        cleanupOutdatedCaches: true,
-        skipWaiting: true,
-        clientsClaim: true,
-        // Rotas servidas pelo backend (nao pela SPA). Sem isso o service worker
-        // devolvia o index.html pra /admin e a tela ficava preta.
-        navigateFallbackDenylist: [
-          /^\/admin/,
-          /^\/api\//,
-          /^\/docs/,
-          /^\/redoc/,
-          /^\/openapi\.json/,
-          /^\/uploads\//,
-          /^\/downloads?\//,
-          /^\/apk/,
-          /^\/health/
         ]
       }
     })

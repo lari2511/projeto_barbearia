@@ -2,6 +2,37 @@
 <html lang="pt-br">
   <head>
     <meta charset="UTF-8" />
+    <script>
+      // /admin e servido pelo backend, nao pela SPA. Se um service worker antigo
+      // entregou este index.html aqui, a tela fica preta. Remove o SW + caches e
+      // recarrega uma vez, direto da rede. Guarda em sessionStorage pra nao entrar
+      // em loop.
+      (function () {
+        try {
+          if (location.pathname.indexOf('/admin') === 0) {
+            if (!sessionStorage.getItem('__admin_sw_bust')) {
+              sessionStorage.setItem('__admin_sw_bust', '1');
+              var done = function () { location.reload(); };
+              var p = Promise.resolve();
+              if ('serviceWorker' in navigator) {
+                p = navigator.serviceWorker.getRegistrations()
+                  .then(function (rs) { return Promise.all(rs.map(function (r) { return r.unregister(); })); })
+                  .then(function () {
+                    if (window.caches && caches.keys) {
+                      return caches.keys().then(function (ks) {
+                        return Promise.all(ks.map(function (k) { return caches.delete(k); }));
+                      });
+                    }
+                  });
+              }
+              p.then(done, done);
+            }
+          } else {
+            sessionStorage.removeItem('__admin_sw_bust');
+          }
+        } catch (e) {}
+      })();
+    </script>
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     
