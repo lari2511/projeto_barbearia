@@ -725,14 +725,26 @@ _DASHBOARD_HTML = """
                 }
             }
             
+            function sessaoExpirada() {
+                // Token invalido/expirado (ex.: sobrou login de barbearia nesse dominio).
+                // Sem isso a pagina so mostrava o fundo preto sem nada.
+                localStorage.removeItem('token');
+                token = null;
+                mostrarLogin();
+            }
+
             async function carregarDados() {
                 try {
                     // Estatísticas
                     const statsRes = await fetch(API_URL + '/estatisticas', {
                         headers: { 'Authorization': `Bearer ${token}` }
                     });
+                    if (statsRes.status === 401 || statsRes.status === 403) {
+                        sessaoExpirada();
+                        return;
+                    }
                     const stats = await statsRes.json();
-                    
+
                     document.getElementById('total').textContent = stats.total;
                     document.getElementById('pendentes').textContent = stats.pendentes;
                     document.getElementById('aprovados').textContent = stats.aprovados;
@@ -744,6 +756,7 @@ _DASHBOARD_HTML = """
                     carregarUsuarios();
                 } catch (err) {
                     console.error('Erro:', err);
+                    sessaoExpirada();
                 }
             }
             
