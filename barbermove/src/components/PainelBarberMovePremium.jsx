@@ -523,7 +523,7 @@ export default function PainelBarberMovePremium({ token: tokenProp, logout: logo
   const carregarBarbeariasProximas = useCallback(async (coords) => {
     if (!token) return;
     try {
-      let url = `${API_URL}/api/v1/visibilidade/barbearias-proximas?raio_km=10`;
+      let url = `${API_URL}/api/v1/visibilidade/barbearias-proximas?raio_km=5`;
       if (coords?.latitude != null && coords?.longitude != null) {
         url += `&latitude=${coords.latitude}&longitude=${coords.longitude}`;
       }

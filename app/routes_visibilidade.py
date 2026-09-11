@@ -67,7 +67,7 @@ def _faixa_aproximada(distancia_km: float) -> str:
 def barbearias_proximas_do_freelancer(
     latitude: Optional[float] = Query(None, description="Opcional; se ausente usa a localizacao salva do freelancer"),
     longitude: Optional[float] = Query(None),
-    raio_km: float = Query(10.0, gt=0, le=50),
+    raio_km: float = Query(5.0, gt=0, le=50),
     db: Session = Depends(get_db),
     usuario_atual: Usuario = Depends(get_current_user),
 ):
@@ -155,7 +155,7 @@ def barbearias_proximas_do_freelancer(
 
 @router.get("/freelancers-proximos")
 def freelancers_proximos_da_barbearia(
-    raio_km: float = Query(10.0, gt=0, le=50),
+    raio_km: float = Query(5.0, gt=0, le=50),
     db: Session = Depends(get_db),
     usuario_atual: Usuario = Depends(get_current_user),
 ):

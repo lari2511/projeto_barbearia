@@ -458,7 +458,7 @@ export default function ShopDashboard({ token, logout, notify, API_URL }) {
     const carregarFreelancersProximosRegiao = useCallback(async () => {
         if (!barbeariaId) return;
         try {
-            const res = await fetch(`${API_URL}/api/v1/visibilidade/freelancers-proximos?raio_km=10`, {
+            const res = await fetch(`${API_URL}/api/v1/visibilidade/freelancers-proximos?raio_km=5`, {
                 headers: {'Authorization': `Bearer ${token}`}
             });
             if (!res.ok) {

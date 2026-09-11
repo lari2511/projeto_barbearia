@@ -21,12 +21,12 @@ router = APIRouter(prefix="/api/v1/barbearias", tags=["Barbearias"])
 def listar_barbearias_proximas(
     db: Session = Depends(get_db),
     usuario_atual = Depends(get_current_user),
-    raio_km: float = 10.0
+    raio_km: float = 5.0
 ):
     """
     Lista barbearias próximas e aprovadas para clientes/barbeiros
     Filtro: apenas barbearias aprovadas (perfil_aprovado = True)
-    Proximidade: até `raio_km` de distância (padrão: 10km)
+    Proximidade: até `raio_km` de distância (padrão: 5km)
     """
     
     # Validar que não é admin ou barbearia

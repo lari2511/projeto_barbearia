@@ -559,7 +559,7 @@ export default function ClientDashboard({ token, logout, API_URL: apiUrlProp, no
         if (!token) return;
         setLoadingBarbeariasProximasHome(true);
         try {
-            const res = await fetch(`${API_URL}/api/v1/barbearias/proximas?raio_km=15`, {
+            const res = await fetch(`${API_URL}/api/v1/barbearias/proximas?raio_km=5`, {
                 headers: { Authorization: `Bearer ${token}` },
             });
             const data = await safeReadJson(res, null);
@@ -1008,12 +1008,12 @@ export default function ClientDashboard({ token, logout, API_URL: apiUrlProp, no
             let data = await res.json();
             const barbeariasDoBarbeiro = Array.isArray(data) ? data : [];
 
-            // 📍 Se temos localização, FILTRAR barbearias dentro de 10km
+            // 📍 Se temos localização, FILTRAR barbearias dentro de 5km
             if (userLocation) {
                 const barbeariaUrl = new URL(`${API_URL}/api/v1/barbearias/proximas`);
                 barbeariaUrl.searchParams.append('latitude', userLocation.latitude);
                 barbeariaUrl.searchParams.append('longitude', userLocation.longitude);
-                barbeariaUrl.searchParams.append('raio_km', '10.0');
+                barbeariaUrl.searchParams.append('raio_km', '5.0');
 
                 try {
                     const proxRes = await fetch(barbeariaUrl.toString());
