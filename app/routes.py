@@ -3268,6 +3268,8 @@ def listar_agendamentos_barbearia(
         raise HTTPException(status_code=403, detail="Acesso negado")
     
     # Buscar agendamentos confirmados, pendentes, em atendimento e concluidos
+    # (historico: mais recentes primeiro; freelancers que ja saíram continuam
+    # aparecendo, pois a consulta e por barbearia_id/chamado, nao por vinculo ativo)
     agendamentos = db.query(models.Chamado).filter(
         models.Chamado.barbearia_id == barbearia_id,
         models.Chamado.status.in_([
@@ -3276,7 +3278,7 @@ def listar_agendamentos_barbearia(
             models.StatusAgendamento.EM_ATENDIMENTO.value,
             models.StatusAgendamento.CONCLUIDO.value
         ])
-    ).order_by(models.Chamado.data_hora_inicio).all()
+    ).order_by(models.Chamado.criado_em.desc(), models.Chamado.id.desc()).all()
     
     result = []
     for ag in agendamentos:
@@ -3309,15 +3311,19 @@ def listar_agendamentos_barbearia(
                 )
                 freelancer_eta = max(1, int(round(freelancer_distancia * 4)))
         
-        ja_avaliado = db.query(models.Avaliacao).filter(
-            models.Avaliacao.chamado_id == ag.id,
-            models.Avaliacao.avaliador_id == user.id
+        # Fonte unica de avaliacao profissional (dono -> freelancer) e
+        # AvaliacaoFreelancer (routes_avaliacoes.py), nao a tabela generica
+        # legada models.Avaliacao (que nao recebe mais escrita - Etapa 6).
+        ja_avaliado = db.query(models.AvaliacaoFreelancer).filter(
+            models.AvaliacaoFreelancer.chamado_id == ag.id,
+            models.AvaliacaoFreelancer.avaliador_id == user.id
         ).first() is not None
 
         result.append({
             "id": ag.id,
             "cliente_id": ag.cliente_id,
             "barbeiro_id": ag.barbeiro_id,
+            "freelancer_id": ag.barbeiro_id,  # alias explicito: identificar sempre por id, nunca por nome/email
             "barbearia_id": ag.barbearia_id,
             "cliente_nome": cliente.nome if cliente else "Cliente",
             "nome_cliente": cliente.nome if cliente else "Cliente",

@@ -13,8 +13,10 @@ Fonte unica: models.AvaliacaoFreelancer / models.AvaliacaoBarbearia.
 """
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.security import OAuth2PasswordBearer
+from jose import JWTError, jwt
 from sqlalchemy.orm import Session
-from typing import List
+from typing import List, Optional
 
 from app.database import get_db
 from app.models import (
@@ -26,7 +28,7 @@ from app.schemas import (
     AvaliacaoFreelancerResponse,
     AvaliacaoBarbeariaResponse,
 )
-from app.routes import get_current_user
+from app.routes import get_current_user, SECRET_KEY, ALGORITHM
 from app.avaliacoes_service import (
     resumo_freelancer,
     resumo_barbearia,
@@ -34,6 +36,44 @@ from app.avaliacoes_service import (
 )
 
 router = APIRouter(prefix="/api/v1/avaliacoes", tags=["Avaliacoes"])
+
+# Auth opcional: usada apenas para decidir QUAIS avaliacoes de freelancer sao
+# visiveis (separacao cliente/barbearia/freelancer/admin, ver _tipos_avaliacao_visiveis).
+# Nao exige login: sem token, o pedido e tratado como "cliente" (visao publica).
+_oauth2_scheme_opcional = OAuth2PasswordBearer(tokenUrl="/api/v1/login/cliente/", auto_error=False)
+
+
+def _usuario_opcional(
+    token: Optional[str] = Depends(_oauth2_scheme_opcional),
+    db: Session = Depends(get_db),
+) -> Optional[Usuario]:
+    if not token:
+        return None
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        user_id = int(payload.get("sub"))
+    except (JWTError, ValueError, TypeError):
+        return None
+    return db.query(Usuario).filter(Usuario.id == user_id).first()
+
+
+def _tipos_avaliacao_freelancer_visiveis(usuario_atual: Optional[Usuario], freelancer: Freelancer) -> list:
+    """
+    Separacao das avaliacoes de freelancer (avaliacao profissional):
+      - Sem login / cliente: somente avaliacoes de clientes.
+      - Barbearia (qualquer dono): clientes + profissionais (barbearia -> freelancer).
+      - O proprio freelancer avaliado: clientes + profissionais.
+      - Admin: clientes + profissionais (moderacao tem endpoints proprios em admin_avaliacoes).
+    Cliente nunca ve avaliacao profissional, nem pela interface nem por este endpoint.
+    """
+    if usuario_atual is None:
+        return ["cliente"]
+    tipo = getattr(usuario_atual, "tipo", None)
+    if tipo in ("barbearia", "admin"):
+        return ["cliente", "barbearia"]
+    if tipo == "barbeiro" and freelancer.usuario_id == usuario_atual.id:
+        return ["cliente", "barbearia"]
+    return ["cliente"]
 
 
 def _chamado_concluido(db: Session, chamado_id: int) -> Chamado:
@@ -357,9 +397,17 @@ def listar_avaliacoes_freelancer(
     freelancer_id: int,
     limite: int = 10,
     db: Session = Depends(get_db),
+    usuario_atual: Optional[Usuario] = Depends(_usuario_opcional),
 ):
-    """Lista avaliacoes recebidas por um freelancer (por Freelancer.id ou usuario_id)."""
+    """
+    Lista avaliacoes recebidas por um freelancer (por Freelancer.id ou usuario_id).
+
+    Separacao (etapa avaliacao profissional): cliente/publico ve somente
+    avaliacoes tipo "cliente"; a propria barbearia, o freelancer avaliado e o
+    admin tambem veem as avaliacoes profissionais ("barbearia").
+    """
     freelancer = _resolver_freelancer(db, freelancer_id)
+    tipos_visiveis = _tipos_avaliacao_freelancer_visiveis(usuario_atual, freelancer)
     avaliacoes = db.query(
         AvaliacaoFreelancer,
         Usuario.nome.label("avaliador_nome"),
@@ -367,6 +415,7 @@ def listar_avaliacoes_freelancer(
     ).join(Usuario, AvaliacaoFreelancer.avaliador_id == Usuario.id).filter(
         AvaliacaoFreelancer.freelancer_id == freelancer.id,
         AvaliacaoFreelancer.bloqueada_por_admin.isnot(True),
+        AvaliacaoFreelancer.tipo_avaliador.in_(tipos_visiveis),
     ).order_by(AvaliacaoFreelancer.criado_em.desc()).limit(limite).all()
 
     return [{
@@ -377,6 +426,7 @@ def listar_avaliacoes_freelancer(
         "foto_corte_url": av.foto_corte_url,
         "tempo_real_servico_min": av.tempo_real_servico_min,
         "criado_em": av.criado_em,
+        "avaliador_id": av.avaliador_id,
         "avaliador_nome": nome,
         "avaliador_foto": foto,
     } for av, nome, foto in avaliacoes]

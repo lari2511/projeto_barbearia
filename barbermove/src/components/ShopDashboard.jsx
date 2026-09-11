@@ -68,7 +68,12 @@ export default function ShopDashboard({ token, logout, notify, API_URL }) {
     const [cadeirasBarbearia, setCadeirasBarbearia] = useState([]);
     const [loadingCadeirasBarbearia, setLoadingCadeirasBarbearia] = useState(false);
     const [ultimaAtualizacaoFreelancers, setUltimaAtualizacaoFreelancers] = useState(null);
-    const [freelancerParaAvaliar, setFreelancerParaAvaliar] = useState(null); // { id, nome, foto }
+    const [freelancerParaAvaliar, setFreelancerParaAvaliar] = useState(null); // { id, nome, foto, chamadoId? }
+    const [avaliacoesRecemEnviadas, setAvaliacoesRecemEnviadas] = useState({}); // freelancer_id -> { nota, comentario }
+    const [freelancerParaBloquear, setFreelancerParaBloquear] = useState(null); // { id, nome } — bloqueio discreto (perfil/avaliação)
+    const [motivoBloqueioInput, setMotivoBloqueioInput] = useState('');
+    const [bloqueandoFreelancer, setBloqueandoFreelancer] = useState(false);
+    const [historicoConcluidosExpandido, setHistoricoConcluidosExpandido] = useState(true);
     // Toque no card do freelancer: abre APENAS o perfil (id real do usuário).
     const abrirPerfilFreelancer = (id, nome) => {
         const idNum = Number(id || 0);
@@ -133,31 +138,31 @@ export default function ShopDashboard({ token, logout, notify, API_URL }) {
         }
     }, []);
 
-    // Carregar agendamentos da barbearia
+    // Carregar agendamentos da barbearia (historico: mais recentes primeiro, vem pronto do backend)
+    const carregarAgendamentos = useCallback(async () => {
+        if (!barbeariaId) return;
+        try {
+            const res = await fetch(`${API_URL}/api/v1/barbearia/${barbeariaId}/agendamentos`, {
+                headers: {
+                    'Authorization': `Bearer ${token}`
+                }
+            });
+
+            if (res.ok) {
+                const data = await res.json();
+                setAgendamentos(Array.isArray(data) ? data : data.agendamentos || []);
+            }
+        } catch (_err) {
+            // mantém a última lista carregada
+        }
+    }, [barbeariaId, API_URL, token]);
+
     useEffect(() => {
         if (!barbeariaId) return;
-
-        const carregarAgendamentos = async () => {
-            try {
-                const res = await fetch(`${API_URL}/api/v1/barbearia/${barbeariaId}/agendamentos`, {
-                    headers: {
-                        'Authorization': `Bearer ${token}`
-                    }
-                });
-
-                if (res.ok) {
-                    const data = await res.json();
-                    setAgendamentos(Array.isArray(data) ? data : data.agendamentos || []);
-                }
-            } catch (_err) {
-                // mantém a última lista carregada
-            }
-        };
-
         carregarAgendamentos();
         const interval = setInterval(carregarAgendamentos, 10000);
         return () => clearInterval(interval);
-    }, [barbeariaId, API_URL, token]);
+    }, [barbeariaId, carregarAgendamentos]);
 
     // Tique do cronômetro exibido nos atendimentos em andamento (mesma lógica do cliente/freelancer)
     const [agoraMsCronometro, setAgoraMsCronometro] = useState(Date.now());
@@ -195,6 +200,113 @@ export default function ShopDashboard({ token, logout, notify, API_URL }) {
         return filaDeEspera.filter((ag) => String(ag.status || '').toLowerCase() === 'confirmado');
     }, [filaDeEspera]);
 
+    // Histórico (aba Chamadas -> lista "Agendamentos"): ativos/pendentes sempre visíveis;
+    // concluídos ficam num bloco recolhível (sem apagar dados) — vem do backend já
+    // ordenado do mais recente para o mais antigo.
+    const agendamentosHistoricoAtivos = useMemo(() => (
+        agendamentos.filter((ag) => String(ag.status || '').toLowerCase() !== 'concluido')
+    ), [agendamentos]);
+
+    const agendamentosHistoricoConcluidos = useMemo(() => (
+        agendamentos.filter((ag) => String(ag.status || '').toLowerCase() === 'concluido')
+    ), [agendamentos]);
+
+    // Avaliação profissional pendente (dono -> freelancer) do freelancer cujo perfil está
+    // aberto no momento — identificado sempre por freelancer_id (ag.barbeiro_id), nunca por nome.
+    const pendenciaAvaliacaoPerfil = useMemo(() => {
+        if (!freelancerPerfilModal) return null;
+        return agendamentos.find((ag) => (
+            Number(ag.barbeiro_id) === Number(freelancerPerfilModal.id) &&
+            String(ag.status || '').toLowerCase() === 'concluido' &&
+            !(ag.avaliado_por_barbearia ?? ag.avaliado)
+        )) || null;
+    }, [agendamentos, freelancerPerfilModal]);
+
+    // Abre a avaliação profissional já vinculada a um chamado concluído específico
+    // (histórico -> avaliação), sempre pelo freelancer_id do chamado.
+    const abrirAvaliacaoPendenteDoChamado = (ag) => {
+        setFreelancerParaAvaliar({
+            id: ag.barbeiro_id,
+            nome: ag.barbeiro_nome || ag.nome_barbeiro,
+            foto: null,
+            chamadoId: ag.id,
+        });
+    };
+
+    // Card de um item do histórico de agendamentos (ativo ou concluído). Sem botão de
+    // bloqueio aqui (fica discreto no perfil do freelancer) — só aviso de avaliação pendente.
+    const renderCardAgendamentoHistorico = (ag) => {
+        const pendente = ag.status === 'concluido' && !(ag.avaliado_por_barbearia ?? ag.avaliado);
+        return (
+            <div key={ag.id} className="bm-card p-3.5 space-y-2.5 overflow-hidden">
+                <div className="flex justify-between items-start">
+                    <div className="min-w-0 pr-2">
+                        <p className="font-bold text-sm truncate">{ag.servico_nome || ag.descricao || 'Serviço'}</p>
+                        <p className="text-xs text-zinc-400 truncate">Cliente: {ag.cliente_nome || ag.nome_cliente}</p>
+                        <p className="text-xs text-zinc-400 truncate">
+                            Freelancer:{' '}
+                            {ag.barbeiro_id ? (
+                                <button
+                                    type="button"
+                                    onClick={(e) => { e.stopPropagation(); abrirPerfilFreelancer(ag.barbeiro_id, ag.barbeiro_nome || ag.nome_barbeiro); }}
+                                    className="font-semibold text-orange-300 underline underline-offset-2"
+                                >
+                                    {ag.barbeiro_nome || ag.nome_barbeiro}
+                                </button>
+                            ) : (ag.barbeiro_nome || ag.nome_barbeiro)}
+                        </p>
+                        <p className="text-xs text-zinc-300">
+                            {ag.data_hora_inicio ? new Date(ag.data_hora_inicio).toLocaleString('pt-BR') : 'Horário não definido'}
+                        </p>
+                    </div>
+                    <div className={`text-xs px-2 py-1 rounded font-bold ${
+                        ag.status === 'concluido' ? 'bg-green-600/20 text-green-400' :
+                        ag.status === 'em_atendimento' ? 'bg-purple-600/20 text-purple-300' :
+                        ag.status === 'confirmado' ? 'bg-blue-600/20 text-blue-400' :
+                        ag.status === 'pendente' ? 'bg-yellow-600/20 text-yellow-400' :
+                        'bg-red-600/20 text-red-400'
+                    }`}>
+                        {ag.status.toUpperCase()}
+                    </div>
+                </div>
+
+                {ag.status === 'em_atendimento' && (
+                    <CronometroAtendimento
+                        chamado={ag}
+                        chamadosGrupo={agendamentos}
+                        chamadoAtivoId={ag.id}
+                        isPausado={Boolean(ag.pausado)}
+                        pausadoEmMs={ag.pausado_em ? parseDataServidorUTC(ag.pausado_em) : null}
+                        pausaAcumuladaMs={Math.round((Number(ag.pausa_acumulada_segundos) || 0) * 1000)}
+                        agoraMs={agoraMsCronometro}
+                        compacto
+                    />
+                )}
+
+                {/* ✅ APENAS VISUALIZAÇÃO - Dono não pode aceitar/recusar */}
+                {ag.status === 'pendente' && (
+                    <div className="bg-yellow-900/20 border border-yellow-600/30 p-2 rounded text-xs text-yellow-400">
+                        ⏳ Aguardando aceitação do freelancer
+                    </div>
+                )}
+
+                {/* Avaliação profissional (dono -> freelancer): só o aviso + botão, sem estrelas soltas
+                    e sem bloqueio aqui — bloqueio fica discreto no perfil do freelancer. */}
+                {pendente && (
+                    <div className="pt-2 border-t border-zinc-700 flex items-center justify-between gap-2">
+                        <p className="text-xs text-amber-400 font-bold">⚠️ Avaliação pendente</p>
+                        <button
+                            onClick={() => abrirAvaliacaoPendenteDoChamado(ag)}
+                            className="shrink-0 py-1.5 px-3 bg-orange-600/15 hover:bg-orange-600/25 border border-orange-600/40 text-orange-300 rounded text-xs font-bold flex items-center gap-1.5"
+                        >
+                            <Star size={12} /> Avaliar
+                        </button>
+                    </div>
+                )}
+            </div>
+        );
+    };
+
     // Mesmos atendimentos em andamento já calculados pra aba Chamadas, reaproveitados
     // no destaque de alta prioridade da Tela Inicial (sem cronômetro/estado paralelo).
     const atendimentosAtivosInicio = useMemo(() => {
@@ -227,13 +339,14 @@ export default function ShopDashboard({ token, logout, notify, API_URL }) {
         carregarServicosBarbearia();
     }, [barbeariaId, carregarServicosBarbearia]);
 
-    // Bloquear freelancer
+    // Bloquear freelancer (somente barbearia <-> freelancer; nao afeta outras barbearias
+    // nem o status geral do freelancer no BarberMove).
     const bloquearFreelancer = async (freelancerId, motivo) => {
         if (!barbeariaId) {
             notify('Barbearia não identificada', 'error');
-            return;
+            return false;
         }
-        
+
         try {
             const res = await fetch(`${API_URL}/api/v1/barbearia/${barbeariaId}/bloquear-freelancer`, {
                 method: 'POST',
@@ -248,14 +361,16 @@ export default function ShopDashboard({ token, logout, notify, API_URL }) {
             });
 
             if (res.ok) {
-                notify('Freelancer bloqueado com sucesso', 'success');
+                notify('Freelancer bloqueado nesta barbearia', 'success');
                 carregarFreelancersPresentes();
-            } else {
-                const error = await res.json().catch(() => ({}));
-                notify(error.detail || 'Erro ao bloquear freelancer', 'error');
+                return true;
             }
+            const error = await res.json().catch(() => ({}));
+            notify(error.detail || 'Erro ao bloquear freelancer', 'error');
+            return false;
         } catch (_err) {
             notify('Erro ao conectar com servidor', 'error');
+            return false;
         }
     };
 
@@ -1397,95 +1512,30 @@ export default function ShopDashboard({ token, logout, notify, API_URL }) {
                         {agendamentos.length === 0 ? (
                             <p className="text-zinc-600 text-center py-12 text-xs">Nenhum agendamento</p>
                         ) : (
-                            <div className="space-y-2 max-w-2xl mx-auto w-full">
-                                {agendamentos.map(ag => (
-                                    <div key={ag.id} className="bm-card p-3.5 space-y-2.5 overflow-hidden">
-                                        <div className="flex justify-between items-start">
-                                            <div className="min-w-0 pr-2">
-                                                <p className="font-bold text-sm truncate">{ag.servico_nome || ag.descricao || 'Serviço'}</p>
-                                                <p className="text-xs text-zinc-400 truncate">Cliente: {ag.cliente_nome || ag.nome_cliente}</p>
-                                                <p className="text-xs text-zinc-400 truncate">
-                                                    Freelancer:{' '}
-                                                    {ag.barbeiro_id ? (
-                                                        <button
-                                                            type="button"
-                                                            onClick={(e) => { e.stopPropagation(); abrirPerfilFreelancer(ag.barbeiro_id, ag.barbeiro_nome || ag.nome_barbeiro); }}
-                                                            className="font-semibold text-orange-300 underline underline-offset-2"
-                                                        >
-                                                            {ag.barbeiro_nome || ag.nome_barbeiro}
-                                                        </button>
-                                                    ) : (ag.barbeiro_nome || ag.nome_barbeiro)}
-                                                </p>
-                                                <p className="text-xs text-zinc-300">
-                                                    {ag.data_hora_inicio ? new Date(ag.data_hora_inicio).toLocaleString('pt-BR') : 'Horário não definido'}
-                                                </p>
-                                            </div>
-                                            <div className={`text-xs px-2 py-1 rounded font-bold ${
-                                                ag.status === 'concluido' ? 'bg-green-600/20 text-green-400' :
-                                                ag.status === 'em_atendimento' ? 'bg-purple-600/20 text-purple-300' :
-                                                ag.status === 'confirmado' ? 'bg-blue-600/20 text-blue-400' :
-                                                ag.status === 'pendente' ? 'bg-yellow-600/20 text-yellow-400' :
-                                                'bg-red-600/20 text-red-400'
-                                            }`}>
-                                                {ag.status.toUpperCase()}
-                                            </div>
-                                        </div>
+                            <div className="space-y-4 max-w-2xl mx-auto w-full">
+                                {agendamentosHistoricoAtivos.length > 0 && (
+                                    <div className="space-y-2">
+                                        {agendamentosHistoricoAtivos.map(renderCardAgendamentoHistorico)}
+                                    </div>
+                                )}
 
-                                        {ag.status === 'em_atendimento' && (
-                                            <CronometroAtendimento
-                                                chamado={ag}
-                                                chamadosGrupo={agendamentos}
-                                                chamadoAtivoId={ag.id}
-                                                isPausado={Boolean(ag.pausado)}
-                                                pausadoEmMs={ag.pausado_em ? parseDataServidorUTC(ag.pausado_em) : null}
-                                                pausaAcumuladaMs={Math.round((Number(ag.pausa_acumulada_segundos) || 0) * 1000)}
-                                                agoraMs={agoraMsCronometro}
-                                                compacto
-                                            />
-                                        )}
-
-                                        {/* ✅ APENAS VISUALIZAÇÃO - Dono não pode aceitar/recusar */}
-                                        {ag.status === 'pendente' && (
-                                            <div className="bg-yellow-900/20 border border-yellow-600/30 p-2 rounded text-xs text-yellow-400">
-                                                ⏳ Aguardando aceitação do freelancer
-                                            </div>
-                                        )}
-
-                                        {/* 🎯 AVALIAR FREELANCER - Após concluído */}
-                                        {ag.status === 'concluido' && !(ag.avaliado_por_barbearia ?? ag.avaliado) && (
-                                            <div className="space-y-2 pt-2 border-t border-zinc-700">
-                                                <p className="text-xs text-zinc-400 font-bold">Avaliar Freelancer:</p>
-                                                <div className="flex gap-2">
-                                                    {[1,2,3,4,5].map(nota => (
-                                                        <button
-                                                            key={nota}
-                                                            onClick={() => {
-                                                                const comentario = prompt('Comentário (opcional):');
-                                                                avaliarFreelancer(ag.barbeiro_id, ag.id, nota, comentario);
-                                                            }}
-                                                            className="text-2xl hover:scale-110 transition"
-                                                        >
-                                                            ⭐
-                                                        </button>
-                                                    ))}
-                                                </div>
-                                                <button
-                                                    onClick={() => {
-                                                        if (confirm(`Bloquear ${ag.barbeiro_nome} de trabalhar na sua barbearia?`)) {
-                                                            const motivo = prompt('Motivo do bloqueio:');
-                                                            if (motivo) {
-                                                                bloquearFreelancer(ag.barbeiro_id, motivo);
-                                                            }
-                                                        }
-                                                    }}
-                                                    className="w-full py-2 bg-red-600/20 hover:bg-red-600/30 border border-red-600/50 text-red-400 rounded text-xs font-bold"
-                                                >
-                                                    🚫 Bloquear Freelancer
-                                                </button>
+                                {agendamentosHistoricoConcluidos.length > 0 && (
+                                    <div className="space-y-2">
+                                        <button
+                                            type="button"
+                                            onClick={() => setHistoricoConcluidosExpandido((v) => !v)}
+                                            className="w-full flex items-center justify-between rounded-lg bg-zinc-900/60 border border-zinc-800 px-3 py-2 text-xs font-bold text-zinc-300 hover:bg-zinc-900"
+                                        >
+                                            <span>Concluídos ({agendamentosHistoricoConcluidos.length})</span>
+                                            <span className="text-zinc-500">{historicoConcluidosExpandido ? '▲ Recolher' : '▼ Expandir'}</span>
+                                        </button>
+                                        {historicoConcluidosExpandido && (
+                                            <div className="space-y-2">
+                                                {agendamentosHistoricoConcluidos.map(renderCardAgendamentoHistorico)}
                                             </div>
                                         )}
                                     </div>
-                                ))}
+                                )}
                             </div>
                         )}
                     </div>
@@ -1570,6 +1620,54 @@ export default function ShopDashboard({ token, logout, notify, API_URL }) {
                             <h3 className="text-sm font-bold text-white truncate">{freelancerPerfilModal.nome || 'Freelancer'}</h3>
                             <button onClick={() => setFreelancerPerfilModal(null)} className="text-zinc-400 px-2" aria-label="Fechar">✕</button>
                         </div>
+
+                        {/* Avaliação profissional (dono -> freelancer) + bloqueio discreto */}
+                        <div className="mb-3 rounded-xl border border-zinc-800 bg-black/30 p-3 space-y-2">
+                            {avaliacoesRecemEnviadas[freelancerPerfilModal.id] ? (
+                                <div>
+                                    <p className="text-xs font-bold text-emerald-400 mb-1">✅ Avaliação registrada</p>
+                                    <div className="flex items-center gap-1 mb-1">
+                                        {[1, 2, 3, 4, 5].map((n) => (
+                                            <Star
+                                                key={n}
+                                                size={13}
+                                                className={n <= avaliacoesRecemEnviadas[freelancerPerfilModal.id].nota ? 'text-yellow-400 fill-yellow-400' : 'text-zinc-700'}
+                                            />
+                                        ))}
+                                    </div>
+                                    {avaliacoesRecemEnviadas[freelancerPerfilModal.id].comentario && (
+                                        <p className="text-xs text-zinc-400">{avaliacoesRecemEnviadas[freelancerPerfilModal.id].comentario}</p>
+                                    )}
+                                </div>
+                            ) : pendenciaAvaliacaoPerfil ? (
+                                <div className="flex items-center justify-between gap-2">
+                                    <p className="text-xs text-amber-400 font-bold">⚠️ Avaliação pendente</p>
+                                    <button
+                                        onClick={() => abrirAvaliacaoPendenteDoChamado(pendenciaAvaliacaoPerfil)}
+                                        className="shrink-0 py-1.5 px-3 bg-orange-600/15 hover:bg-orange-600/25 border border-orange-600/40 text-orange-300 rounded text-xs font-bold flex items-center gap-1.5"
+                                    >
+                                        <Star size={12} /> Avaliar
+                                    </button>
+                                </div>
+                            ) : (
+                                <button
+                                    onClick={() => setFreelancerParaAvaliar({ id: freelancerPerfilModal.id, nome: freelancerPerfilModal.nome, foto: null, chamadoId: null })}
+                                    className="w-full py-2 bg-orange-600/15 hover:bg-orange-600/25 border border-orange-600/40 text-orange-300 rounded text-xs font-bold flex items-center justify-center gap-1.5"
+                                >
+                                    <Star size={12} /> Avaliar freelancer
+                                </button>
+                            )}
+
+                            {/* Bloqueio: discreto, só nesta barbearia. Não afeta o status do freelancer no resto do BarberMove. */}
+                            <button
+                                type="button"
+                                onClick={() => { setMotivoBloqueioInput(''); setFreelancerParaBloquear({ id: freelancerPerfilModal.id, nome: freelancerPerfilModal.nome }); }}
+                                className="text-[11px] text-zinc-500 hover:text-red-400 underline underline-offset-2"
+                            >
+                                Bloquear freelancer nesta barbearia
+                            </button>
+                        </div>
+
                         <ProfileCard
                             usuarioId={freelancerPerfilModal.id}
                             userType="barbeiro"
@@ -1590,11 +1688,69 @@ export default function ShopDashboard({ token, logout, notify, API_URL }) {
                     textoBotao="Enviar avaliação"
                     onClose={() => setFreelancerParaAvaliar(null)}
                     onSubmit={async ({ nota, comentario }) => {
-                        const ok = await avaliarFreelancer(freelancerParaAvaliar.id, null, nota, comentario);
-                        if (ok) setFreelancerParaAvaliar(null);
+                        const ok = await avaliarFreelancer(freelancerParaAvaliar.id, freelancerParaAvaliar.chamadoId || null, nota, comentario);
+                        if (ok) {
+                            setAvaliacoesRecemEnviadas((prev) => ({ ...prev, [freelancerParaAvaliar.id]: { nota, comentario } }));
+                            carregarAgendamentos();
+                            setFreelancerParaAvaliar(null);
+                        }
                         return ok;
                     }}
                 />
+            )}
+
+            {freelancerParaBloquear && (
+                <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-[9999] p-4">
+                    <div className="bg-zinc-900 rounded-2xl w-full max-w-sm border border-zinc-800 p-5 space-y-4">
+                        <div>
+                            <h3 className="text-base font-bold text-white">Bloquear freelancer</h3>
+                            <p className="text-xs text-zinc-400 mt-1">
+                                {freelancerParaBloquear.nome} deixa de receber chamados desta barbearia. Ele continua ativo no BarberMove e pode atender outras barbearias normalmente.
+                            </p>
+                        </div>
+                        <div>
+                            <label className="text-xs font-bold text-zinc-400 block mb-1">Motivo do bloqueio (obrigatório)</label>
+                            <textarea
+                                value={motivoBloqueioInput}
+                                onChange={(e) => setMotivoBloqueioInput(e.target.value)}
+                                rows={3}
+                                maxLength={300}
+                                placeholder="Ex.: atraso recorrente, comportamento inadequado..."
+                                className="w-full bg-zinc-800 border border-zinc-700 rounded-lg p-2.5 text-sm text-white placeholder-zinc-500 outline-none focus:border-red-500 resize-none"
+                            />
+                            <p className="text-[11px] text-zinc-500 mt-1">Visível apenas para o ADM.</p>
+                        </div>
+                        <div className="flex gap-2">
+                            <button
+                                onClick={() => { setFreelancerParaBloquear(null); setMotivoBloqueioInput(''); }}
+                                disabled={bloqueandoFreelancer}
+                                className="flex-1 bg-zinc-800 hover:bg-zinc-700 text-white py-2.5 rounded-lg text-sm font-bold disabled:opacity-50"
+                            >
+                                Cancelar
+                            </button>
+                            <button
+                                onClick={async () => {
+                                    const motivo = motivoBloqueioInput.trim();
+                                    if (!motivo) {
+                                        notify('Informe o motivo do bloqueio', 'error');
+                                        return;
+                                    }
+                                    setBloqueandoFreelancer(true);
+                                    const ok = await bloquearFreelancer(freelancerParaBloquear.id, motivo);
+                                    setBloqueandoFreelancer(false);
+                                    if (ok) {
+                                        setFreelancerParaBloquear(null);
+                                        setMotivoBloqueioInput('');
+                                    }
+                                }}
+                                disabled={bloqueandoFreelancer || !motivoBloqueioInput.trim()}
+                                className="flex-1 bg-red-600 hover:bg-red-700 disabled:bg-zinc-700 text-white py-2.5 rounded-lg text-sm font-bold disabled:opacity-50"
+                            >
+                                {bloqueandoFreelancer ? 'Bloqueando...' : 'Bloquear'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
             )}
         </div>
     );

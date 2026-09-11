@@ -763,8 +763,9 @@ class AvaliacaoFreelancerResponse(BaseModel):
     foto_corte_url: Optional[str] = None  # Foto do corte realizado
     tempo_real_servico_min: Optional[int] = None  # Tempo real em minutos
     criado_em: datetime
-    
+
     # Dados do avaliador
+    avaliador_id: Optional[int] = None
     avaliador_nome: Optional[str] = None
     avaliador_foto: Optional[str] = None
 
