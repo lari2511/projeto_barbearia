@@ -262,6 +262,8 @@ export default function ClientDashboard({ token, logout, API_URL: apiUrlProp, no
     const [gpsConsentOpen, setGpsConsentOpen] = useState(false);
     const [gpsPreference, setGpsPreference] = useState('always');
     const [vagasRelampago, setVagasRelampago] = useState([]);
+    const [barbeariasProximasHome, setBarbeariasProximasHome] = useState([]); // "Barbearias BarberMove perto de você" (Home)
+    const [loadingBarbeariasProximasHome, setLoadingBarbeariasProximasHome] = useState(false);
     const [avaliacaoPendente, setAvaliacaoPendente] = useState(null); // pendencia do fluxo automatico pos-pagamento
     const fluxoAvaliacaoVistoRef = useRef(null);
     const isPerfilTab = tab === 'perfil';
@@ -530,6 +532,71 @@ export default function ClientDashboard({ token, logout, API_URL: apiUrlProp, no
         }
     }, [API_URL, notify, token]);
 
+    // Sincroniza a localização atual do cliente com a conta (endpoint já usado
+    // pelo tracking de chamado). Best-effort: não bloqueia a listagem em caso de falha.
+    const sincronizarLocalizacaoCliente = useCallback(async (locationParam) => {
+        const location = locationParam || await obterLocalizacaoAtual();
+        setUserLocation(location);
+        try {
+            await fetch(`${API_URL}/api/v1/atualizar-localizacao`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    Authorization: `Bearer ${token}`,
+                },
+                body: JSON.stringify({ latitude: location.latitude, longitude: location.longitude }),
+            });
+        } catch (_err) {
+            // Sincronização é best-effort; a lista usa a última localização salva na conta.
+        }
+        return location;
+    }, [API_URL, token]);
+
+    // "Barbearias BarberMove perto de você" (Home do cliente): reusa o endpoint
+    // GET /api/v1/barbearias/proximas (já usado no fluxo de busca), que ordena por
+    // distância e inclui barbearias sem cadeira disponível.
+    const carregarBarbeariasProximasHome = useCallback(async ({ mostrarErro = false } = {}) => {
+        if (!token) return;
+        setLoadingBarbeariasProximasHome(true);
+        try {
+            const res = await fetch(`${API_URL}/api/v1/barbearias/proximas?raio_km=15`, {
+                headers: { Authorization: `Bearer ${token}` },
+            });
+            const data = await safeReadJson(res, null);
+            if (!res.ok) {
+                throw new Error(data?.detail || `HTTP ${res.status}`);
+            }
+            const lista = Array.isArray(data?.barbearias) ? data.barbearias : [];
+            setBarbeariasProximasHome(lista);
+            if (lista.length === 0 && mostrarErro) {
+                notifySafe(
+                    data?.erro ? 'Ative sua localização para ver barbearias perto de você' : 'Nenhuma barbearia encontrada perto de você',
+                    'info'
+                );
+            }
+        } catch (err) {
+            setBarbeariasProximasHome([]);
+            if (mostrarErro) notifySafe(`Erro ao carregar barbearias próximas: ${err?.message || 'falha de conexão'}`, 'error');
+        } finally {
+            setLoadingBarbeariasProximasHome(false);
+        }
+    }, [API_URL, token, notifySafe]);
+
+    // Botão "Atualizar localização" da Home: pega o GPS, sincroniza com a conta e recarrega a lista.
+    const atualizarLocalizacaoBarbeariasHome = useCallback(async () => {
+        setLoadingBarbeariasProximasHome(true);
+        try {
+            await sincronizarLocalizacaoCliente();
+            await carregarBarbeariasProximasHome({ mostrarErro: true });
+        } catch (err) {
+            const msg = err?.message === 'Permissão de localização negada'
+                ? 'Permissão de localização negada. Ative nas configurações do celular.'
+                : 'Não foi possível obter sua localização. Ative o GPS e tente novamente.';
+            notifySafe(msg, 'error');
+            setLoadingBarbeariasProximasHome(false);
+        }
+    }, [sincronizarLocalizacaoCliente, carregarBarbeariasProximasHome, notifySafe]);
+
     const carregarMeusPedidos = useCallback(() => {
         fetch(`${API_URL}/api/v1/cliente/meus_pedidos`, { headers: {'Authorization': `Bearer ${token}`} })
             .then(async (response) => {
@@ -782,6 +849,22 @@ export default function ClientDashboard({ token, logout, API_URL: apiUrlProp, no
         carregarVagasRelampago();
     }, [tab, gpsPreference, loadDefaultShops]);
 
+    // Home do cliente: carrega "Barbearias BarberMove perto de você" ao entrar na aba
+    // (usa a última localização salva na conta, sem pedir GPS novo).
+    useEffect(() => {
+        if (tab !== 'inicio') return;
+        carregarBarbeariasProximasHome();
+    }, [tab, carregarBarbeariasProximasHome]);
+
+    // Quando o GPS do cliente já foi obtido (pelo fluxo padrão do app) enquanto ele
+    // está na Home, sincroniza com a conta e recalcula a lista de barbearias próximas.
+    useEffect(() => {
+        if (tab !== 'inicio' || !userLocation) return;
+        sincronizarLocalizacaoCliente(userLocation)
+            .then(() => carregarBarbeariasProximasHome())
+            .catch(() => {});
+    }, [tab, userLocation]);
+
     useEffect(() => {
         if (tab !== 'buscar') return;
         const intervalo = window.setInterval(() => {
@@ -1009,6 +1092,14 @@ export default function ClientDashboard({ token, logout, API_URL: apiUrlProp, no
             await loadDefaultShops({ mostrarErro: false });
             setStep('barbeiros');
         }
+    };
+
+    // Clique numa barbearia da Home ("Barbearias BarberMove perto de você"): leva o
+    // cliente para a aba Buscar já no fluxo existente de barbeiros daquela barbearia,
+    // sem alterar a lógica de descoberta/seleção de freelancers.
+    const handleSelecionarBarbeariaHome = (barbearia) => {
+        setTab('buscar');
+        handleSelectBarbeariaInicial(barbearia);
     };
 
     const handleSelectBarbearia = async (barbearia) => {
@@ -1645,6 +1736,70 @@ export default function ClientDashboard({ token, logout, API_URL: apiUrlProp, no
                             <span className="text-sm font-bold">Carteira</span>
                             <span className="text-xs text-zinc-500">Pagamentos</span>
                         </button>
+                    </div>
+
+                    {/* Barbearias BarberMove perto de você */}
+                    <div className="dashboard-card bg-zinc-900 rounded-2xl p-4 border border-zinc-800/60 space-y-3">
+                        <div className="flex items-center justify-between gap-2">
+                            <h3 className="text-sm font-black text-white">Barbearias BarberMove perto de você</h3>
+                            <button
+                                type="button"
+                                onClick={atualizarLocalizacaoBarbeariasHome}
+                                disabled={loadingBarbeariasProximasHome}
+                                className="shrink-0 flex items-center gap-1 rounded-lg border border-zinc-700 bg-black/30 px-2.5 py-1.5 text-[11px] font-bold text-zinc-300 hover:border-orange-500 hover:text-orange-300 transition-colors disabled:opacity-60"
+                            >
+                                <MapPin size={12} />
+                                {loadingBarbeariasProximasHome ? 'Atualizando...' : 'Atualizar localização'}
+                            </button>
+                        </div>
+
+                        {loadingBarbeariasProximasHome && barbeariasProximasHome.length === 0 ? (
+                            <p className="text-xs text-zinc-500 py-4 text-center">Buscando barbearias perto de você...</p>
+                        ) : barbeariasProximasHome.length === 0 ? (
+                            <p className="text-xs text-zinc-500 py-4 text-center">
+                                Nenhuma barbearia encontrada perto de você. Toque em "Atualizar localização" para tentar novamente.
+                            </p>
+                        ) : (
+                            <div className="space-y-2">
+                                {barbeariasProximasHome.map((barbearia) => (
+                                    <div
+                                        key={barbearia.id}
+                                        onClick={() => handleSelecionarBarbeariaHome(barbearia)}
+                                        role="button"
+                                        tabIndex={0}
+                                        className="bm-card bg-black/30 rounded-xl border border-zinc-800/60 hover:border-orange-500 transition-colors p-2 flex gap-3 items-center cursor-pointer"
+                                    >
+                                        <div className="relative w-14 h-14 shrink-0 rounded-lg overflow-hidden bg-gradient-to-r from-zinc-800 to-zinc-900">
+                                            <img
+                                                src={resolverFotoBarbearia(barbearia) || getShopImage(barbearia.id)}
+                                                alt={barbearia.nome || 'Barbearia'}
+                                                className="w-full h-full object-cover"
+                                                onError={(e) => {
+                                                    e.currentTarget.onerror = null;
+                                                    e.currentTarget.src = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200"><rect width="100%" height="100%" fill="%23111827"/><text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" fill="%239ca3af" font-size="14" font-family="Arial">✂️</text></svg>';
+                                                }}
+                                            />
+                                        </div>
+                                        <div className="min-w-0 flex-1">
+                                            <p className="font-bold text-sm text-white truncate">{barbearia.nome}</p>
+                                            <p className="text-xs text-zinc-400 truncate">{barbearia.endereco || 'Endereço disponível no perfil'}</p>
+                                            <div className="mt-1 flex items-center gap-2 flex-wrap">
+                                                {barbearia.distancia_km !== undefined && barbearia.distancia_km !== null && (
+                                                    <span className="inline-flex items-center gap-1 text-[11px] text-zinc-400">
+                                                        <MapPin size={11} className="text-orange-400" />
+                                                        {barbearia.distancia_km} km
+                                                    </span>
+                                                )}
+                                                <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${barbearia.cadeira_disponivel ? 'bg-green-600/80 text-white' : 'bg-zinc-700 text-zinc-300'}`}>
+                                                    {barbearia.cadeira_disponivel ? 'Cadeira disponível' : 'Sem cadeira no momento'}
+                                                </span>
+                                            </div>
+                                        </div>
+                                        <ArrowRight size={16} className="shrink-0 text-zinc-600" />
+                                    </div>
+                                ))}
+                            </div>
+                        )}
                     </div>
                 </div>
             )}
