@@ -2363,6 +2363,26 @@ async def chegar_chamado(id: int, token: str = Depends(oauth2_scheme), db: Sessi
     if status_normalizado not in {"aceito", models.StatusAgendamento.CONFIRMADO.value, models.StatusAgendamento.EM_ATENDIMENTO.value}:
         raise HTTPException(status_code=400, detail="Chegada só pode ser confirmada quando o chamado estiver confirmado")
 
+    # Botão "Cheguei" só fica disponível a até 200m do local do atendimento
+    # (a barbearia, endereço fixo geocodificado). Vale tanto para cliente quanto
+    # para barbeiro - cada um confirma a própria chegada.
+    barbearia_do_chamado = db.query(models.Barbearia).filter(models.Barbearia.id == chamado.barbearia_id).first()
+    if not barbearia_do_chamado or barbearia_do_chamado.latitude is None or barbearia_do_chamado.longitude is None:
+        raise HTTPException(status_code=400, detail="Barbearia sem localização cadastrada")
+    if user.latitude is None or user.longitude is None:
+        raise HTTPException(status_code=400, detail="Ative sua localização para confirmar chegada")
+
+    distancia_ate_barbearia_km = calcular_distancia_km(
+        user.latitude, user.longitude,
+        barbearia_do_chamado.latitude, barbearia_do_chamado.longitude,
+    )
+    distancia_ate_barbearia_m = distancia_ate_barbearia_km * 1000
+    if distancia_ate_barbearia_m > 200:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Você precisa estar a até 200m do local do atendimento para confirmar chegada (distância atual: {int(round(distancia_ate_barbearia_m))}m).",
+        )
+
     barbeiro = db.query(models.Usuario).filter(models.Usuario.id == chamado.barbeiro_id).first() if chamado.barbeiro_id else None
     barbeiro_ja_presente_na_barbearia = bool(
         barbeiro

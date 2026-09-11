@@ -14,6 +14,9 @@ const haversineKm = (lat1, lon1, lat2, lon2) => {
     return R * (2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)));
 };
 
+// Botão "Cheguei" só fica disponível a até 200m do local do atendimento.
+const DISTANCIA_MAXIMA_CHEGADA_KM = 0.2;
+
 export default function TrackingPanel({ chamado, token, API_URL, notify, modo = 'cliente', barbeariaId = null }) {
     const [posicaoAtual, setPosicaoAtual] = useState(null);
     const [destinoInfo, setDestinoInfo] = useState(null);
@@ -323,6 +326,11 @@ export default function TrackingPanel({ chamado, token, API_URL, notify, modo = 
         return haversineKm(posicaoAtual.latitude, posicaoAtual.longitude, destinoInfo.latitude, destinoInfo.longitude);
     }, [destinoInfo?.latitude, destinoInfo?.longitude, posicaoAtual]);
 
+    // Distância até o local do atendimento para o botão "Cheguei": prioriza o GPS
+    // ao vivo do navegador e cai pro valor sincronizado com o backend.
+    const distanciaParaChegadaKm = distanciaAtualParaDestino != null ? distanciaAtualParaDestino : distanciaBackend;
+    const dentroDoLimiteParaChegada = distanciaParaChegadaKm != null && distanciaParaChegadaKm <= DISTANCIA_MAXIMA_CHEGADA_KM;
+
     const tempoEstimadoAtual = useMemo(() => {
         if (distanciaAtualParaDestino == null) return null;
         return Math.max(1, Math.round(distanciaAtualParaDestino * 4));
@@ -454,18 +462,31 @@ export default function TrackingPanel({ chamado, token, API_URL, notify, modo = 
                         </div>
 
                         {!(isBarbeiroMode && barbeiroPresenteNoLocal) ? (
-                            <button
-                                type="button"
-                                onClick={marcarChegada}
-                                disabled={marcandoChegada || chegadaDoUsuarioConfirmada}
-                                className="w-full rounded-xl bg-orange-500 px-3 py-2.5 text-sm font-bold text-white transition-opacity disabled:opacity-50"
-                            >
-                                {marcandoChegada
-                                    ? 'Registrando...'
-                                    : chegadaDoUsuarioConfirmada
-                                        ? 'Chegada já confirmada'
-                                        : 'Cheguei'}
-                            </button>
+                            <>
+                                <button
+                                    type="button"
+                                    onClick={marcarChegada}
+                                    disabled={marcandoChegada || chegadaDoUsuarioConfirmada || !dentroDoLimiteParaChegada}
+                                    className="w-full rounded-xl bg-orange-500 px-3 py-2.5 text-sm font-bold text-white transition-opacity disabled:opacity-50"
+                                >
+                                    {marcandoChegada
+                                        ? 'Registrando...'
+                                        : chegadaDoUsuarioConfirmada
+                                            ? 'Chegada já confirmada'
+                                            : dentroDoLimiteParaChegada
+                                                ? 'Cheguei'
+                                                : 'Aproxime-se para confirmar'}
+                                </button>
+                                {!chegadaDoUsuarioConfirmada && !dentroDoLimiteParaChegada && (
+                                    <p className="text-[11px] text-zinc-500 text-center">
+                                        Disponível a até 200m do local do atendimento
+                                        {distanciaParaChegadaKm != null
+                                            ? ` (faltam ${Math.max(0, Math.round(distanciaParaChegadaKm * 1000 - 200))}m)`
+                                            : ''}
+                                        .
+                                    </p>
+                                )}
+                            </>
                         ) : (
                             <div className="w-full rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-3 py-2.5 text-sm font-semibold text-emerald-200 text-center">
                                 Você já está presente na barbearia. Apenas o cliente precisa confirmar chegada.
