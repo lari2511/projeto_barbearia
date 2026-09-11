@@ -65,6 +65,7 @@ export default function ShopDashboard({ token, logout, notify, API_URL }) {
     const [freelancersDisponiveis, setFreelancersDisponiveis] = useState([]);
     const [freelancersPendentesAprovacao, setFreelancersPendentesAprovacao] = useState([]);
     const [freelancersProximosRegiao, setFreelancersProximosRegiao] = useState([]); // visibilidade: freelancers BarberMove perto da barbearia
+    const [totalFreelancersCadastrados, setTotalFreelancersCadastrados] = useState(null); // total real na plataforma, sem filtro de distancia
     const [cadeirasBarbearia, setCadeirasBarbearia] = useState([]);
     const [loadingCadeirasBarbearia, setLoadingCadeirasBarbearia] = useState(false);
     const [ultimaAtualizacaoFreelancers, setUltimaAtualizacaoFreelancers] = useState(null);
@@ -472,6 +473,21 @@ export default function ShopDashboard({ token, logout, notify, API_URL }) {
         }
     }, [API_URL, barbeariaId, token]);
 
+    // Total real de freelancers cadastrados no BarberMove, independente de distancia
+    // (mesma lista que a aba Freelancers ja usa, so que sem separar por status).
+    const carregarTotalFreelancersCadastrados = useCallback(async () => {
+        try {
+            const res = await fetch(`${API_URL}/api/v1/barbeiros/todos`, {
+                headers: {'Authorization': `Bearer ${token}`}
+            });
+            if (!res.ok) return;
+            const data = await res.json();
+            if (Array.isArray(data)) setTotalFreelancersCadastrados(data.length);
+        } catch (_err) {
+            // mantem o ultimo valor conhecido
+        }
+    }, [API_URL, token]);
+
     const carregarCadeirasBarbearia = useCallback(async () => {
         if (!barbeariaId) return;
 
@@ -681,6 +697,13 @@ export default function ShopDashboard({ token, logout, notify, API_URL }) {
         const interval = setInterval(carregarFreelancersProximosRegiao, 15000);
         return () => clearInterval(interval);
     }, [barbeariaId, tab, carregarFreelancersProximosRegiao]);
+
+    useEffect(() => {
+        if (tab !== 'inicio') return;
+        carregarTotalFreelancersCadastrados();
+        const interval = setInterval(carregarTotalFreelancersCadastrados, 60000);
+        return () => clearInterval(interval);
+    }, [tab, carregarTotalFreelancersCadastrados]);
 
     useEffect(() => {
         if (!barbeariaId || tab !== 'barbeiros') return;
@@ -978,6 +1001,12 @@ export default function ShopDashboard({ token, logout, notify, API_URL }) {
                                 </div>
                             )}
                         </div>
+
+                        {totalFreelancersCadastrados != null && (
+                            <p className="text-[11px] text-zinc-500 text-center">
+                                {totalFreelancersCadastrados} freelancers cadastrados no BarberMove
+                            </p>
+                        )}
                     </div>
                 )}
 

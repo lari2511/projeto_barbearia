@@ -75,6 +75,7 @@ export default function PainelBarberMovePremium({ token: tokenProp, logout: logo
   const [chamadoParaFinalizarId, setChamadoParaFinalizarId] = useState(null);
   const [barbeariaParaAvaliar, setBarbeariaParaAvaliar] = useState(null); // { id, nome }
   const [barbeariasProximas, setBarbeariasProximas] = useState([]); // visibilidade: barbearias BarberMove na regiao
+  const [totalBarbeariasCadastradas, setTotalBarbeariasCadastradas] = useState(null); // total real na plataforma, sem filtro de distancia
   const [barbeariaPerfilModal, setBarbeariaPerfilModal] = useState(null); // { usuario_id, nome } — perfil publico da barbearia
   const scrollRef = useRef(null);
   const ultimaSyncGpsRef = useRef(0);
@@ -541,6 +542,25 @@ export default function PainelBarberMovePremium({ token: tokenProp, logout: logo
     }
   }, [token, API_URL]);
 
+  // Total real de barbearias cadastradas no BarberMove, independente de distancia
+  // (mesmo endpoint que a Home do cliente ja usa para listar todas as aprovadas).
+  const carregarTotalBarbeariasCadastradas = useCallback(async () => {
+    if (!token) return;
+    try {
+      const res = await fetch(`${API_URL}/api/v1/barbearias/todas-aprovadas`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+      const total = typeof data?.total === 'number'
+        ? data.total
+        : (Array.isArray(data?.barbearias) ? data.barbearias.length : null);
+      if (total != null) setTotalBarbeariasCadastradas(total);
+    } catch (_) {
+      // mantem o ultimo valor conhecido
+    }
+  }, [token, API_URL]);
+
   const [atualizandoGpsBarbearias, setAtualizandoGpsBarbearias] = useState(false);
   // Toque manual em "atualizar GPS": obtem a posicao atual, persiste para
   // descoberta (mesmo endpoint do sync automatico) e recalcula a lista/distancias.
@@ -577,6 +597,11 @@ export default function PainelBarberMovePremium({ token: tokenProp, logout: logo
     const t = setInterval(carregarBarbeariasProximas, 60000);
     return () => clearInterval(t);
   }, [carregarBarbeariasProximas]);
+  useEffect(() => {
+    carregarTotalBarbeariasCadastradas();
+    const t = setInterval(carregarTotalBarbeariasCadastradas, 60000);
+    return () => clearInterval(t);
+  }, [carregarTotalBarbeariasCadastradas]);
   useEffect(() => {
     const t = setInterval(() => {
       carregarChamados();
@@ -979,6 +1004,12 @@ export default function PainelBarberMovePremium({ token: tokenProp, logout: logo
                   </div>
                 )}
               </div>
+
+              {totalBarbeariasCadastradas != null && (
+                <p className="text-[11px] text-zinc-500 text-center">
+                  {totalBarbeariasCadastradas} barbearias cadastradas no BarberMove
+                </p>
+              )}
             </div>
           )}
 
