@@ -673,7 +673,9 @@ export default function ShopDashboard({ token, logout, notify, API_URL }) {
     }, [barbeariaId, tab, wsConectado, carregarFreelancersDisponiveis, carregarFreelancersPresentes, carregarCadeirasBarbearia, carregarVagasRelampago]);
 
     useEffect(() => {
-        if (!barbeariaId || tab !== 'freelancers') return;
+        // Home também mostra "Freelancers BarberMove perto de você" (mesmos dados
+        // e mesma consulta de proximidade da aba "Freelancers", sem duplicar lógica).
+        if (!barbeariaId || (tab !== 'freelancers' && tab !== 'inicio')) return;
 
         carregarFreelancersProximosRegiao();
         const interval = setInterval(carregarFreelancersProximosRegiao, 15000);
@@ -951,6 +953,30 @@ export default function ShopDashboard({ token, logout, notify, API_URL }) {
                                 <span className="text-sm font-bold">Carteira</span>
                                 <span className="text-xs text-zinc-500">Financeiro</span>
                             </button>
+                        </div>
+
+                        {/* Freelancers BarberMove perto de você: mesma consulta de proximidade
+                            da aba "Freelancers" (visibilidade), só que resumida — nome + distância. */}
+                        <div className="bm-card bg-zinc-900 rounded-2xl p-4 border border-zinc-800/60 space-y-2">
+                            <h3 className="text-sm font-black text-white">Freelancers BarberMove perto de você</h3>
+                            {freelancersProximosRegiao.length === 0 ? (
+                                <p className="text-xs text-zinc-500">Nenhum freelancer perto de você agora.</p>
+                            ) : (
+                                <div className="space-y-2">
+                                    {freelancersProximosRegiao.map((f) => (
+                                        <div
+                                            key={f.usuario_id}
+                                            onClick={() => abrirPerfilFreelancer(f.usuario_id, f.nome)}
+                                            role="button"
+                                            tabIndex={0}
+                                            className="bg-black/30 border border-zinc-800 rounded-xl px-3 py-2.5 flex items-center justify-between gap-2 cursor-pointer hover:border-orange-500 transition-colors"
+                                        >
+                                            <span className="text-sm font-bold text-white truncate">💈 {f.nome}</span>
+                                            <span className="text-xs text-zinc-400 shrink-0">📍 {f.distancia_aproximada}</span>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
                         </div>
                     </div>
                 )}
