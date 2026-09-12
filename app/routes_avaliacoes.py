@@ -34,6 +34,7 @@ from app.avaliacoes_service import (
     resumo_barbearia,
     atualizar_flag_negativas_freelancer,
 )
+from app.routes_notificacoes import criar_notificacao_avaliacao_freelancer
 
 router = APIRouter(prefix="/api/v1/avaliacoes", tags=["Avaliacoes"])
 
@@ -93,6 +94,22 @@ def _resolver_freelancer(db: Session, freelancer_id: int) -> Freelancer:
         freelancer = db.query(Freelancer).filter(
             Freelancer.usuario_id == freelancer_id
         ).first()
+    if not freelancer:
+        # O cadastro de barbeiro (tipo "barbeiro") nao cria automaticamente a
+        # linha em `freelancers` (isso so acontece em POST /freelancer/cadastro,
+        # que o app hoje nao chama) — por isso um barbeiro que ja atendeu de
+        # verdade pode nao ter Freelancer ainda. Cria o registro minimo aqui
+        # em vez de bloquear a avaliacao com "Freelancer nao encontrado".
+        usuario_barbeiro = db.query(Usuario).filter(
+            Usuario.id == freelancer_id, Usuario.tipo == "barbeiro"
+        ).first()
+        if usuario_barbeiro:
+            freelancer = Freelancer(
+                usuario_id=usuario_barbeiro.id,
+                tempo_experiencia_anos=0,
+            )
+            db.add(freelancer)
+            db.flush()
     if not freelancer:
         raise HTTPException(status_code=404, detail="Freelancer nao encontrado")
     return freelancer
@@ -208,6 +225,9 @@ def avaliar_freelancer(
     atualizar_flag_negativas_freelancer(db, freelancer.usuario_id)
     db.commit()
     db.refresh(avaliacao)
+
+    if tipo_avaliador == "barbearia":
+        criar_notificacao_avaliacao_freelancer(freelancer.usuario_id, dados.nota, db=db)
 
     resumo = resumo_freelancer(db, freelancer.id)
     return {

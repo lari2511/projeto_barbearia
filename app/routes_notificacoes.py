@@ -271,6 +271,26 @@ def criar_notificacao_chamado_rejeitado(
     db.commit()
     return notif
 
+def criar_notificacao_avaliacao_freelancer(
+    freelancer_usuario_id: int,
+    nota: int,
+    db: Session = None
+):
+    """Cria notificação quando o freelancer recebe uma avaliação da barbearia"""
+    if db is None:
+        from app.database import SessionLocal
+        db = SessionLocal()
+
+    notif = Notificacao(
+        usuario_id=freelancer_usuario_id,
+        titulo="Nova Avaliação! ⭐",
+        mensagem=f"Sua barbearia te avaliou com {nota} estrela(s)",
+        tipo="avaliacao_recebida",
+    )
+    db.add(notif)
+    db.commit()
+    return notif
+
 def criar_notificacao_perfil_aprovado(
     usuario_id: int,
     db: Session = None
