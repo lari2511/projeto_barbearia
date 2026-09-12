@@ -19,16 +19,24 @@ def _visivel_barbearia():
     return models.AvaliacaoBarbearia.bloqueada_por_admin.isnot(True)
 
 
-def resumo_freelancer(db: Session, freelancer_id: int) -> dict:
-    """Media e total de avaliacoes visiveis de um freelancer (por Freelancer.id)."""
-    media = db.query(func.avg(models.AvaliacaoFreelancer.nota)).filter(
+def resumo_freelancer(db: Session, freelancer_id: int, tipos: list = None) -> dict:
+    """
+    Media e total de avaliacoes visiveis de um freelancer (por Freelancer.id).
+
+    Um freelancer recebe dois tipos de avaliacao (cliente -> freelancer e
+    proprietario/barbearia -> freelancer) que nao podem ser misturadas na
+    mesma media. `tipos` filtra por `tipo_avaliador`; o default e somente
+    "cliente" (a avaliacao profissional do proprietario tem visibilidade
+    restrita - ver _tipos_avaliacao_freelancer_visiveis).
+    """
+    tipos = tipos or ["cliente"]
+    filtros = (
         models.AvaliacaoFreelancer.freelancer_id == freelancer_id,
         _visivel_freelancer(),
-    ).scalar()
-    total = db.query(func.count(models.AvaliacaoFreelancer.id)).filter(
-        models.AvaliacaoFreelancer.freelancer_id == freelancer_id,
-        _visivel_freelancer(),
-    ).scalar()
+        models.AvaliacaoFreelancer.tipo_avaliador.in_(tipos),
+    )
+    media = db.query(func.avg(models.AvaliacaoFreelancer.nota)).filter(*filtros).scalar()
+    total = db.query(func.count(models.AvaliacaoFreelancer.id)).filter(*filtros).scalar()
     return {"media": round(float(media), 1) if media else 0, "total": int(total or 0)}
 
 

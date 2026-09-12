@@ -250,7 +250,9 @@ def avaliar_freelancer(
     if tipo_avaliador == "barbearia":
         criar_notificacao_avaliacao_freelancer(freelancer.usuario_id, dados.nota, db=db)
 
-    resumo = resumo_freelancer(db, freelancer.id)
+    # Media/total refletem somente o mesmo tipo da avaliacao enviada agora
+    # (cliente ou proprietario), nunca uma mistura dos dois.
+    resumo = resumo_freelancer(db, freelancer.id, tipos=[tipo_avaliador])
     return {
         "message": "Avaliacao registrada com sucesso!",
         "avaliacao_id": avaliacao.id,
@@ -425,9 +427,25 @@ def pendentes_cliente(
 # ==========================================================================
 
 @router.get("/freelancer/{freelancer_id}/resumo", response_model=dict)
-def resumo_do_freelancer(freelancer_id: int, db: Session = Depends(get_db)):
+def resumo_do_freelancer(
+    freelancer_id: int,
+    db: Session = Depends(get_db),
+    usuario_atual: Optional[Usuario] = Depends(_usuario_opcional),
+):
+    """
+    Media/total de avaliacoes do freelancer. Nunca mistura as duas notas:
+    `media`/`total` sao sempre da avaliacao de cliente; `media_barbearia`/
+    `total_barbearia` (avaliacao profissional do proprietario) so aparecem
+    para quem pode ve-la (ver _tipos_avaliacao_freelancer_visiveis).
+    """
     freelancer = _resolver_freelancer(db, freelancer_id)
-    return resumo_freelancer(db, freelancer.id)
+    tipos_visiveis = _tipos_avaliacao_freelancer_visiveis(usuario_atual, freelancer)
+    resumo = resumo_freelancer(db, freelancer.id, tipos=["cliente"])
+    if "barbearia" in tipos_visiveis:
+        resumo_profissional = resumo_freelancer(db, freelancer.id, tipos=["barbearia"])
+        resumo["media_barbearia"] = resumo_profissional["media"]
+        resumo["total_barbearia"] = resumo_profissional["total"]
+    return resumo
 
 
 @router.get("/barbearia/{barbearia_id}/resumo", response_model=dict)
@@ -539,6 +557,7 @@ def minhas_avaliacoes_recebidas(
         "como_freelancer": [],
         "como_barbearia": [],
         "media_freelancer": None,
+        "media_freelancer_barbearia": None,
         "media_barbearia": None,
         "media_barbearia_freelancer": None,
     }
@@ -564,7 +583,10 @@ def minhas_avaliacoes_recebidas(
                 "criado_em": av.criado_em,
                 "avaliador_nome": nome, "avaliador_foto": foto,
             })
-        resultado["media_freelancer"] = resumo_freelancer(db, freelancer.id)["media"] or None
+        # Nao misturar as duas notas: media de cliente e media de proprietario
+        # (avaliacao profissional) sao contadas em separado.
+        resultado["media_freelancer"] = resumo_freelancer(db, freelancer.id, tipos=["cliente"])["media"] or None
+        resultado["media_freelancer_barbearia"] = resumo_freelancer(db, freelancer.id, tipos=["barbearia"])["media"] or None
 
     barbearia = db.query(Barbearia).filter(
         Barbearia.usuario_id == usuario_atual.id

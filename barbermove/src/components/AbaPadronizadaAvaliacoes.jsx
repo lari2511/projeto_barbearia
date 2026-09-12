@@ -19,20 +19,23 @@ export default function AbaPadronizadaAvaliacoes({
     token,
     notify,
 }) {
-    const [avaliacoes, setAvaliacoes] = useState([]);
     // Barbearia recebe dois tipos de avaliacao (cliente -> barbearia e
-    // freelancer -> barbearia) que nunca podem ser misturados na mesma media,
-    // entao ficam em listas separadas (o backend ja manda `tipo_avaliador`
-    // em cada item de como_barbearia).
+    // freelancer -> barbearia) e freelancer recebe outros dois (cliente ->
+    // freelancer e proprietario -> freelancer); nenhum dos dois pode misturar
+    // as medias, entao ficam em listas separadas (o backend ja manda
+    // `tipo_avaliador` em cada item de como_barbearia/como_freelancer).
     const [avaliacoesBarbeariaClientes, setAvaliacoesBarbeariaClientes] = useState([]);
     const [avaliacoesBarbeariaFreelancers, setAvaliacoesBarbeariaFreelancers] = useState([]);
+    const [avaliacoesFreelancerClientes, setAvaliacoesFreelancerClientes] = useState([]);
+    const [avaliacoesFreelancerProprietarios, setAvaliacoesFreelancerProprietarios] = useState([]);
     const [carregando, setCarregando] = useState(true);
     const [pendencias, setPendencias] = useState([]);
     const [pendenciaAtiva, setPendenciaAtiva] = useState(null);
 
     const carregarRecebidas = useCallback(async () => {
         if (tipoUsuario === 'cliente') {
-            setAvaliacoes([]);
+            setAvaliacoesFreelancerClientes([]);
+            setAvaliacoesFreelancerProprietarios([]);
             return;
         }
         try {
@@ -46,7 +49,9 @@ export default function AbaPadronizadaAvaliacoes({
                     setAvaliacoesBarbeariaClientes(comoBarbearia.filter((av) => av.tipo_avaliador === 'cliente'));
                     setAvaliacoesBarbeariaFreelancers(comoBarbearia.filter((av) => av.tipo_avaliador === 'freelancer'));
                 } else {
-                    setAvaliacoes(Array.isArray(data?.como_freelancer) ? data.como_freelancer : []);
+                    const comoFreelancer = Array.isArray(data?.como_freelancer) ? data.como_freelancer : [];
+                    setAvaliacoesFreelancerClientes(comoFreelancer.filter((av) => av.tipo_avaliador === 'cliente'));
+                    setAvaliacoesFreelancerProprietarios(comoFreelancer.filter((av) => av.tipo_avaliador === 'barbearia'));
                 }
             }
         } catch (_err) {
@@ -168,7 +173,16 @@ export default function AbaPadronizadaAvaliacoes({
                     </div>
                 </div>
             ) : (
-                <ListaAvaliacoes avaliacoes={avaliacoes} />
+                <div className="space-y-6">
+                    <div>
+                        <h3 className="text-sm font-bold text-zinc-400 uppercase tracking-wide mb-2">Avaliacoes de clientes</h3>
+                        <ListaAvaliacoes avaliacoes={avaliacoesFreelancerClientes} />
+                    </div>
+                    <div>
+                        <h3 className="text-sm font-bold text-zinc-400 uppercase tracking-wide mb-2">Avaliacoes de proprietarios</h3>
+                        <ListaAvaliacoes avaliacoes={avaliacoesFreelancerProprietarios} />
+                    </div>
+                </div>
             )}
 
             {/* Fluxo de avaliacao do cliente (2 passos) */}
