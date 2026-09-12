@@ -331,7 +331,8 @@ def avaliar_barbearia(
 
 
 # ==========================================================================
-# CLIENTE - pendencias de avaliacao (dispara o fluxo pos-pagamento)
+# CLIENTE - pendencias de avaliacao (disponivel assim que o atendimento e
+# concluido; pagamento e avaliacao sao acoes independentes)
 # ==========================================================================
 
 @router.get("/pendentes-cliente", response_model=list)
@@ -340,8 +341,10 @@ def pendentes_cliente(
     usuario_atual: Usuario = Depends(get_current_user),
 ):
     """
-    Lista os atendimentos do cliente ja concluidos e pagos, com o estado de
-    cada uma das duas avaliacoes (freelancer e barbearia).
+    Lista os atendimentos concluidos do cliente, com o estado de cada uma das
+    duas avaliacoes (freelancer e barbearia). Independe do pagamento estar
+    concluido: o cliente pode avaliar assim que o atendimento e finalizado,
+    o pagamento e uma acao separada (ver `pagamento_concluido`).
     """
     chamados = db.query(Chamado).filter(
         Chamado.cliente_id == usuario_atual.id,
@@ -355,9 +358,6 @@ def pendentes_cliente(
         pagamento = db.query(Pagamento).filter(
             Pagamento.chamado_id == chamado.id
         ).first()
-        pago = bool(pagamento and pagamento.pago_em)
-        if not pago:
-            continue
 
         barbeiro = db.query(Usuario).filter(Usuario.id == chamado.barbeiro_id).first()
         freelancer = db.query(Freelancer).filter(
@@ -391,6 +391,7 @@ def pendentes_cliente(
             "barbearia_foto": dono.foto_perfil if dono else None,
             "avaliacao_freelancer_enviada": bool(aval_free),
             "avaliacao_barbearia_enviada": bool(aval_barb),
+            "pagamento_concluido": bool(pagamento and pagamento.pago_em),
         })
 
     return resultado

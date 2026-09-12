@@ -6,13 +6,18 @@ import AvaliacaoModal from './AvaliacaoModal';
  * Dois passos independentes e sequenciais: primeiro o freelancer, depois a barbearia.
  * Reaproveita o AvaliacaoModal. Pula o passo que ja foi enviado.
  */
-export default function FluxoAvaliacaoCliente({ pendencia, API_URL, token, notify, onDone }) {
+export default function FluxoAvaliacaoCliente({ pendencia, passoInicial, API_URL, token, notify, onDone }) {
     const passosIniciais = useMemo(() => {
         const lista = [];
         if (pendencia && !pendencia.avaliacao_freelancer_enviada) lista.push('freelancer');
         if (pendencia && !pendencia.avaliacao_barbearia_enviada) lista.push('barbearia');
+        // Quando o cliente pede explicitamente "Avaliar freelancer" ou
+        // "Avaliar barbearia", comeca por esse passo (se ainda pendente).
+        if (passoInicial && lista.includes(passoInicial)) {
+            return [passoInicial, ...lista.filter((passo) => passo !== passoInicial)];
+        }
         return lista;
-    }, [pendencia]);
+    }, [pendencia, passoInicial]);
 
     const [indice, setIndice] = useState(0);
     const passoAtual = passosIniciais[indice] || null;

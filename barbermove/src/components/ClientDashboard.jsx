@@ -265,6 +265,8 @@ export default function ClientDashboard({ token, logout, API_URL: apiUrlProp, no
     const [barbeariasProximasHome, setBarbeariasProximasHome] = useState([]); // "Barbearias BarberMove perto de você" (Home)
     const [loadingBarbeariasProximasHome, setLoadingBarbeariasProximasHome] = useState(false);
     const [avaliacaoPendente, setAvaliacaoPendente] = useState(null); // pendencia do fluxo automatico pos-pagamento
+    const [passoAvaliacaoForcado, setPassoAvaliacaoForcado] = useState(null); // 'freelancer' | 'barbearia' quando o cliente escolhe direto na Home
+    const [pendenciasClienteLista, setPendenciasClienteLista] = useState([]); // todas as pendencias (independente de "ja visto"), usada na Home
     const fluxoAvaliacaoVistoRef = useRef(null);
     const isPerfilTab = tab === 'perfil';
 
@@ -296,8 +298,10 @@ export default function ClientDashboard({ token, logout, API_URL: apiUrlProp, no
                 headers: { Authorization: `Bearer ${token}` },
             });
             if (!res.ok) return;
-            const lista = await res.json().catch(() => []);
-            const pendencia = (Array.isArray(lista) ? lista : []).find((p) => (
+            const bruta = await res.json().catch(() => []);
+            const lista = Array.isArray(bruta) ? bruta : [];
+            setPendenciasClienteLista(lista);
+            const pendencia = lista.find((p) => (
                 (!p.avaliacao_freelancer_enviada || !p.avaliacao_barbearia_enviada)
                 && !fluxoAvaliacaoJaVisto(p.chamado_id)
             ));
@@ -1189,6 +1193,21 @@ export default function ClientDashboard({ token, logout, API_URL: apiUrlProp, no
         }) || null;
     }, [myOrders]);
 
+    // Pendencia de avaliacao (freelancer/barbearia) do MESMO atendimento recem
+    // finalizado exibido na Home — sempre casada pelo chamado_id real, nunca
+    // pelo nome/posicao na lista.
+    const pendenciaAvaliacaoHome = useMemo(() => {
+        if (!pagamentoPendenteHome) return null;
+        return pendenciasClienteLista.find((p) => p.chamado_id === pagamentoPendenteHome.id) || null;
+    }, [pagamentoPendenteHome, pendenciasClienteLista]);
+
+    useEffect(() => {
+        if (pagamentoPendenteHome?.id) {
+            verificarAvaliacoesPendentes();
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [pagamentoPendenteHome?.id]);
+
     const localizacaoCliente = userLocation || (
         normalizarNumero(userData?.latitude) != null && normalizarNumero(userData?.longitude) != null
             ? { latitude: normalizarNumero(userData.latitude), longitude: normalizarNumero(userData.longitude) }
@@ -1696,23 +1715,51 @@ export default function ClientDashboard({ token, logout, API_URL: apiUrlProp, no
                     </div>
 
                     {pagamentoPendenteHome && (
-                        <button
-                            onClick={() => {
-                                setChamadoParaPagar({
-                                    id: pagamentoPendenteHome.id,
-                                    valor: Number(pagamentoPendenteHome.valor || 0),
-                                    descricao: pagamentoPendenteHome.servico_nome || pagamentoPendenteHome.descricao || 'Serviço',
-                                });
-                                setTab('pagamento');
-                            }}
-                            className="w-full text-left dashboard-card rounded-2xl p-4 border border-emerald-500/40 bg-emerald-500/10 hover:border-emerald-400 transition-colors"
-                        >
-                            <p className="text-[11px] font-black uppercase tracking-[0.18em] text-emerald-300">💳 Pagamento pendente</p>
-                            <p className="text-sm text-zinc-200 mt-1">Seu atendimento foi finalizado.</p>
-                            <span className="mt-2 inline-flex items-center gap-1 rounded-lg bg-emerald-500 px-3 py-1.5 text-sm font-bold text-black">
-                                Pagar agora <ArrowRight size={14} />
-                            </span>
-                        </button>
+                        <div className="w-full dashboard-card rounded-2xl p-4 border border-emerald-500/40 bg-emerald-500/10 space-y-3">
+                            <div>
+                                <p className="text-[11px] font-black uppercase tracking-[0.18em] text-emerald-300">✂️ Corte realizado</p>
+                                <p className="text-sm text-zinc-200 mt-1">
+                                    Corte realizado na {pagamentoPendenteHome.barbearia_nome || 'barbearia'}.
+                                </p>
+                            </div>
+                            <div className="flex flex-col gap-2">
+                                <button
+                                    onClick={() => {
+                                        setChamadoParaPagar({
+                                            id: pagamentoPendenteHome.id,
+                                            valor: Number(pagamentoPendenteHome.valor || 0),
+                                            descricao: pagamentoPendenteHome.servico_nome || pagamentoPendenteHome.descricao || 'Serviço',
+                                        });
+                                        setTab('pagamento');
+                                    }}
+                                    className="w-full flex items-center justify-center gap-1.5 rounded-lg bg-emerald-500 px-3 py-2 text-sm font-bold text-black"
+                                >
+                                    Fazer pagamento — {pagamentoPendenteHome.barbearia_nome || 'Barbearia'} <ArrowRight size={14} />
+                                </button>
+                                {pendenciaAvaliacaoHome && !pendenciaAvaliacaoHome.avaliacao_freelancer_enviada && (
+                                    <button
+                                        onClick={() => {
+                                            setPassoAvaliacaoForcado('freelancer');
+                                            setAvaliacaoPendente(pendenciaAvaliacaoHome);
+                                        }}
+                                        className="w-full flex items-center justify-center gap-1.5 rounded-lg border border-orange-500/40 bg-orange-500/10 px-3 py-2 text-sm font-bold text-orange-300 hover:border-orange-400 transition-colors"
+                                    >
+                                        <Star size={14} /> Avaliar freelancer
+                                    </button>
+                                )}
+                                {pendenciaAvaliacaoHome && !pendenciaAvaliacaoHome.avaliacao_barbearia_enviada && (
+                                    <button
+                                        onClick={() => {
+                                            setPassoAvaliacaoForcado('barbearia');
+                                            setAvaliacaoPendente(pendenciaAvaliacaoHome);
+                                        }}
+                                        className="w-full flex items-center justify-center gap-1.5 rounded-lg border border-orange-500/40 bg-orange-500/10 px-3 py-2 text-sm font-bold text-orange-300 hover:border-orange-400 transition-colors"
+                                    >
+                                        <Star size={14} /> Avaliar barbearia
+                                    </button>
+                                )}
+                            </div>
+                        </div>
                     )}
 
                     <div className="grid grid-cols-2 gap-3">
@@ -2392,12 +2439,15 @@ export default function ClientDashboard({ token, logout, API_URL: apiUrlProp, no
         {avaliacaoPendente && (
             <FluxoAvaliacaoCliente
                 pendencia={avaliacaoPendente}
+                passoInicial={passoAvaliacaoForcado}
                 API_URL={API_URL}
                 token={token}
                 notify={notify}
                 onDone={() => {
                     setAvaliacaoPendente(null);
+                    setPassoAvaliacaoForcado(null);
                     carregarMeusPedidos();
+                    verificarAvaliacoesPendentes();
                 }}
             />
         )}
