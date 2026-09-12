@@ -256,6 +256,7 @@ export default function ClientDashboard({ token, logout, API_URL: apiUrlProp, no
     const [userData, setUserData] = useState(null); // Dados do usuário logado
     const [dataHoraInicio, setDataHoraInicio] = useState('');
     const [perfilModal, setPerfilModal] = useState(null);
+    const [barbeariaEscolhaPreview, setBarbeariaEscolhaPreview] = useState(null); // perfil da barbearia (Home) antes de escolher e ver os freelancers
     const [cancelModalOpen, setCancelModalOpen] = useState(false);
     const [cancelandoChamado, setCancelandoChamado] = useState(false);
     const [tempoDecorrido, setTempoDecorrido] = useState(0); // Tempo em segundos desde horario_match
@@ -1146,6 +1147,7 @@ export default function ClientDashboard({ token, logout, API_URL: apiUrlProp, no
 
     useBackHandler(() => {
         if (cancelModalOpen) { setCancelModalOpen(false); return true; }
+        if (barbeariaEscolhaPreview) { setBarbeariaEscolhaPreview(null); return true; }
         if (perfilModal) { setPerfilModal(null); return true; }
         if (chamadoParaPagar) { setChamadoParaPagar(null); return true; }
         if (tab === 'buscar' && step === 'servicos') { voltarParaBarbearias(); return true; }
@@ -1153,7 +1155,7 @@ export default function ClientDashboard({ token, logout, API_URL: apiUrlProp, no
         if (tab === 'buscar' && step === 'barbeiros') { setStep('inicio'); return true; }
         if (tab !== 'inicio') { setTab('inicio'); return true; }
         return false;
-    }, [tab, step, cancelModalOpen, perfilModal, chamadoParaPagar]);
+    }, [tab, step, cancelModalOpen, perfilModal, chamadoParaPagar, barbeariaEscolhaPreview]);
 
     const toggleServiceSelection = (service) => {
         setSelectedServices((prev) => {
@@ -1832,7 +1834,7 @@ export default function ClientDashboard({ token, logout, API_URL: apiUrlProp, no
                                 {barbeariasProximasHome.map((barbearia) => (
                                     <div
                                         key={barbearia.id}
-                                        onClick={() => handleSelecionarBarbeariaHome(barbearia)}
+                                        onClick={() => setBarbeariaEscolhaPreview(barbearia)}
                                         role="button"
                                         tabIndex={0}
                                         className="bm-card bg-black/30 rounded-xl border border-zinc-800/60 hover:border-orange-500 transition-colors p-2 flex gap-3 items-center cursor-pointer"
@@ -2486,6 +2488,36 @@ export default function ClientDashboard({ token, logout, API_URL: apiUrlProp, no
                         token={token}
                         onNotify={notify}
                     />
+                </div>
+            </div>
+        )}
+
+        {/* Perfil da barbearia (Home -> "Barbearias próximas"): mostra o perfil
+            existente antes de liberar a lista de freelancers; só avança para a
+            busca de barbeiros quando o cliente confirma "Escolher esta barbearia". */}
+        {barbeariaEscolhaPreview && (
+            <div className="fixed inset-0 bg-black/80 z-[2200] flex items-center justify-center p-4">
+                <div className="profile-modal bg-zinc-950 border border-zinc-800 rounded-2xl w-full max-w-[420px] max-h-[90vh] overflow-y-auto p-4">
+                    <div className="flex justify-between items-center mb-3">
+                        <h3 className="text-sm font-bold text-white">Perfil da barbearia</h3>
+                        <button onClick={() => setBarbeariaEscolhaPreview(null)} className="text-zinc-400">✕</button>
+                    </div>
+                    <ProfileCard
+                        usuarioId={barbeariaEscolhaPreview.usuario_id}
+                        userType="barbearia"
+                        token={token}
+                        onNotify={notify}
+                    />
+                    <button
+                        onClick={() => {
+                            const barbearia = barbeariaEscolhaPreview;
+                            setBarbeariaEscolhaPreview(null);
+                            handleSelecionarBarbeariaHome(barbearia);
+                        }}
+                        className="w-full mt-4 bg-orange-600 hover:bg-orange-700 text-white px-4 py-3 rounded-lg font-bold transition-colors"
+                    >
+                        Escolher esta barbearia
+                    </button>
                 </div>
             </div>
         )}
