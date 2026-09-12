@@ -1183,30 +1183,49 @@ export default function ClientDashboard({ token, logout, API_URL: apiUrlProp, no
         return [...new Set(nomes)];
     }, [activeChamado, myOrders]);
 
-    // Primeiro servico concluido e ainda nao pago -> destaque de pagamento na tela inicial (fluxo de pagamento inalterado).
+    // Atendimento concluido mais recente que ainda tem alguma acao pendente
+    // (pagamento e/ou avaliacao do freelancer/barbearia) -> card de destaque
+    // na Home. Cada atendimento tem seu proprio pagamento (Pagamento.chamado_id
+    // e unico no banco), entao um pagamento antigo pendente nunca substitui o
+    // do atendimento mais recente: a lista ja vem ordenada do mais recente
+    // para o mais antigo, e o primeiro concluido com pendencia e o escolhido.
     const pagamentoPendenteHome = useMemo(() => {
         const base = Array.isArray(myOrders) ? myOrders : [];
         return base.find((o) => {
             const concluido = (o.status || '').toString().toLowerCase().includes('conclu');
+            if (!concluido) return false;
             const pago = o.pagamento_concluido === true || Boolean(o.pagamento_pago_em);
-            return concluido && !pago;
+            const pendencia = pendenciasClienteLista.find((p) => p.chamado_id === o.id);
+            const faltaAvaliarFreelancer = pendencia ? !pendencia.avaliacao_freelancer_enviada : false;
+            const faltaAvaliarBarbearia = pendencia ? !pendencia.avaliacao_barbearia_enviada : false;
+            return !pago || faltaAvaliarFreelancer || faltaAvaliarBarbearia;
         }) || null;
-    }, [myOrders]);
+    }, [myOrders, pendenciasClienteLista]);
 
-    // Pendencia de avaliacao (freelancer/barbearia) do MESMO atendimento recem
-    // finalizado exibido na Home — sempre casada pelo chamado_id real, nunca
-    // pelo nome/posicao na lista.
+    const pagamentoAindaPendenteHome = pagamentoPendenteHome
+        ? !(pagamentoPendenteHome.pagamento_concluido === true || Boolean(pagamentoPendenteHome.pagamento_pago_em))
+        : false;
+
+    // Pendencia de avaliacao (freelancer/barbearia) do MESMO atendimento
+    // exibido na Home — sempre casada pelo chamado_id real, nunca pelo
+    // nome/posicao na lista.
     const pendenciaAvaliacaoHome = useMemo(() => {
         if (!pagamentoPendenteHome) return null;
         return pendenciasClienteLista.find((p) => p.chamado_id === pagamentoPendenteHome.id) || null;
     }, [pagamentoPendenteHome, pendenciasClienteLista]);
 
+    const chamadoConcluidoMaisRecenteId = useMemo(() => {
+        const base = Array.isArray(myOrders) ? myOrders : [];
+        const chamado = base.find((o) => (o.status || '').toString().toLowerCase().includes('conclu'));
+        return chamado ? chamado.id : null;
+    }, [myOrders]);
+
     useEffect(() => {
-        if (pagamentoPendenteHome?.id) {
+        if (chamadoConcluidoMaisRecenteId) {
             verificarAvaliacoesPendentes();
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [pagamentoPendenteHome?.id]);
+    }, [chamadoConcluidoMaisRecenteId]);
 
     const localizacaoCliente = userLocation || (
         normalizarNumero(userData?.latitude) != null && normalizarNumero(userData?.longitude) != null
@@ -1723,19 +1742,21 @@ export default function ClientDashboard({ token, logout, API_URL: apiUrlProp, no
                                 </p>
                             </div>
                             <div className="flex flex-col gap-2">
-                                <button
-                                    onClick={() => {
-                                        setChamadoParaPagar({
-                                            id: pagamentoPendenteHome.id,
-                                            valor: Number(pagamentoPendenteHome.valor || 0),
-                                            descricao: pagamentoPendenteHome.servico_nome || pagamentoPendenteHome.descricao || 'Serviço',
-                                        });
-                                        setTab('pagamento');
-                                    }}
-                                    className="w-full flex items-center justify-center gap-1.5 rounded-lg bg-emerald-500 px-3 py-2 text-sm font-bold text-black"
-                                >
-                                    Fazer pagamento — {pagamentoPendenteHome.barbearia_nome || 'Barbearia'} <ArrowRight size={14} />
-                                </button>
+                                {pagamentoAindaPendenteHome && (
+                                    <button
+                                        onClick={() => {
+                                            setChamadoParaPagar({
+                                                id: pagamentoPendenteHome.id,
+                                                valor: Number(pagamentoPendenteHome.valor || 0),
+                                                descricao: pagamentoPendenteHome.servico_nome || pagamentoPendenteHome.descricao || 'Serviço',
+                                            });
+                                            setTab('pagamento');
+                                        }}
+                                        className="w-full flex items-center justify-center gap-1.5 rounded-lg bg-emerald-500 px-3 py-2 text-sm font-bold text-black"
+                                    >
+                                        Fazer pagamento — {pagamentoPendenteHome.barbearia_nome || 'Barbearia'} <ArrowRight size={14} />
+                                    </button>
+                                )}
                                 {pendenciaAvaliacaoHome && !pendenciaAvaliacaoHome.avaliacao_freelancer_enviada && (
                                     <button
                                         onClick={() => {
