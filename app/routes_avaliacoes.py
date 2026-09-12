@@ -77,6 +77,27 @@ def _tipos_avaliacao_freelancer_visiveis(usuario_atual: Optional[Usuario], freel
     return ["cliente"]
 
 
+def _tipos_avaliacao_barbearia_visiveis(usuario_atual: Optional[Usuario], barbearia: Barbearia) -> list:
+    """
+    Separacao das avaliacoes de barbearia (cliente -> barbearia e
+    freelancer -> barbearia):
+      - Sem login / cliente: somente avaliacoes de clientes.
+      - Freelancer (qualquer): clientes + freelancers.
+      - O proprio dono da barbearia avaliada: clientes + freelancers.
+      - Admin: clientes + freelancers.
+    Cliente nunca ve avaliacao de freelancer sobre a barbearia, nem pela
+    interface nem por este endpoint.
+    """
+    if usuario_atual is None:
+        return ["cliente"]
+    tipo = getattr(usuario_atual, "tipo", None)
+    if tipo in ("barbeiro", "admin"):
+        return ["cliente", "freelancer"]
+    if tipo == "barbearia" and barbearia.usuario_id == usuario_atual.id:
+        return ["cliente", "freelancer"]
+    return ["cliente"]
+
+
 def _chamado_concluido(db: Session, chamado_id: int) -> Chamado:
     chamado = db.query(Chamado).filter(Chamado.id == chamado_id).first()
     if not chamado:
@@ -320,7 +341,9 @@ def avaliar_barbearia(
     db.commit()
     db.refresh(avaliacao)
 
-    resumo = resumo_barbearia(db, barbearia.id)
+    # Media/total refletem somente o mesmo tipo da avaliacao enviada agora
+    # (cliente ou freelancer), nunca uma mistura dos dois.
+    resumo = resumo_barbearia(db, barbearia.id, tipos=[tipo_avaliador])
     return {
         "message": "Avaliacao registrada com sucesso!",
         "avaliacao_id": avaliacao.id,
@@ -408,9 +431,25 @@ def resumo_do_freelancer(freelancer_id: int, db: Session = Depends(get_db)):
 
 
 @router.get("/barbearia/{barbearia_id}/resumo", response_model=dict)
-def resumo_da_barbearia(barbearia_id: int, db: Session = Depends(get_db)):
+def resumo_da_barbearia(
+    barbearia_id: int,
+    db: Session = Depends(get_db),
+    usuario_atual: Optional[Usuario] = Depends(_usuario_opcional),
+):
+    """
+    Media/total de avaliacoes da barbearia. Nunca mistura as duas notas:
+    `media`/`total` sao sempre da avaliacao de cliente; `media_freelancer`/
+    `total_freelancer` (avaliacao profissional freelancer -> barbearia) so
+    aparecem para quem pode ve-la (ver _tipos_avaliacao_barbearia_visiveis).
+    """
     barbearia = _resolver_barbearia(db, barbearia_id)
-    return resumo_barbearia(db, barbearia.id)
+    tipos_visiveis = _tipos_avaliacao_barbearia_visiveis(usuario_atual, barbearia)
+    resumo = resumo_barbearia(db, barbearia.id, tipos=["cliente"])
+    if "freelancer" in tipos_visiveis:
+        resumo_profissional = resumo_barbearia(db, barbearia.id, tipos=["freelancer"])
+        resumo["media_freelancer"] = resumo_profissional["media"]
+        resumo["total_freelancer"] = resumo_profissional["total"]
+    return resumo
 
 
 @router.get("/freelancer/{freelancer_id}/recebidas", response_model=List[AvaliacaoFreelancerResponse])
@@ -458,9 +497,17 @@ def listar_avaliacoes_barbearia(
     barbearia_id: int,
     limite: int = 10,
     db: Session = Depends(get_db),
+    usuario_atual: Optional[Usuario] = Depends(_usuario_opcional),
 ):
-    """Lista avaliacoes recebidas por uma barbearia (por Barbearia.id ou usuario_id)."""
+    """
+    Lista avaliacoes recebidas por uma barbearia (por Barbearia.id ou usuario_id).
+
+    Separacao: cliente/publico ve somente avaliacoes tipo "cliente"; o
+    proprio dono da barbearia, qualquer freelancer e o admin tambem veem as
+    avaliacoes profissionais ("freelancer").
+    """
     barbearia = _resolver_barbearia(db, barbearia_id)
+    tipos_visiveis = _tipos_avaliacao_barbearia_visiveis(usuario_atual, barbearia)
     avaliacoes = db.query(
         AvaliacaoBarbearia,
         Usuario.nome.label("avaliador_nome"),
@@ -468,6 +515,7 @@ def listar_avaliacoes_barbearia(
     ).join(Usuario, AvaliacaoBarbearia.avaliador_id == Usuario.id).filter(
         AvaliacaoBarbearia.barbearia_id == barbearia.id,
         AvaliacaoBarbearia.bloqueada_por_admin.isnot(True),
+        AvaliacaoBarbearia.tipo_avaliador.in_(tipos_visiveis),
     ).order_by(AvaliacaoBarbearia.criado_em.desc()).limit(limite).all()
 
     return [{
@@ -492,6 +540,7 @@ def minhas_avaliacoes_recebidas(
         "como_barbearia": [],
         "media_freelancer": None,
         "media_barbearia": None,
+        "media_barbearia_freelancer": None,
     }
 
     freelancer = db.query(Freelancer).filter(
@@ -535,6 +584,9 @@ def minhas_avaliacoes_recebidas(
                 "tipo_avaliador": av.tipo_avaliador, "criado_em": av.criado_em,
                 "avaliador_nome": nome, "avaliador_foto": foto,
             })
-        resultado["media_barbearia"] = resumo_barbearia(db, barbearia.id)["media"] or None
+        # Nao misturar as duas notas: media de cliente e media de freelancer
+        # (avaliacao profissional sobre a barbearia) sao contadas em separado.
+        resultado["media_barbearia"] = resumo_barbearia(db, barbearia.id, tipos=["cliente"])["media"] or None
+        resultado["media_barbearia_freelancer"] = resumo_barbearia(db, barbearia.id, tipos=["freelancer"])["media"] or None
 
     return resultado

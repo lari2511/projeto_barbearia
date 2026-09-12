@@ -32,16 +32,24 @@ def resumo_freelancer(db: Session, freelancer_id: int) -> dict:
     return {"media": round(float(media), 1) if media else 0, "total": int(total or 0)}
 
 
-def resumo_barbearia(db: Session, barbearia_id: int) -> dict:
-    """Media e total de avaliacoes visiveis de uma barbearia (por Barbearia.id)."""
-    media = db.query(func.avg(models.AvaliacaoBarbearia.nota)).filter(
+def resumo_barbearia(db: Session, barbearia_id: int, tipos: list = None) -> dict:
+    """
+    Media e total de avaliacoes visiveis de uma barbearia (por Barbearia.id).
+
+    Uma barbearia recebe dois tipos de avaliacao (cliente -> barbearia e
+    freelancer -> barbearia) que nao podem ser misturadas na mesma media.
+    `tipos` filtra por `tipo_avaliador`; o default e somente "cliente", que e
+    a nota publica/do cliente (a avaliacao profissional do freelancer tem
+    visibilidade restrita - ver _tipos_avaliacao_barbearia_visiveis).
+    """
+    tipos = tipos or ["cliente"]
+    filtros = (
         models.AvaliacaoBarbearia.barbearia_id == barbearia_id,
         _visivel_barbearia(),
-    ).scalar()
-    total = db.query(func.count(models.AvaliacaoBarbearia.id)).filter(
-        models.AvaliacaoBarbearia.barbearia_id == barbearia_id,
-        _visivel_barbearia(),
-    ).scalar()
+        models.AvaliacaoBarbearia.tipo_avaliador.in_(tipos),
+    )
+    media = db.query(func.avg(models.AvaliacaoBarbearia.nota)).filter(*filtros).scalar()
+    total = db.query(func.count(models.AvaliacaoBarbearia.id)).filter(*filtros).scalar()
     return {"media": round(float(media), 1) if media else 0, "total": int(total or 0)}
 
 

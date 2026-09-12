@@ -20,6 +20,12 @@ export default function AbaPadronizadaAvaliacoes({
     notify,
 }) {
     const [avaliacoes, setAvaliacoes] = useState([]);
+    // Barbearia recebe dois tipos de avaliacao (cliente -> barbearia e
+    // freelancer -> barbearia) que nunca podem ser misturados na mesma media,
+    // entao ficam em listas separadas (o backend ja manda `tipo_avaliador`
+    // em cada item de como_barbearia).
+    const [avaliacoesBarbeariaClientes, setAvaliacoesBarbeariaClientes] = useState([]);
+    const [avaliacoesBarbeariaFreelancers, setAvaliacoesBarbeariaFreelancers] = useState([]);
     const [carregando, setCarregando] = useState(true);
     const [pendencias, setPendencias] = useState([]);
     const [pendenciaAtiva, setPendenciaAtiva] = useState(null);
@@ -35,11 +41,13 @@ export default function AbaPadronizadaAvaliacoes({
             });
             if (res.ok) {
                 const data = await res.json();
-                const lista = [
-                    ...(Array.isArray(data?.como_freelancer) ? data.como_freelancer : []),
-                    ...(Array.isArray(data?.como_barbearia) ? data.como_barbearia : []),
-                ];
-                setAvaliacoes(lista);
+                if (tipoUsuario === 'barbearia') {
+                    const comoBarbearia = Array.isArray(data?.como_barbearia) ? data.como_barbearia : [];
+                    setAvaliacoesBarbeariaClientes(comoBarbearia.filter((av) => av.tipo_avaliador === 'cliente'));
+                    setAvaliacoesBarbeariaFreelancers(comoBarbearia.filter((av) => av.tipo_avaliador === 'freelancer'));
+                } else {
+                    setAvaliacoes(Array.isArray(data?.como_freelancer) ? data.como_freelancer : []);
+                }
             }
         } catch (_err) {
             notify?.('Erro ao carregar avaliacoes', 'error');
@@ -148,6 +156,17 @@ export default function AbaPadronizadaAvaliacoes({
                         <p>Nenhuma avaliacao pendente</p>
                     </div>
                 )
+            ) : tipoUsuario === 'barbearia' ? (
+                <div className="space-y-6">
+                    <div>
+                        <h3 className="text-sm font-bold text-zinc-400 uppercase tracking-wide mb-2">Avaliacoes de clientes</h3>
+                        <ListaAvaliacoes avaliacoes={avaliacoesBarbeariaClientes} />
+                    </div>
+                    <div>
+                        <h3 className="text-sm font-bold text-zinc-400 uppercase tracking-wide mb-2">Avaliacoes de freelancers</h3>
+                        <ListaAvaliacoes avaliacoes={avaliacoesBarbeariaFreelancers} />
+                    </div>
+                </div>
             ) : (
                 <ListaAvaliacoes avaliacoes={avaliacoes} />
             )}
