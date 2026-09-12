@@ -12,6 +12,8 @@ Nao existe avaliacao de cliente (ninguem avalia o cliente).
 Fonte unica: models.AvaliacaoFreelancer / models.AvaliacaoBarbearia.
 """
 
+from datetime import datetime, timedelta
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from jose import JWTError, jwt
@@ -276,8 +278,9 @@ def avaliar_barbearia(
     """
     Avalia uma barbearia.
       - Cliente: exige `chamado_id` de um atendimento concluido do qual participou.
-      - Freelancer: avaliacao de relacao, `chamado_id` opcional. Quando ausente,
-        fica vinculada a (freelancer, barbearia) e pode ser atualizada.
+      - Freelancer: avaliacao de relacao, `chamado_id` opcional. Limitada a 1
+        avaliacao da mesma barbearia por dia (novo atendimento em outro dia
+        libera uma nova avaliacao); nao pode ser editada, so uma nova por dia.
     """
     barbearia = _resolver_barbearia(db, barbearia_id)
 
@@ -308,37 +311,50 @@ def avaliar_barbearia(
             )
         tipo_avaliador = "freelancer"
 
-    # ---- dedupe / upsert -------------------------------------------------
-    q = db.query(AvaliacaoBarbearia).filter(
-        AvaliacaoBarbearia.barbearia_id == barbearia.id,
-        AvaliacaoBarbearia.avaliador_id == usuario_atual.id,
-    )
+    # ---- freelancer: no maximo 1 avaliacao da mesma barbearia por dia -----
+    # (vale tanto para a avaliacao de relacao quanto para uma via chamado_id;
+    # o freelancer pode ter varios atendimentos na mesma barbearia no mesmo
+    # dia, mas so pode avaliar a barbearia uma vez nesse dia). No dia
+    # seguinte, apos um novo atendimento, uma nova avaliacao fica liberada.
+    if tipo_avaliador == "freelancer":
+        inicio_dia = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+        fim_dia = inicio_dia + timedelta(days=1)
+        ja_avaliou_hoje = db.query(AvaliacaoBarbearia).filter(
+            AvaliacaoBarbearia.barbearia_id == barbearia.id,
+            AvaliacaoBarbearia.avaliador_id == usuario_atual.id,
+            AvaliacaoBarbearia.tipo_avaliador == "freelancer",
+            AvaliacaoBarbearia.criado_em >= inicio_dia,
+            AvaliacaoBarbearia.criado_em < fim_dia,
+        ).first()
+        if ja_avaliou_hoje:
+            raise HTTPException(
+                status_code=400,
+                detail="Voce ja avaliou esta barbearia hoje. Uma nova avaliacao "
+                       "fica liberada apos um novo atendimento em outro dia.",
+            )
+
+    # ---- dedupe (cliente / freelancer via chamado) ------------------------
     if dados.chamado_id:
-        q = q.filter(AvaliacaoBarbearia.chamado_id == dados.chamado_id)
-    else:
-        q = q.filter(AvaliacaoBarbearia.chamado_id.is_(None))
-    existente = q.first()
+        existente = db.query(AvaliacaoBarbearia).filter(
+            AvaliacaoBarbearia.barbearia_id == barbearia.id,
+            AvaliacaoBarbearia.avaliador_id == usuario_atual.id,
+            AvaliacaoBarbearia.chamado_id == dados.chamado_id,
+        ).first()
+        if existente:
+            raise HTTPException(
+                status_code=400,
+                detail="Voce ja avaliou esta barbearia neste atendimento",
+            )
 
-    if existente and dados.chamado_id:
-        raise HTTPException(
-            status_code=400,
-            detail="Voce ja avaliou esta barbearia neste atendimento",
-        )
-
-    if existente:
-        existente.nota = dados.nota
-        existente.comentario = dados.comentario
-        avaliacao = existente
-    else:
-        avaliacao = AvaliacaoBarbearia(
-            barbearia_id=barbearia.id,
-            avaliador_id=usuario_atual.id,
-            chamado_id=dados.chamado_id,
-            nota=dados.nota,
-            comentario=dados.comentario,
-            tipo_avaliador=tipo_avaliador,
-        )
-        db.add(avaliacao)
+    avaliacao = AvaliacaoBarbearia(
+        barbearia_id=barbearia.id,
+        avaliador_id=usuario_atual.id,
+        chamado_id=dados.chamado_id,
+        nota=dados.nota,
+        comentario=dados.comentario,
+        tipo_avaliador=tipo_avaliador,
+    )
+    db.add(avaliacao)
 
     db.commit()
     db.refresh(avaliacao)
@@ -349,7 +365,7 @@ def avaliar_barbearia(
     return {
         "message": "Avaliacao registrada com sucesso!",
         "avaliacao_id": avaliacao.id,
-        "atualizada": bool(existente),
+        "atualizada": False,
         "media": resumo["media"],
         "total": resumo["total"],
     }

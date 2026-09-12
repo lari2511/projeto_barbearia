@@ -81,10 +81,15 @@ export default function PainelBarberMovePremium({ token: tokenProp, logout: logo
   const ultimaSyncGpsRef = useRef(0);
   const barbeariaPresenteRef = useRef(null); // ultima barbearia onde o freelancer esteve presente
 
+  // Uma avaliacao de barbearia por dia (backend valida de verdade; isto e so
+  // pra esconder a opcao na hora, com a data local do aparelho como chave).
+  const dataHojeChave = () => new Date().toISOString().slice(0, 10);
+
   const barbeariaAvaliada = useCallback((barbeariaId) => {
     try {
       const brutos = JSON.parse(localStorage.getItem('bm_freela_aval_barbearia') || '[]');
-      return Array.isArray(brutos) && brutos.includes(barbeariaId);
+      const hoje = dataHojeChave();
+      return Array.isArray(brutos) && brutos.some((item) => item?.id === barbeariaId && item?.data === hoje);
     } catch (_e) {
       return false;
     }
@@ -93,11 +98,12 @@ export default function PainelBarberMovePremium({ token: tokenProp, logout: logo
   const marcarBarbeariaAvaliada = useCallback((barbeariaId) => {
     try {
       const brutos = JSON.parse(localStorage.getItem('bm_freela_aval_barbearia') || '[]');
-      const lista = Array.isArray(brutos) ? brutos : [];
-      if (!lista.includes(barbeariaId)) {
-        lista.push(barbeariaId);
-        localStorage.setItem('bm_freela_aval_barbearia', JSON.stringify(lista.slice(-50)));
+      const hoje = dataHojeChave();
+      const lista = (Array.isArray(brutos) ? brutos : []).filter((item) => item?.data === hoje);
+      if (!lista.some((item) => item?.id === barbeariaId)) {
+        lista.push({ id: barbeariaId, data: hoje });
       }
+      localStorage.setItem('bm_freela_aval_barbearia', JSON.stringify(lista.slice(-50)));
     } catch (_e) {
       // sem persistencia entre sessoes
     }
@@ -1398,6 +1404,13 @@ export default function PainelBarberMovePremium({ token: tokenProp, logout: logo
                       ? { id: perfil.barbearia_atual_id, nome: perfil.barbearia_atual_nome }
                       : barbeariaPresenteRef.current;
                     if (!alvo?.id) return null;
+                    if (barbeariaAvaliada(alvo.id)) {
+                      return (
+                        <p className="w-full rounded-xl border border-zinc-800 bg-zinc-900 text-zinc-500 py-3 text-sm font-bold text-center">
+                          ✓ Você já avaliou {alvo.nome || 'esta barbearia'} hoje
+                        </p>
+                      );
+                    }
                     return (
                       <button
                         onClick={() => setBarbeariaParaAvaliar({ id: alvo.id, nome: alvo.nome })}
