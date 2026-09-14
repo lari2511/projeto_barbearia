@@ -68,6 +68,7 @@ export default function ProfileCard({ usuarioId, userType, token, isOwnProfile: 
   const [chatOpen, setChatOpen] = useState(false);
   const [chatChamadoId, setChatChamadoId] = useState(null);
   const [avaliacoes, setAvaliacoes] = useState(null);
+  const [avaliacaoFreelancer, setAvaliacaoFreelancer] = useState(null); // { media, total } | null — só preenchido quando o backend libera a nota de freelancer->barbearia para quem está vendo
   const [loading, setLoading] = useState(true);
   const [erro, setErro] = useState('');
   const [portfolioFotos, setPortfolioFotos] = useState([]);
@@ -134,14 +135,30 @@ export default function ProfileCard({ usuarioId, userType, token, isOwnProfile: 
       setFotoPerfilFalhou(false);
       setFotosQueFalharam({});
 
-      // Buscar média de avaliações
-      const mediaRes = await fetch(`${API_URL}/api/v1/usuario/${usuarioId}/media_avaliacao`, {
+      // Buscar média de avaliações. Perfil de barbearia tem duas notas de
+      // origem (cliente->barbearia e freelancer->barbearia) que não podem
+      // ser misturadas — usa o resumo dedicado, que já resolve quais notas
+      // quem está vendo pode ver (cliente só vê a de cliente).
+      const barbeariaIdParaAvaliacao = userType === 'barbearia'
+        ? Number(data?.barbearia_id || data?.barbearia_atual_id || 0)
+        : 0;
+      const mediaUrl = barbeariaIdParaAvaliacao
+        ? `${API_URL}/api/v1/avaliacoes/barbearia/${barbeariaIdParaAvaliacao}/resumo`
+        : `${API_URL}/api/v1/usuario/${usuarioId}/media_avaliacao`;
+      const mediaRes = await fetch(mediaUrl, {
         headers: token ? { 'Authorization': `Bearer ${token}` } : {}
       });
 
       if (mediaRes.ok) {
         const mediaData = await mediaRes.json();
         setAvaliacoes(normalizeAvaliacoes(mediaData));
+        setAvaliacaoFreelancer(
+          mediaData?.media_freelancer != null
+            ? { media: Number(mediaData.media_freelancer) || 0, total: Number(mediaData.total_freelancer) || 0 }
+            : null
+        );
+      } else {
+        setAvaliacaoFreelancer(null);
       }
 
       // Buscar fotos do portfólio (já vem em portfolio_fotos no profile)
@@ -329,25 +346,43 @@ export default function ProfileCard({ usuarioId, userType, token, isOwnProfile: 
           </div>
 
           {/* Rating Stars */}
-          <div className="flex items-center gap-3 mb-6 pb-6 border-b border-zinc-800">
-            <div className="flex items-center gap-1">
-              {[...Array(5)].map((_, i) => (
-                <Star
-                  key={i}
-                  size={20}
-                  className={i < Math.round(mediaAvaliacoes) ? 'text-yellow-400 fill-yellow-400' : 'text-zinc-700'}
-                />
-              ))}
-            </div>
-            <div>
+          {userType === 'barbearia' ? (
+            // Perfil de barbearia: nota de clientes e de freelancers não se
+            // misturam. `avaliacaoFreelancer` só vem preenchido do backend
+            // para quem pode vê-la (freelancer, o próprio dono, admin).
+            <div className="mb-6 pb-6 border-b border-zinc-800 space-y-1">
               <p className="text-sm font-bold text-white">
-                {mediaAvaliacoes.toFixed(1)} de 5 estrelas
+                ⭐ Avaliação de clientes: {mediaAvaliacoes.toFixed(1)}
+                <span className="text-xs text-zinc-400 font-normal"> ({totalAvaliacoes} {totalAvaliacoes === 1 ? 'avaliação' : 'avaliações'})</span>
               </p>
-              <p className="text-xs text-zinc-400">
-                ({totalAvaliacoes} {totalAvaliacoes === 1 ? 'avaliação' : 'avaliações'})
-              </p>
+              {avaliacaoFreelancer && (
+                <p className="text-sm font-bold text-white">
+                  ⭐ Avaliação de freelancers: {avaliacaoFreelancer.media.toFixed(1)}
+                  <span className="text-xs text-zinc-400 font-normal"> ({avaliacaoFreelancer.total} {avaliacaoFreelancer.total === 1 ? 'avaliação' : 'avaliações'})</span>
+                </p>
+              )}
             </div>
-          </div>
+          ) : (
+            <div className="flex items-center gap-3 mb-6 pb-6 border-b border-zinc-800">
+              <div className="flex items-center gap-1">
+                {[...Array(5)].map((_, i) => (
+                  <Star
+                    key={i}
+                    size={20}
+                    className={i < Math.round(mediaAvaliacoes) ? 'text-yellow-400 fill-yellow-400' : 'text-zinc-700'}
+                  />
+                ))}
+              </div>
+              <div>
+                <p className="text-sm font-bold text-white">
+                  {mediaAvaliacoes.toFixed(1)} de 5 estrelas
+                </p>
+                <p className="text-xs text-zinc-400">
+                  ({totalAvaliacoes} {totalAvaliacoes === 1 ? 'avaliação' : 'avaliações'})
+                </p>
+              </div>
+            </div>
+          )}
 
           {/* Contato e Localização */}
           <div className="space-y-3">

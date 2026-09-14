@@ -349,7 +349,8 @@ export function TelaPerfilUsuario({
   // Perfil da barbearia: abre em modo visualizacao (limpo); o formulario so
   // aparece ao tocar "Editar perfil".
   const [editMode, setEditMode] = useState(false);
-  const [mediaAvaliacao, setMediaAvaliacao] = useState(null); // { media, total } | null
+  const [mediaAvaliacao, setMediaAvaliacao] = useState(null); // { media, total } | null (avaliação de clientes)
+  const [mediaAvaliacaoFreelancer, setMediaAvaliacaoFreelancer] = useState(null); // { media, total } | null (avaliação de freelancers)
   const [fotoMenuId, setFotoMenuId] = useState(null); // portfólio da barbearia: foto com menu aberto
   const substituirFotoInputRef = useRef(null);
   const fotoParaSubstituirRef = useRef(null);
@@ -532,19 +533,29 @@ export function TelaPerfilUsuario({
               setPerfilBarbeariaTeste(Boolean(limiteData?.perfil_teste));
             }
 
-            const donoId = Number(barbearia?.usuario_id || 0);
-            if (donoId) {
-              try {
-                const mediaRes = await fetch(`${apiBase}/api/v1/usuario/${donoId}/media_avaliacao`);
-                if (mediaRes.ok) {
-                  const m = await safeReadJson(mediaRes, {});
-                  const total = Number(m?.total_avaliacoes ?? m?.total ?? 0);
-                  const media = Number(m?.media ?? 0);
-                  setMediaAvaliacao(total > 0 ? { media, total } : null);
-                }
-              } catch (_e) {
-                setMediaAvaliacao(null);
+            // Nota de clientes e de freelancers nao se misturam: usa o resumo
+            // por barbearia (com o token do dono, que libera as duas notas).
+            try {
+              const mediaRes = await fetch(`${apiBase}/api/v1/avaliacoes/barbearia/${id}/resumo`, {
+                headers: { Authorization: `Bearer ${token}` },
+              });
+              if (mediaRes.ok) {
+                const m = await safeReadJson(mediaRes, {});
+                const total = Number(m?.total ?? 0);
+                const media = Number(m?.media ?? 0);
+                setMediaAvaliacao(total > 0 ? { media, total } : null);
+
+                const totalFreelancer = Number(m?.total_freelancer ?? 0);
+                const mediaFreelancer = Number(m?.media_freelancer ?? 0);
+                setMediaAvaliacaoFreelancer(
+                  m?.media_freelancer != null && totalFreelancer > 0
+                    ? { media: mediaFreelancer, total: totalFreelancer }
+                    : null
+                );
               }
+            } catch (_e) {
+              setMediaAvaliacao(null);
+              setMediaAvaliacaoFreelancer(null);
             }
           }
         }
@@ -1430,8 +1441,13 @@ export function TelaPerfilUsuario({
             {perfilTipo === 'barbearia' && !editMode && (
               <p className="text-xs text-zinc-400 mt-1">
                 {mediaAvaliacao
-                  ? `⭐ ${mediaAvaliacao.media.toFixed(1)} · ${mediaAvaliacao.total} avaliação${mediaAvaliacao.total === 1 ? '' : 'es'}`
-                  : 'Sem avaliações ainda'}
+                  ? `⭐ Avaliação de clientes: ${mediaAvaliacao.media.toFixed(1)} · ${mediaAvaliacao.total} avaliação${mediaAvaliacao.total === 1 ? '' : 'es'}`
+                  : 'Sem avaliações de clientes ainda'}
+              </p>
+            )}
+            {perfilTipo === 'barbearia' && !editMode && mediaAvaliacaoFreelancer && (
+              <p className="text-xs text-zinc-400 mt-1">
+                ⭐ Avaliação de freelancers: {mediaAvaliacaoFreelancer.media.toFixed(1)} · {mediaAvaliacaoFreelancer.total} avaliação{mediaAvaliacaoFreelancer.total === 1 ? '' : 'es'}
               </p>
             )}
             {perfilTipo === 'barbearia' && !editMode && formatarEndereco(enderecoBarbearia) && (
