@@ -235,6 +235,19 @@ export default function ShopDashboard({ token, logout, notify, API_URL }) {
         agendamentos.filter((ag) => String(ag.status || '').toLowerCase() === 'concluido')
     ), [agendamentos]);
 
+    // Freelancers que ja tem ao menos um atendimento concluido nesta barbearia
+    // (historico real, nunca proximidade/disponibilidade) — usado para so
+    // liberar a opcao "Avaliar" pra quem realmente ja trabalhou aqui.
+    const freelancersComAtendimentoConcluido = useMemo(() => {
+        const ids = new Set();
+        agendamentos.forEach((ag) => {
+            if (String(ag.status || '').toLowerCase() === 'concluido' && ag.barbeiro_id != null) {
+                ids.add(Number(ag.barbeiro_id));
+            }
+        });
+        return ids;
+    }, [agendamentos]);
+
     // Avaliação profissional pendente (dono -> freelancer) do freelancer cujo perfil está
     // aberto no momento — identificado sempre por freelancer_id (ag.barbeiro_id), nunca por nome.
     const pendenciaAvaliacaoPerfil = useMemo(() => {
@@ -1386,12 +1399,16 @@ export default function ShopDashboard({ token, logout, notify, API_URL }) {
                                             </div>
                                             {/* O proprietário é apenas observador do status. Só o próprio
                                                 freelancer altera o status dele, no painel do freelancer. */}
-                                            <button
-                                                onClick={(e) => { e.stopPropagation(); setFreelancerParaAvaliar({ id: freelancer.id, nome: freelancer.nome, foto: freelancer.foto_perfil }); }}
-                                                className="mt-2 w-full py-2 bg-orange-600/15 hover:bg-orange-600/25 border border-orange-600/40 text-orange-300 rounded text-xs font-bold flex items-center justify-center gap-1.5"
-                                            >
-                                                <Star size={12} /> Avaliar freelancer
-                                            </button>
+                                            {/* Estar presente não dá direito à avaliação — só libera após
+                                                um atendimento concluído de fato nesta barbearia. */}
+                                            {freelancersComAtendimentoConcluido.has(Number(freelancer.id)) && (
+                                                <button
+                                                    onClick={(e) => { e.stopPropagation(); setFreelancerParaAvaliar({ id: freelancer.id, nome: freelancer.nome, foto: freelancer.foto_perfil }); }}
+                                                    className="mt-2 w-full py-2 bg-orange-600/15 hover:bg-orange-600/25 border border-orange-600/40 text-orange-300 rounded text-xs font-bold flex items-center justify-center gap-1.5"
+                                                >
+                                                    <Star size={12} /> Avaliar freelancer
+                                                </button>
+                                            )}
                                         </div>
                                     ))}
                                 </div>
@@ -1420,13 +1437,15 @@ export default function ShopDashboard({ token, logout, notify, API_URL }) {
                                                 <p className="text-sm font-bold text-white truncate">{f.nome}</p>
                                                 <p className="text-[11px] text-zinc-400">{f.presente_em_local ? 'Disponível no local' : 'Disponível na região'}</p>
                                             </div>
-                                            <button
-                                                onClick={(e) => { e.stopPropagation(); setFreelancerParaAvaliar({ id: f.id ?? f.usuario_id, nome: f.nome, foto: f.foto_perfil }); }}
-                                                className="shrink-0 p-2 bg-orange-600/15 hover:bg-orange-600/25 border border-orange-600/40 text-orange-300 rounded"
-                                                title="Avaliar freelancer"
-                                            >
-                                                <Star size={14} />
-                                            </button>
+                                            {freelancersComAtendimentoConcluido.has(Number(f.id ?? f.usuario_id)) && (
+                                                <button
+                                                    onClick={(e) => { e.stopPropagation(); setFreelancerParaAvaliar({ id: f.id ?? f.usuario_id, nome: f.nome, foto: f.foto_perfil }); }}
+                                                    className="shrink-0 p-2 bg-orange-600/15 hover:bg-orange-600/25 border border-orange-600/40 text-orange-300 rounded"
+                                                    title="Avaliar freelancer"
+                                                >
+                                                    <Star size={14} />
+                                                </button>
+                                            )}
                                         </div>
                                     ))}
                                 </div>
@@ -1730,13 +1749,15 @@ export default function ShopDashboard({ token, logout, notify, API_URL }) {
                                         <Star size={12} /> Avaliar
                                     </button>
                                 </div>
-                            ) : (
+                            ) : freelancersComAtendimentoConcluido.has(Number(freelancerPerfilModal.id)) ? (
                                 <button
                                     onClick={() => setFreelancerParaAvaliar({ id: freelancerPerfilModal.id, nome: freelancerPerfilModal.nome, foto: null, chamadoId: null })}
                                     className="w-full py-2 bg-orange-600/15 hover:bg-orange-600/25 border border-orange-600/40 text-orange-300 rounded text-xs font-bold flex items-center justify-center gap-1.5"
                                 >
                                     <Star size={12} /> Avaliar freelancer
                                 </button>
+                            ) : (
+                                <p className="text-xs text-zinc-500">Avaliação disponível após o primeiro atendimento concluído nesta barbearia.</p>
                             )}
 
                             {/* Bloqueio: discreto, só nesta barbearia. Não afeta o status do freelancer no resto do BarberMove. */}

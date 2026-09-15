@@ -164,8 +164,11 @@ def avaliar_freelancer(
     """
     Avalia um freelancer.
       - Cliente: exige `chamado_id` de um atendimento concluido do qual participou.
-      - Barbearia (dono): avaliacao de relacao, `chamado_id` opcional. Quando ausente,
-        a avaliacao fica vinculada a (barbearia, freelancer) e pode ser atualizada.
+      - Barbearia (dono): avaliacao de relacao, `chamado_id` opcional. Quando
+        ausente, exige que o freelancer ja tenha um atendimento concluido
+        nesta barbearia (nunca proximidade/disponibilidade/visualizacao de
+        perfil) e fica limitada a 1 avaliacao por dia — um novo atendimento
+        concluido em outro dia libera uma nova avaliacao.
     """
     freelancer = _resolver_freelancer(db, freelancer_id)
 
@@ -197,7 +200,10 @@ def avaliar_freelancer(
                 detail="Este freelancer nao atendeu este chamado",
             )
     else:
-        # Sem chamado: apenas o dono de uma barbearia pode avaliar (relacao)
+        # Sem chamado: apenas o dono de uma barbearia pode avaliar (relacao),
+        # e somente se o freelancer ja tiver de fato um atendimento concluido
+        # nesta barbearia — nunca por proximidade, disponibilidade ou
+        # visualizacao do perfil.
         if usuario_atual.tipo != "barbearia":
             raise HTTPException(
                 status_code=400,
@@ -208,41 +214,64 @@ def avaliar_freelancer(
         ).first()
         if not dono:
             raise HTTPException(status_code=403, detail="Barbearia nao encontrada")
+        ja_trabalhou_aqui = db.query(Chamado).filter(
+            Chamado.barbeiro_id == freelancer.usuario_id,
+            Chamado.barbearia_id == dono.id,
+            Chamado.status.in_([
+                StatusAgendamento.CONCLUIDO.value, "concluido", "concluído",
+            ]),
+        ).first()
+        if not ja_trabalhou_aqui:
+            raise HTTPException(
+                status_code=400,
+                detail="Este freelancer ainda nao atendeu nesta barbearia",
+            )
         tipo_avaliador = "barbearia"
 
-    # ---- dedupe / upsert -------------------------------------------------
-    q = db.query(AvaliacaoFreelancer).filter(
-        AvaliacaoFreelancer.freelancer_id == freelancer.id,
-        AvaliacaoFreelancer.avaliador_id == usuario_atual.id,
-    )
+    # ---- barbearia (avaliacao de relacao, sem chamado): no maximo 1 por dia
+    # (mesma regra ja aplicada a freelancer -> barbearia; um novo atendimento
+    # concluido em outro dia libera uma nova avaliacao) -------------------
+    if tipo_avaliador == "barbearia" and not dados.chamado_id:
+        inicio_dia = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+        fim_dia = inicio_dia + timedelta(days=1)
+        ja_avaliou_hoje = db.query(AvaliacaoFreelancer).filter(
+            AvaliacaoFreelancer.freelancer_id == freelancer.id,
+            AvaliacaoFreelancer.avaliador_id == usuario_atual.id,
+            AvaliacaoFreelancer.chamado_id.is_(None),
+            AvaliacaoFreelancer.criado_em >= inicio_dia,
+            AvaliacaoFreelancer.criado_em < fim_dia,
+        ).first()
+        if ja_avaliou_hoje:
+            raise HTTPException(
+                status_code=400,
+                detail="Voce ja avaliou este freelancer hoje. Uma nova avaliacao "
+                       "fica liberada apos um novo atendimento em outro dia.",
+            )
+
+    # ---- dedupe (avaliacao vinculada a um chamado especifico) -------------
     if dados.chamado_id:
-        q = q.filter(AvaliacaoFreelancer.chamado_id == dados.chamado_id)
-    else:
-        q = q.filter(AvaliacaoFreelancer.chamado_id.is_(None))
-    existente = q.first()
+        existente = db.query(AvaliacaoFreelancer).filter(
+            AvaliacaoFreelancer.freelancer_id == freelancer.id,
+            AvaliacaoFreelancer.avaliador_id == usuario_atual.id,
+            AvaliacaoFreelancer.chamado_id == dados.chamado_id,
+        ).first()
+        if existente:
+            raise HTTPException(
+                status_code=400,
+                detail="Voce ja avaliou este freelancer neste atendimento",
+            )
 
-    if existente and dados.chamado_id:
-        raise HTTPException(
-            status_code=400,
-            detail="Voce ja avaliou este freelancer neste atendimento",
-        )
-
-    if existente:
-        existente.nota = dados.nota
-        existente.comentario = dados.comentario
-        avaliacao = existente
-    else:
-        avaliacao = AvaliacaoFreelancer(
-            freelancer_id=freelancer.id,
-            avaliador_id=usuario_atual.id,
-            chamado_id=dados.chamado_id,
-            nota=dados.nota,
-            comentario=dados.comentario,
-            foto_corte_url=dados.foto_corte_url,
-            tempo_real_servico_min=dados.tempo_real_servico_min,
-            tipo_avaliador=tipo_avaliador,
-        )
-        db.add(avaliacao)
+    avaliacao = AvaliacaoFreelancer(
+        freelancer_id=freelancer.id,
+        avaliador_id=usuario_atual.id,
+        chamado_id=dados.chamado_id,
+        nota=dados.nota,
+        comentario=dados.comentario,
+        foto_corte_url=dados.foto_corte_url,
+        tempo_real_servico_min=dados.tempo_real_servico_min,
+        tipo_avaliador=tipo_avaliador,
+    )
+    db.add(avaliacao)
 
     db.flush()
     atualizar_flag_negativas_freelancer(db, freelancer.usuario_id)
@@ -258,7 +287,7 @@ def avaliar_freelancer(
     return {
         "message": "Avaliacao registrada com sucesso!",
         "avaliacao_id": avaliacao.id,
-        "atualizada": bool(existente),
+        "atualizada": False,
         "media": resumo["media"],
         "total": resumo["total"],
     }
