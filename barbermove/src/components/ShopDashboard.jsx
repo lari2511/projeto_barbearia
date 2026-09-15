@@ -73,6 +73,9 @@ export default function ShopDashboard({ token, logout, notify, API_URL }) {
         return TABS_VALIDAS.includes(tabSalva) ? tabSalva : 'inicio';
     });
     const [freelancerPerfilModal, setFreelancerPerfilModal] = useState(null); // { id, nome } — só abre o perfil, nenhuma outra ação
+    const [notificacoes, setNotificacoes] = useState([]); // sino: interesse de clientes, avaliações, etc (fonte única: Notificacao)
+    const [notificacoesAbertas, setNotificacoesAbertas] = useState(false);
+    const naoLidasCount = notificacoes.filter((n) => !n.lido).length;
     useBackHandler(() => {
         if (notificacoesAbertas) { setNotificacoesAbertas(false); return true; }
         if (freelancerPerfilModal) { setFreelancerPerfilModal(null); return true; }
@@ -99,9 +102,6 @@ export default function ShopDashboard({ token, logout, notify, API_URL }) {
     const [motivoBloqueioInput, setMotivoBloqueioInput] = useState('');
     const [bloqueandoFreelancer, setBloqueandoFreelancer] = useState(false);
     const [historicoConcluidosExpandido, setHistoricoConcluidosExpandido] = useState(true);
-    const [notificacoes, setNotificacoes] = useState([]); // sino: interesse de clientes, avaliações, etc (fonte única: Notificacao)
-    const [notificacoesAbertas, setNotificacoesAbertas] = useState(false);
-    const naoLidasCount = notificacoes.filter((n) => !n.lido).length;
     // Toque no card do freelancer: abre APENAS o perfil (id real do usuário).
     const abrirPerfilFreelancer = (id, nome) => {
         const idNum = Number(id || 0);
