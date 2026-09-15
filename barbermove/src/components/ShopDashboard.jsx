@@ -74,6 +74,7 @@ export default function ShopDashboard({ token, logout, notify, API_URL }) {
     });
     const [freelancerPerfilModal, setFreelancerPerfilModal] = useState(null); // { id, nome } — só abre o perfil, nenhuma outra ação
     useBackHandler(() => {
+        if (notificacoesAbertas) { setNotificacoesAbertas(false); return true; }
         if (freelancerPerfilModal) { setFreelancerPerfilModal(null); return true; }
         if (tab === 'freelancers' || tab === 'servicos') { setTab('barbeiros'); return true; }
         if (tab === 'avaliar') { setTab('agenda'); return true; }
@@ -81,7 +82,7 @@ export default function ShopDashboard({ token, logout, notify, API_URL }) {
         if (tab === 'assinatura') { setTab('barbeiros'); return true; }
         if (tab !== 'inicio') { setTab('inicio'); return true; }
         return false;
-    }, [tab, freelancerPerfilModal]);
+    }, [tab, freelancerPerfilModal, notificacoesAbertas]);
 
     const [agendamentos, setAgendamentos] = useState([]);
     const [freelancersPresentes, setFreelancersPresentes] = useState([]);
@@ -98,6 +99,9 @@ export default function ShopDashboard({ token, logout, notify, API_URL }) {
     const [motivoBloqueioInput, setMotivoBloqueioInput] = useState('');
     const [bloqueandoFreelancer, setBloqueandoFreelancer] = useState(false);
     const [historicoConcluidosExpandido, setHistoricoConcluidosExpandido] = useState(true);
+    const [notificacoes, setNotificacoes] = useState([]); // sino: interesse de clientes, avaliações, etc (fonte única: Notificacao)
+    const [notificacoesAbertas, setNotificacoesAbertas] = useState(false);
+    const naoLidasCount = notificacoes.filter((n) => !n.lido).length;
     // Toque no card do freelancer: abre APENAS o perfil (id real do usuário).
     const abrirPerfilFreelancer = (id, nome) => {
         const idNum = Number(id || 0);
@@ -509,6 +513,46 @@ export default function ShopDashboard({ token, logout, notify, API_URL }) {
         }
     }, [API_URL, barbeariaId, token]);
 
+    // Sino de notificações (fonte única: Notificacao) — interesse de clientes,
+    // avaliações recebidas e qualquer outra notificação já existente no sistema.
+    const carregarNotificacoes = useCallback(async () => {
+        if (!token) return;
+        try {
+            const res = await fetch(`${API_URL}/api/v1/notificacoes/?limite=20`, {
+                headers: { 'Authorization': `Bearer ${token}` },
+            });
+            if (!res.ok) return;
+            const data = await res.json();
+            setNotificacoes(Array.isArray(data) ? data : []);
+        } catch (_err) {
+            // Notificações são um extra; falha silenciosa não deve travar o painel.
+        }
+    }, [API_URL, token]);
+
+    const marcarNotificacaoLida = async (id) => {
+        setNotificacoes((prev) => prev.map((n) => (n.id === id ? { ...n, lido: true } : n)));
+        try {
+            await fetch(`${API_URL}/api/v1/notificacoes/${id}/marcar-lida`, {
+                method: 'POST',
+                headers: { 'Authorization': `Bearer ${token}` },
+            });
+        } catch (_err) {
+            // UI já foi atualizada; próxima sincronização corrige se falhar.
+        }
+    };
+
+    const marcarTodasNotificacoesLidas = async () => {
+        setNotificacoes((prev) => prev.map((n) => ({ ...n, lido: true })));
+        try {
+            await fetch(`${API_URL}/api/v1/notificacoes/marcar-todas-lidas`, {
+                method: 'POST',
+                headers: { 'Authorization': `Bearer ${token}` },
+            });
+        } catch (_err) {
+            // idem
+        }
+    };
+
     // Total real de freelancers cadastrados no BarberMove, independente de distancia
     // (mesma lista que a aba Freelancers ja usa, so que sem separar por status).
     const carregarTotalFreelancersCadastrados = useCallback(async () => {
@@ -735,6 +779,13 @@ export default function ShopDashboard({ token, logout, notify, API_URL }) {
     }, [barbeariaId, tab, carregarFreelancersProximosRegiao]);
 
     useEffect(() => {
+        if (!token) return;
+        carregarNotificacoes();
+        const interval = setInterval(carregarNotificacoes, 20000);
+        return () => clearInterval(interval);
+    }, [token, carregarNotificacoes]);
+
+    useEffect(() => {
         if (tab !== 'inicio') return;
         carregarTotalFreelancersCadastrados();
         const interval = setInterval(carregarTotalFreelancersCadastrados, 60000);
@@ -924,6 +975,18 @@ export default function ShopDashboard({ token, logout, notify, API_URL }) {
                         )}
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
+                        <button
+                            onClick={() => setNotificacoesAbertas((v) => !v)}
+                            className="relative h-10 w-10 rounded-full bg-zinc-900 border border-zinc-800 flex items-center justify-center text-zinc-400 hover:text-white hover:bg-zinc-800 transition-colors"
+                            aria-label="Notificações"
+                        >
+                            <Bell size={18} />
+                            {naoLidasCount > 0 && (
+                                <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full bg-orange-500 text-white text-[10px] font-bold flex items-center justify-center leading-none">
+                                    {naoLidasCount > 9 ? '9+' : naoLidasCount}
+                                </span>
+                            )}
+                        </button>
                         <button onClick={logout} className="h-10 w-10 rounded-full bg-zinc-900 border border-zinc-800 flex items-center justify-center text-zinc-400 hover:text-white hover:bg-zinc-800 transition-colors"><LogOut size={18}/></button>
                     </div>
                 </div>
@@ -1712,6 +1775,46 @@ export default function ShopDashboard({ token, logout, notify, API_URL }) {
                 <button data-active={tab === 'perfil' || tab === 'pagamento'} onClick={() => setTab('perfil')} className={`bm-bottom-nav-btn flex flex-col items-center justify-center gap-0.5 h-full text-center rounded-xl ${tab === 'perfil' || tab === 'pagamento' ? 'text-orange-500 bg-orange-500/5' : 'text-zinc-400 hover:text-zinc-200'}`}><User size={14} /><span className="text-[10px] leading-none">Perfil</span></button>
             </div>
             </div>
+
+            {notificacoesAbertas && (
+                <div className="fixed inset-0 z-[2300]" onClick={() => setNotificacoesAbertas(false)}>
+                    <div
+                        onClick={(e) => e.stopPropagation()}
+                        className="absolute top-16 right-3 left-3 sm:left-auto sm:w-[380px] max-h-[70vh] overflow-y-auto bg-zinc-950 border border-zinc-800 rounded-2xl shadow-2xl p-3 space-y-2"
+                    >
+                        <div className="flex items-center justify-between mb-1">
+                            <h3 className="text-sm font-bold text-white">Notificações</h3>
+                            {naoLidasCount > 0 && (
+                                <button
+                                    type="button"
+                                    onClick={marcarTodasNotificacoesLidas}
+                                    className="text-[11px] text-orange-400 hover:text-orange-300 font-bold"
+                                >
+                                    Marcar todas como lidas
+                                </button>
+                            )}
+                        </div>
+                        {notificacoes.length === 0 ? (
+                            <p className="text-xs text-zinc-500 py-4 text-center">Nenhuma notificação por aqui.</p>
+                        ) : (
+                            notificacoes.map((n) => (
+                                <button
+                                    key={n.id}
+                                    type="button"
+                                    onClick={() => !n.lido && marcarNotificacaoLida(n.id)}
+                                    className={`w-full text-left rounded-xl border p-3 space-y-0.5 ${n.lido ? 'bg-black/20 border-zinc-800/60' : 'bg-orange-500/10 border-orange-500/30'}`}
+                                >
+                                    <div className="flex items-center justify-between gap-2">
+                                        <p className="text-xs font-bold text-white truncate">{n.titulo}</p>
+                                        {!n.lido && <span className="shrink-0 h-2 w-2 rounded-full bg-orange-400" />}
+                                    </div>
+                                    <p className="text-[11px] text-zinc-400">{n.mensagem}</p>
+                                </button>
+                            ))
+                        )}
+                    </div>
+                </div>
+            )}
 
             {freelancerPerfilModal && (
                 <div className="fixed inset-0 bg-black/80 z-[2200] flex items-center justify-center p-4">

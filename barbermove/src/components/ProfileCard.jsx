@@ -197,6 +197,16 @@ export default function ProfileCard({ usuarioId, userType, token, isOwnProfile: 
               cadeira_disponivel: possuiCadeiraDisponivel,
             });
             setCadeirasBarbearia(cadeiras);
+
+            // Interesse de clientes: cliente abriu o perfil de uma barbearia
+            // sem cadeira disponivel agora. So contagem agregada pro dono
+            // (via sino de notificacoes) - nunca cria solicitacao/chamado.
+            if (!possuiCadeiraDisponivel && token && readStorageValue('userType') === 'cliente') {
+              fetch(`${API_URL}/api/v1/interesse-atendimento/${barbeariaDoPerfil.id}`, {
+                method: 'POST',
+                headers: { 'Authorization': `Bearer ${token}` },
+              }).catch(() => {});
+            }
           } else {
             setBarbeariaProfile(null);
             setCadeirasBarbearia([]);

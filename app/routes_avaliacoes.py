@@ -36,7 +36,10 @@ from app.avaliacoes_service import (
     resumo_barbearia,
     atualizar_flag_negativas_freelancer,
 )
-from app.routes_notificacoes import criar_notificacao_avaliacao_freelancer
+from app.routes_notificacoes import (
+    criar_notificacao_avaliacao_freelancer,
+    criar_notificacao_avaliacao_barbearia,
+)
 
 router = APIRouter(prefix="/api/v1/avaliacoes", tags=["Avaliacoes"])
 
@@ -387,6 +390,8 @@ def avaliar_barbearia(
 
     db.commit()
     db.refresh(avaliacao)
+
+    criar_notificacao_avaliacao_barbearia(barbearia.usuario_id, dados.nota, db=db)
 
     # Media/total refletem somente o mesmo tipo da avaliacao enviada agora
     # (cliente ou freelancer), nunca uma mistura dos dois.

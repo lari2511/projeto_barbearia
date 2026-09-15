@@ -291,6 +291,69 @@ def criar_notificacao_avaliacao_freelancer(
     db.commit()
     return notif
 
+def criar_notificacao_avaliacao_barbearia(
+    dono_usuario_id: int,
+    nota: int,
+    db: Session = None
+):
+    """Cria notificação quando a barbearia recebe uma avaliação (cliente ou freelancer)"""
+    if db is None:
+        from app.database import SessionLocal
+        db = SessionLocal()
+
+    notif = Notificacao(
+        usuario_id=dono_usuario_id,
+        titulo="Nova Avaliação! ⭐",
+        mensagem=f"Sua barbearia recebeu uma avaliação de {nota} estrela(s)",
+        tipo="avaliacao_recebida",
+    )
+    db.add(notif)
+    db.commit()
+    return notif
+
+
+def criar_ou_atualizar_notificacao_interesse(
+    dono_usuario_id: int,
+    total_hoje: int,
+    db: Session = None
+):
+    """
+    Mantém 1 única notificação por dia por barbearia com o total agregado de
+    clientes que demonstraram interesse em atendimento mas não havia cadeira
+    disponível. Cada novo interesse atualiza a mensagem e marca como não lida.
+    """
+    if db is None:
+        from app.database import SessionLocal
+        db = SessionLocal()
+
+    inicio_dia = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+    notif = db.query(Notificacao).filter(
+        Notificacao.usuario_id == dono_usuario_id,
+        Notificacao.tipo == "interesse_atendimento",
+        Notificacao.criado_em >= inicio_dia,
+    ).first()
+
+    if total_hoje == 1:
+        mensagem = "1 cliente demonstrou interesse em atendimento hoje, mas não havia cadeira disponível."
+    else:
+        mensagem = f"{total_hoje} clientes demonstraram interesse em atendimento hoje, mas não havia cadeira disponível."
+
+    if notif:
+        notif.mensagem = mensagem
+        notif.lido = False
+    else:
+        notif = Notificacao(
+            usuario_id=dono_usuario_id,
+            titulo="Interesse de clientes 👀",
+            mensagem=mensagem,
+            tipo="interesse_atendimento",
+        )
+        db.add(notif)
+
+    db.commit()
+    return notif
+
+
 def criar_notificacao_perfil_aprovado(
     usuario_id: int,
     db: Session = None

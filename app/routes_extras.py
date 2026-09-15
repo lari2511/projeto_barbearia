@@ -1195,42 +1195,10 @@ def obter_historico_chamado(chamado_id: int, db: Session = Depends(get_db)):
     return historico
 
 
-# ==================== NOTIFICAÇÕES ====================
-
-@router.get(
-    "/notificacoes/",
-    response_model=List[schemas.NotificacaoResponse],
-    operation_id="listar_notificacoes_extras"
-)
-def listar_notificacoes(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
-    """Listar notificações do usuário"""
-    user = get_current_user(token=token, db=db)
-    
-    notificacoes = db.query(models.Notificacao).filter(
-        models.Notificacao.usuario_id == user.id
-    ).order_by(models.Notificacao.criado_em.desc()).limit(50).all()
-    
-    return notificacoes
-
-
-@router.put("/notificacoes/{notificacao_id}/ler")
-def marcar_notificacao_lida(notificacao_id: int, token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
-    """Marcar notificação como lida"""
-    user = get_current_user(token=token, db=db)
-    
-    notificacao = db.query(models.Notificacao).filter(
-        and_(models.Notificacao.id == notificacao_id,
-             models.Notificacao.usuario_id == user.id)
-    ).first()
-    
-    if not notificacao:
-        raise HTTPException(status_code=404, detail="Notificação não encontrada")
-    
-    notificacao.lida = True
-    db.commit()
-    
-    return {"detail": "Notificação marcada como lida"}
-
+# Notificações: ver app/routes_notificacoes.py (fonte única). Este arquivo
+# tinha um GET/PUT "/notificacoes/..." legado que sombreava essas rotas (mesmo
+# path, registrado antes) e quebrava com ResponseValidationError - o modelo
+# usa a coluna `lido`, nao `lida`. Nunca era usado pelo frontend; removido.
 
 # ==================== CHAT ====================
 

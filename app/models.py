@@ -615,6 +615,22 @@ class Notificacao(Base):
     
     usuario = relationship("Usuario", foreign_keys=[usuario_id])
 
+
+class InteresseAtendimento(Base):
+    """
+    Log de demonstracoes de interesse: cliente abriu o perfil de uma
+    barbearia sem nenhuma cadeira disponivel no momento. Somente contagem
+    agregada para o dono (via notificacao) - nunca vira solicitacao, chamado
+    ou qualquer acao real.
+    """
+    __tablename__ = "interesses_atendimento"
+
+    id = Column(Integer, primary_key=True, index=True)
+    barbearia_id = Column(Integer, ForeignKey("barbearias.id"), nullable=False, index=True)
+    cliente_id = Column(Integer, ForeignKey("usuarios.id"), nullable=True)
+    criado_em = Column(DateTime, default=datetime.utcnow, index=True)
+
+
 class PrecoCustomizado(Base):
     """Preços customizados de barbeiros para serviços"""
     __tablename__ = "precos_customizados"
