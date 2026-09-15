@@ -988,7 +988,9 @@ export default function PainelBarberMovePremium({ token: tokenProp, logout: logo
                         onClick={() => b.usuario_id && setBarbeariaPerfilModal({ usuario_id: b.usuario_id, nome: b.nome })}
                         className="w-full text-left rounded-xl border border-zinc-800 bg-zinc-950/70 p-3 flex items-start justify-between gap-3 hover:border-zinc-700"
                       >
-                        <div className="min-w-0">
+                        <div className="min-w-0 flex items-start gap-3">
+                          <Avatar nome={b.nome} foto={b.foto_perfil} API_URL={API_URL} size={36} />
+                          <div className="min-w-0">
                           <p className="text-sm font-bold text-white truncate">
                             {b.cadeira_disponivel ? '🔥' : '💈'} {b.nome}
                           </p>
@@ -1000,6 +1002,7 @@ export default function PainelBarberMovePremium({ token: tokenProp, logout: logo
                             {Array.isArray(b.portfolio_fotos) && b.portfolio_fotos.length > 0 && (
                               <span className="text-[10px] text-zinc-500">📷 {b.portfolio_fotos.length}</span>
                             )}
+                          </div>
                           </div>
                         </div>
                         <span className="shrink-0 text-[11px] text-zinc-400 font-semibold">

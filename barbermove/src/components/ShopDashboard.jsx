@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { getWsBaseUrl } from '../utils/api';
+import { getWsBaseUrl, resolveMediaUrl } from '../utils/api';
 import { Store, LogOut, CheckCircle, AlertCircle, User, CreditCard, Calendar, Search, Star, TrendingUp, Users, Bell, Pencil, Trash2, X, Check } from 'lucide-react';
 import PaymentSection from './PaymentSection';
 import AbaPadronizadaAvaliacoes from './AbaPadronizadaAvaliacoes';
@@ -12,6 +12,29 @@ import ProfileCard from './ProfileCard';
 import CronometroAtendimento, { parseDataServidorUTC } from './CronometroAtendimento';
 import DeslocamentoAtendimento from './DeslocamentoAtendimento';
 import ChatRoom from './ChatRoom';
+
+function AvatarFreelancer({ nome, foto, API_URL, size = 32 }) {
+    const url = foto ? resolveMediaUrl(foto, API_URL) : '';
+    const iniciais = (nome || '?').trim().split(/\s+/).slice(0, 2).map((p) => p[0]).join('').toUpperCase();
+    if (url) {
+        return (
+            <img
+                src={url}
+                alt={nome || 'Freelancer'}
+                style={{ width: size, height: size }}
+                className="rounded-full object-cover border border-zinc-700 shrink-0"
+            />
+        );
+    }
+    return (
+        <div
+            style={{ width: size, height: size }}
+            className="rounded-full bg-zinc-800 border border-zinc-700 flex items-center justify-center text-[10px] font-bold text-zinc-300 shrink-0"
+        >
+            {iniciais || '?'}
+        </div>
+    );
+}
 
 const confirmarAcao = (mensagem) => {
     if (typeof window === 'undefined') return true;
@@ -994,7 +1017,10 @@ export default function ShopDashboard({ token, logout, notify, API_URL }) {
                                             tabIndex={0}
                                             className="bg-black/30 border border-zinc-800 rounded-xl px-3 py-2.5 flex items-center justify-between gap-2 cursor-pointer hover:border-orange-500 transition-colors"
                                         >
-                                            <span className="text-sm font-bold text-white truncate">💈 {f.nome}</span>
+                                            <span className="flex items-center gap-2 min-w-0 text-sm font-bold text-white truncate">
+                                                <AvatarFreelancer nome={f.nome} foto={f.foto_perfil} API_URL={API_URL} size={28} />
+                                                💈 {f.nome}
+                                            </span>
                                             <span className="text-xs text-zinc-400 shrink-0">📍 {f.distancia_aproximada}</span>
                                         </div>
                                     ))}

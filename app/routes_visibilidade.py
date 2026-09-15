@@ -134,6 +134,7 @@ def barbearias_proximas_do_freelancer(
                 "id": barbearia.id,
                 "usuario_id": dono.id,
                 "nome": barbearia.nome or dono.nome,
+                "foto_perfil": dono.foto_perfil,
                 "endereco": barbearia.endereco,
                 # Estabelecimento comercial: pode expor a localizacao exata (regra 4).
                 "latitude": barbearia.latitude,
