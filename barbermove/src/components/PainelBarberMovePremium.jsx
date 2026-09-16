@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { Home, ClipboardList, Star, User, CreditCard, LogOut, CheckCircle, XCircle, DollarSign, Copy, Phone, Scissors, MapPin, RefreshCw } from 'lucide-react';
 import { useApp } from '../contexts/AppContext';
 import { getApiBaseUrl, getWsBaseUrl, resolveMediaUrl } from '../utils/api';
@@ -57,6 +57,30 @@ export default function PainelBarberMovePremium({ token: tokenProp, logout: logo
   const [perfilSection, setPerfilSection] = useState('dados');
   const [chamados, setChamados] = useState([]);
   const [chamadoAtivo, setChamadoAtivo] = useState(null);
+
+  // Servico(s) do chamado ativo (lista quando o cliente contratou varios servicos no mesmo grupo_id).
+  const membrosGrupoAtivo = useMemo(() => {
+    if (!chamadoAtivo) return [];
+    const base = Array.isArray(chamados) ? chamados : [];
+    return chamadoAtivo.grupo_id
+      ? base.filter((c) => c.grupo_id === chamadoAtivo.grupo_id)
+      : [chamadoAtivo];
+  }, [chamadoAtivo, chamados]);
+
+  const servicoNomeAtivo = useMemo(() => {
+    const nomes = membrosGrupoAtivo.map((m) => m?.servico_nome || m?.descricao).filter(Boolean);
+    return [...new Set(nomes)].join(' + ');
+  }, [membrosGrupoAtivo]);
+
+  const valorTotalAtivo = useMemo(
+    () => membrosGrupoAtivo.reduce((soma, m) => soma + (Number(m?.valor) || 0), 0),
+    [membrosGrupoAtivo]
+  );
+
+  const duracaoTotalAtivo = useMemo(
+    () => membrosGrupoAtivo.reduce((soma, m) => soma + (Number(m?.duracao_minutos) || 0), 0),
+    [membrosGrupoAtivo]
+  );
   const [minhaPosicao, setMinhaPosicao] = useState(null);
   const [ganhos, setGanhos] = useState(null);
   const [pixQuitacao, setPixQuitacao] = useState(null);
@@ -868,7 +892,7 @@ export default function PainelBarberMovePremium({ token: tokenProp, logout: logo
                 {chamadoAtivo && (
                   <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-sm">
                     <p className="font-bold text-amber-300">🔔 Chamado ativo: #{chamadoAtivo.id}</p>
-                    <p className="text-xs text-zinc-400 mt-0.5">{chamadoAtivo.servico_nome || chamadoAtivo.descricao}</p>
+                    <p className="text-xs text-zinc-400 mt-0.5">{servicoNomeAtivo || chamadoAtivo.servico_nome || chamadoAtivo.descricao}</p>
                     <div className="mt-2">
                       <CronometroAtendimento
                         chamado={chamadoAtivo}
@@ -1101,14 +1125,14 @@ export default function PainelBarberMovePremium({ token: tokenProp, logout: logo
                       <div className="min-w-0">
                         <p className="text-[10px] uppercase tracking-wide text-zinc-500">Serviço</p>
                         <p className="text-sm font-bold text-white truncate">
-                          {chamadoAtivo.servico_nome || chamadoAtivo.descricao}
-                          {chamadoAtivo.duracao_minutos ? ` · ${chamadoAtivo.duracao_minutos} min` : ''}
+                          {servicoNomeAtivo || chamadoAtivo.servico_nome || chamadoAtivo.descricao}
+                          {duracaoTotalAtivo ? ` · ${duracaoTotalAtivo} min` : ''}
                         </p>
                       </div>
                     </div>
                     <div className="text-right shrink-0">
                       <p className="text-[10px] uppercase tracking-wide text-zinc-500">Valor</p>
-                      <p className="text-sm font-bold text-emerald-400">R$ {Number(chamadoAtivo.valor || 0).toFixed(2)}</p>
+                      <p className="text-sm font-bold text-emerald-400">R$ {valorTotalAtivo.toFixed(2)}</p>
                     </div>
                   </div>
 

@@ -1614,7 +1614,7 @@ export default function ClientDashboard({ token, logout, API_URL: apiUrlProp, no
                             <span className="inline-flex items-center rounded-full border border-amber-500/20 bg-amber-500/10 px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.2em] text-amber-300">
                                 Chamado ativo
                             </span>
-                            <p className="mt-2 text-sm font-semibold text-zinc-100 truncate">ID: {activeChamado.id} — {activeChamado.servico_nome || activeChamado.descricao || ''}</p>
+                            <p className="mt-2 text-sm font-semibold text-zinc-100 truncate">ID: {activeChamado.id} — {servicosDoAtendimento.join(' + ') || activeChamado.servico_nome || activeChamado.descricao || ''}</p>
                         </div>
                         <div className="text-right space-y-2 shrink-0">
                             <div className="text-[10px] uppercase tracking-[0.15em] text-zinc-500 font-semibold">Status</div>
