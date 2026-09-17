@@ -546,18 +546,35 @@ def listar_avaliacoes_freelancer(
         AvaliacaoFreelancer.tipo_avaliador.in_(tipos_visiveis),
     ).order_by(AvaliacaoFreelancer.criado_em.desc()).limit(limite).all()
 
-    return [{
-        "id": av.id,
-        "nota": av.nota,
-        "comentario": av.comentario,
-        "tipo_avaliador": av.tipo_avaliador,
-        "foto_corte_url": av.foto_corte_url,
-        "tempo_real_servico_min": av.tempo_real_servico_min,
-        "criado_em": av.criado_em,
-        "avaliador_id": av.avaliador_id,
-        "avaliador_nome": nome,
-        "avaliador_foto": foto,
-    } for av, nome, foto in avaliacoes]
+    # Avaliacao "barbearia" (dono -> freelancer): identifica a barbearia do
+    # avaliador para exibir junto da nota/comentario (nao altera a relacao
+    # existente, so resolve o nome publico via Barbearia.usuario_id).
+    avaliador_ids_barbearia = {
+        av.avaliador_id for av, _, _ in avaliacoes if av.tipo_avaliador == "barbearia"
+    }
+    barbearias_por_avaliador = {}
+    if avaliador_ids_barbearia:
+        for b in db.query(Barbearia).filter(Barbearia.usuario_id.in_(avaliador_ids_barbearia)).all():
+            barbearias_por_avaliador[b.usuario_id] = b
+
+    resultado = []
+    for av, nome, foto in avaliacoes:
+        barbearia_do_avaliador = barbearias_por_avaliador.get(av.avaliador_id)
+        resultado.append({
+            "id": av.id,
+            "nota": av.nota,
+            "comentario": av.comentario,
+            "tipo_avaliador": av.tipo_avaliador,
+            "foto_corte_url": av.foto_corte_url,
+            "tempo_real_servico_min": av.tempo_real_servico_min,
+            "criado_em": av.criado_em,
+            "avaliador_id": av.avaliador_id,
+            "avaliador_nome": nome,
+            "avaliador_foto": foto,
+            "barbearia_id": barbearia_do_avaliador.id if barbearia_do_avaliador else None,
+            "barbearia_nome": barbearia_do_avaliador.nome if barbearia_do_avaliador else None,
+        })
+    return resultado
 
 
 @router.get("/barbearia/{barbearia_id}/recebidas", response_model=List[AvaliacaoBarbeariaResponse])

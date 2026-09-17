@@ -79,6 +79,9 @@ export default function ListaAvaliacoes({ avaliacoes = [] }) {
                         <div className="flex items-start justify-between mb-2">
                             <div>
                                 <p className="font-bold text-white text-sm">{avaliacao.avaliador_nome || 'Usuário'}</p>
+                                {avaliacao.barbearia_nome && (
+                                    <p className="text-zinc-400 text-xs">{avaliacao.barbearia_nome}</p>
+                                )}
                                 <p className="text-zinc-500 text-xs">
                                     {new Date(avaliacao.criado_em).toLocaleDateString('pt-BR')}
                                 </p>

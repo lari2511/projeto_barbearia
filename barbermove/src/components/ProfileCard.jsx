@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useContext } from 'react';
 import { Star, MapPin, Phone, Mail, Award, TrendingUp, MessageCircle } from 'lucide-react';
 import ChatRoom from './ChatRoom';
+import ListaAvaliacoes from './ListaAvaliacoes';
 import { AppContext } from '../contexts/AppContext';
 import { getApiBaseUrl, resolveMediaUrl } from '../utils/api';
 import { formatarEndereco } from '../utils/address';
@@ -69,6 +70,13 @@ export default function ProfileCard({ usuarioId, userType, token, isOwnProfile: 
   const [chatChamadoId, setChatChamadoId] = useState(null);
   const [avaliacoes, setAvaliacoes] = useState(null);
   const [avaliacaoFreelancer, setAvaliacaoFreelancer] = useState(null); // { media, total } | null — só preenchido quando o backend libera a nota de freelancer->barbearia para quem está vendo
+  // Perfil de freelancer: avaliacoes de clientes e de proprietarios nunca se
+  // misturam (mesma separacao da barbearia). O backend ja filtra por quem
+  // esta vendo (_tipos_avaliacao_freelancer_visiveis) — a lista de
+  // proprietarios so vem preenchida quando quem pede e dono/o proprio
+  // freelancer/admin.
+  const [avaliacoesFreelancerClientes, setAvaliacoesFreelancerClientes] = useState([]);
+  const [avaliacoesFreelancerProprietarios, setAvaliacoesFreelancerProprietarios] = useState([]);
   const [loading, setLoading] = useState(true);
   const [erro, setErro] = useState('');
   const [portfolioFotos, setPortfolioFotos] = useState([]);
@@ -112,6 +120,13 @@ export default function ProfileCard({ usuarioId, userType, token, isOwnProfile: 
   const fotosPortfolioExibicao = profilePortfolioFotos.length > 0 ? profilePortfolioFotos : portfolioFotos;
   const avaliacoesNormalizadas = normalizeAvaliacoes(avaliacoes);
   const avaliacoesUltimas = avaliacoesNormalizadas.ultimas;
+  // Secao "Avaliacoes de proprietarios" (perfil de freelancer): so aparece
+  // pra quem tem essa permissao. O backend ja restringe os dados (a lista
+  // vem vazia pra quem nao pode ver); isso so evita mostrar o titulo da
+  // secao pro cliente.
+  const podeVerAvaliacoesDeProprietarios = ['barbearia', 'admin'].includes(
+    String(readStorageValue('userType') || '').toLowerCase()
+  );
 
   const carregarPerfil = useCallback(async () => {
     try {
@@ -159,6 +174,25 @@ export default function ProfileCard({ usuarioId, userType, token, isOwnProfile: 
         );
       } else {
         setAvaliacaoFreelancer(null);
+      }
+
+      // Perfil de freelancer: lista as avaliacoes recebidas separando cliente
+      // de proprietario (o backend so devolve as de proprietario para quem
+      // pode ve-las — dono, o proprio freelancer avaliado ou admin).
+      if (userType === 'barbeiro') {
+        try {
+          const recebidasRes = await fetch(
+            `${API_URL}/api/v1/avaliacoes/freelancer/${usuarioId}/recebidas?limite=20`,
+            { headers: token ? { 'Authorization': `Bearer ${token}` } : {} }
+          );
+          const recebidas = recebidasRes.ok ? await recebidasRes.json() : [];
+          const lista = Array.isArray(recebidas) ? recebidas : [];
+          setAvaliacoesFreelancerClientes(lista.filter((av) => av.tipo_avaliador === 'cliente'));
+          setAvaliacoesFreelancerProprietarios(lista.filter((av) => av.tipo_avaliador === 'barbearia'));
+        } catch (_err) {
+          setAvaliacoesFreelancerClientes([]);
+          setAvaliacoesFreelancerProprietarios([]);
+        }
       }
 
       // Buscar fotos do portfólio (já vem em portfolio_fotos no profile)
@@ -627,6 +661,24 @@ export default function ProfileCard({ usuarioId, userType, token, isOwnProfile: 
               </div>
             ))}
           </div>
+        </div>
+      )}
+
+      {/* Avaliacoes do freelancer: clientes sempre visivel; proprietarios
+          (dono/admin) so aparece pra quem tem essa permissao — o backend ja
+          filtra os dados, aqui so evita mostrar o titulo da secao ao cliente. */}
+      {userType === 'barbeiro' && (
+        <div className="space-y-6">
+          <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6">
+            <h3 className="text-sm font-bold text-zinc-400 uppercase tracking-wide mb-3">Avaliações de clientes</h3>
+            <ListaAvaliacoes avaliacoes={avaliacoesFreelancerClientes} />
+          </div>
+          {podeVerAvaliacoesDeProprietarios && (
+            <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6">
+              <h3 className="text-sm font-bold text-zinc-400 uppercase tracking-wide mb-3">Avaliações de proprietários</h3>
+              <ListaAvaliacoes avaliacoes={avaliacoesFreelancerProprietarios} />
+            </div>
+          )}
         </div>
       )}
 

@@ -769,6 +769,10 @@ class AvaliacaoFreelancerResponse(BaseModel):
     avaliador_nome: Optional[str] = None
     avaliador_foto: Optional[str] = None
 
+    # Identificacao da barbearia (somente para tipo_avaliador == "barbearia")
+    barbearia_id: Optional[int] = None
+    barbearia_nome: Optional[str] = None
+
 
 class AvaliacaoBarbeariaResponse(BaseModel):
     """Resposta de avaliacao da barbearia"""
