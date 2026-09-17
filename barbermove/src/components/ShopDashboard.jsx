@@ -111,6 +111,9 @@ export default function ShopDashboard({ token, logout, notify, API_URL }) {
     const [_loading, _setLoading] = useState(false);
     const [barbeariaId, setBarbeariaId] = useState(null);
     const [vagasRelampago, setVagasRelampago] = useState([]);
+    // Candidaturas da vaga de cadeira (freelancer manifesta interesse; o dono escolhe).
+    const [candidatosPorVaga, setCandidatosPorVaga] = useState({}); // vaga_id -> [{ id, freelancer_id, nome, foto_perfil, criado_em }]
+    const [escolhendoCandidatoId, setEscolhendoCandidatoId] = useState(null); // freelancer_id sendo escolhido agora
     const [acionandoCadeiraId, setAcionandoCadeiraId] = useState(null);
     const [cadeiraAnunciadaSucessoId, setCadeiraAnunciadaSucessoId] = useState(null);
     const [anunciandoProximaCadeira, setAnunciandoProximaCadeira] = useState(false);
@@ -609,6 +612,52 @@ export default function ShopDashboard({ token, logout, notify, API_URL }) {
         }
     }, [API_URL, token]);
 
+    // Candidaturas da vaga de cadeira: freelancer manifesta interesse, o dono
+    // escolhe. Carrega os candidatos de cada vaga ainda disponivel pra exibir
+    // a lista "Freelancers candidatos para vaga de cadeira".
+    const carregarCandidatosVaga = useCallback(async (vagaId) => {
+        if (!token || !vagaId) return;
+        try {
+            const res = await fetch(`${API_URL}/api/v1/on-demand/cadeiras-acionadas/${vagaId}/candidatos`, {
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            if (!res.ok) return;
+            const data = await res.json();
+            setCandidatosPorVaga((prev) => ({ ...prev, [vagaId]: Array.isArray(data) ? data : [] }));
+        } catch (_err) {
+            // mantem a ultima lista carregada
+        }
+    }, [API_URL, token]);
+
+    const escolherFreelancerVaga = async (vagaId, freelancerId) => {
+        if (!vagaId || !freelancerId) return;
+        try {
+            setEscolhendoCandidatoId(freelancerId);
+            const res = await fetch(`${API_URL}/api/v1/on-demand/cadeiras-acionadas/${vagaId}/escolher-freelancer`, {
+                method: 'POST',
+                headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+                body: JSON.stringify({ barbeiro_id: freelancerId })
+            });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) {
+                throw new Error(data?.detail || 'Não foi possível escolher este freelancer');
+            }
+            notify('Freelancer escolhido! A cadeira foi vinculada a ele.', 'success');
+            setCandidatosPorVaga((prev) => {
+                const proximo = { ...prev };
+                delete proximo[vagaId];
+                return proximo;
+            });
+            carregarVagasRelampago();
+            carregarCadeirasBarbearia();
+            carregarFreelancersPresentes();
+        } catch (err) {
+            notify(err?.message || 'Erro ao escolher freelancer', 'error');
+        } finally {
+            setEscolhendoCandidatoId(null);
+        }
+    };
+
     const acionarCadeira = async (cadeiraId) => {
         if (!barbeariaId || !cadeiraId) {
             notify('Barbearia não identificada', 'error');
@@ -768,6 +817,13 @@ export default function ShopDashboard({ token, logout, notify, API_URL }) {
         return () => clearInterval(interval);
     }, [barbeariaId, tab, wsConectado, carregarFreelancersDisponiveis, carregarFreelancersPresentes, carregarCadeirasBarbearia, carregarVagasRelampago]);
 
+    // Mantem a lista de candidatos de cada vaga ainda disponivel em dia (novo
+    // freelancer se candidatando, etc.) sem exigir que o dono reabra a tela.
+    useEffect(() => {
+        const vagasAbertas = vagasRelampago.filter((vaga) => String(vaga?.status || '').toLowerCase() === 'disponivel');
+        vagasAbertas.forEach((vaga) => carregarCandidatosVaga(vaga.id));
+    }, [vagasRelampago, carregarCandidatosVaga]);
+
     useEffect(() => {
         // Home também mostra "Freelancers BarberMove perto de você" (mesmos dados
         // e mesma consulta de proximidade da aba "Freelancers", sem duplicar lógica).
@@ -810,7 +866,7 @@ export default function ShopDashboard({ token, logout, notify, API_URL }) {
                     return;
                 }
 
-                if (['freelancer_status_changed', 'cadeira_status_changed', 'cadeira_acionada', 'cadeira_liberada', 'cadeira_acionada_aberta', 'cadeira_acionada_fechada'].includes(data?.type)) {
+                if (['freelancer_status_changed', 'cadeira_status_changed', 'cadeira_acionada', 'cadeira_liberada', 'cadeira_acionada_aberta', 'cadeira_acionada_fechada', 'cadeira_acionada_candidatura'].includes(data?.type)) {
                     carregarFreelancersPresentes();
                     carregarFreelancersDisponiveis();
                     carregarCadeirasBarbearia();
@@ -1159,10 +1215,12 @@ export default function ShopDashboard({ token, logout, notify, API_URL }) {
                                                             {cadeirasBarbearia.map((cadeira, index) => {
                                                                 const status = String(cadeira.status || cadeira.status_atendimento || '').trim().toLowerCase();
                                                                 const disponivel = isCadeiraDisponivel(cadeira);
-                                                                const cadeiraComVagaAberta = vagasRelampago.some((vaga) => (
+                                                                const vagaAbertaDaCadeira = vagasRelampago.find((vaga) => (
                                                                     Number(vaga?.cadeira_id) === Number(cadeira.id) &&
                                                                     String(vaga?.status || '').toLowerCase() === 'disponivel'
                                                                 ));
+                                                                const cadeiraComVagaAberta = Boolean(vagaAbertaDaCadeira);
+                                                                const candidatosDaVaga = vagaAbertaDaCadeira ? (candidatosPorVaga[vagaAbertaDaCadeira.id] || []) : [];
                                 const statusConfig = {
                                   disponivel: { bg: 'bg-black/40', border: 'border-green-600/30', label: '🟢 Disponível', labelColor: 'text-green-400', labelBg: 'bg-green-600/20' },
                                   ocupada: { bg: 'bg-black/40', border: 'border-orange-600/30', label: '🔴 Ocupada', labelColor: 'text-orange-300', labelBg: 'bg-orange-600/20' },
@@ -1239,6 +1297,39 @@ export default function ShopDashboard({ token, logout, notify, API_URL }) {
                                                 agoraMs={agoraMsCronometro}
                                                 compacto
                                             />
+                                        </div>
+                                    )}
+                                    {cadeiraComVagaAberta && (
+                                        <div className="mt-3 rounded-lg border border-emerald-700/40 bg-black/30 p-3 space-y-2">
+                                            <p className="text-[11px] font-black uppercase tracking-wide text-emerald-300">
+                                                Freelancers candidatos para vaga de cadeira {candidatosDaVaga.length > 0 ? `(${candidatosDaVaga.length})` : ''}
+                                            </p>
+                                            {candidatosDaVaga.length === 0 ? (
+                                                <p className="text-xs text-zinc-500">Nenhum freelancer se candidatou ainda.</p>
+                                            ) : (
+                                                <div className="space-y-2">
+                                                    {candidatosDaVaga.map((candidato) => (
+                                                        <div key={candidato.id} className="flex items-center justify-between gap-2 rounded-md border border-zinc-800 bg-zinc-950/60 p-2">
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => abrirPerfilFreelancer(candidato.freelancer_id, candidato.nome)}
+                                                                className="min-w-0 flex-1 text-left"
+                                                                title="Ver perfil do candidato"
+                                                            >
+                                                                <p className="text-xs font-bold text-white truncate underline decoration-dotted underline-offset-2">{candidato.nome}</p>
+                                                            </button>
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => escolherFreelancerVaga(vagaAbertaDaCadeira.id, candidato.freelancer_id)}
+                                                                disabled={escolhendoCandidatoId === candidato.freelancer_id}
+                                                                className="shrink-0 rounded-md bg-emerald-600 hover:bg-emerald-500 disabled:bg-emerald-800/50 text-white px-2.5 py-1.5 text-[11px] font-bold"
+                                                            >
+                                                                {escolhendoCandidatoId === candidato.freelancer_id ? 'Escolhendo...' : 'Escolher freelancer'}
+                                                            </button>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            )}
                                         </div>
                                     )}
                                   </div>

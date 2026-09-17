@@ -89,6 +89,7 @@ export default function PainelBarberMovePremium({ token: tokenProp, logout: logo
   const [perfil, setPerfil] = useState(user || null);
   const [vagasRelampago, setVagasRelampago] = useState([]);
   const [aceitandoVagaId, setAceitandoVagaId] = useState(null);
+  const [vagasCandidatadas, setVagasCandidatadas] = useState(() => new Set()); // ids de vaga que este freelancer ja se candidatou
   const [agoraMs, setAgoraMs] = useState(Date.now());
   const [isPaused, setIsPaused] = useState(false);
   const [pausadoEmMs, setPausadoEmMs] = useState(null);
@@ -524,24 +525,26 @@ export default function PainelBarberMovePremium({ token: tokenProp, logout: logo
     }
   }, [token, API_URL]);
 
-  const aceitarVagaRelampago = async (vagaId) => {
+  // Candidatar-se a uma vaga de cadeira: so registra o interesse do freelancer.
+  // Nao assume a cadeira nem muda o status pra PRESENTE - isso so acontece
+  // quando o proprietario escolhe o freelancer entre os candidatos.
+  const candidatarSeVagaRelampago = async (vagaId) => {
     if (!vagaId || bloqueadoFinanceiro) return;
     try {
       setAceitandoVagaId(vagaId);
-      const res = await fetch(`${API_URL}/api/v1/on-demand/cadeiras-acionadas/${vagaId}/aceitar-barbeiro`, {
+      const res = await fetch(`${API_URL}/api/v1/on-demand/cadeiras-acionadas/${vagaId}/candidatar-se`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}` },
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        throw new Error(data?.detail || 'Não foi possível aceitar a vaga relâmpago');
+        throw new Error(data?.detail || 'Não foi possível se candidatar a vaga');
       }
 
-      notify('Vaga relâmpago assumida! Você tem 10 minutos para chegar.', 'success');
-      setVagasRelampago((prev) => prev.filter((vaga) => Number(vaga.id) !== Number(vagaId)));
-      carregarPerfil();
+      notify('Candidatura registrada! Aguarde o proprietário escolher.', 'success');
+      setVagasCandidatadas((prev) => new Set(prev).add(Number(vagaId)));
     } catch (err) {
-      notify(err?.message || 'Erro ao assumir vaga relâmpago', 'error');
+      notify(err?.message || 'Erro ao se candidatar a vaga', 'error');
     } finally {
       setAceitandoVagaId(null);
     }
@@ -946,7 +949,8 @@ export default function PainelBarberMovePremium({ token: tokenProp, logout: logo
                   <div className="space-y-2">
                     {vagasRelampago.slice(0, 3).map((vaga) => {
                       const status = String(vaga.status || '').toLowerCase();
-                      const podeAssumir = status === 'disponivel' && !bloqueadoFinanceiro;
+                      const jaCandidatado = vagasCandidatadas.has(Number(vaga.id));
+                      const podeCandidatar = status === 'disponivel' && !bloqueadoFinanceiro && !jaCandidatado;
                       return (
                         <div key={vaga.id} className="rounded-xl border border-zinc-800 bg-zinc-950/70 p-3">
                           <div className="flex items-start justify-between gap-3">
@@ -960,11 +964,11 @@ export default function PainelBarberMovePremium({ token: tokenProp, logout: logo
                               </span>
                               <button
                                 type="button"
-                                onClick={() => aceitarVagaRelampago(vaga.id)}
-                                disabled={!podeAssumir || aceitandoVagaId === vaga.id}
+                                onClick={() => candidatarSeVagaRelampago(vaga.id)}
+                                disabled={!podeCandidatar || aceitandoVagaId === vaga.id}
                                 className="rounded-md bg-orange-600 hover:bg-orange-500 disabled:bg-zinc-700 disabled:text-zinc-400 text-white px-2.5 py-1.5 text-[11px] font-bold"
                               >
-                                {bloqueadoFinanceiro ? 'Bloqueado' : (aceitandoVagaId === vaga.id ? 'Assumindo...' : 'Assumir')}
+                                {bloqueadoFinanceiro ? 'Bloqueado' : jaCandidatado ? 'Candidatura enviada' : (aceitandoVagaId === vaga.id ? 'Candidatando...' : 'Candidatar-se')}
                               </button>
                             </div>
                           </div>
@@ -1069,7 +1073,9 @@ export default function PainelBarberMovePremium({ token: tokenProp, logout: logo
                 <div className="rounded-2xl border border-red-500/30 bg-red-500/10 p-4 space-y-3">
                   <p className="text-xs font-bold text-red-300 uppercase tracking-wide">⚡ Vagas relâmpago próximas</p>
                   <div className="space-y-2">
-                    {vagasRelampago.slice(0, 5).map((vaga) => (
+                    {vagasRelampago.slice(0, 5).map((vaga) => {
+                      const jaCandidatado = vagasCandidatadas.has(Number(vaga.id));
+                      return (
                       <div key={vaga.id} className="rounded-xl border border-zinc-700 bg-zinc-900/80 p-3">
                         <div className="flex items-center justify-between gap-3">
                           <div>
@@ -1078,15 +1084,16 @@ export default function PainelBarberMovePremium({ token: tokenProp, logout: logo
                           </div>
                           <button
                             type="button"
-                            onClick={() => !bloqueadoFinanceiro && aceitarVagaRelampago(vaga.id)}
-                            disabled={aceitandoVagaId === vaga.id || bloqueadoFinanceiro}
+                            onClick={() => !bloqueadoFinanceiro && candidatarSeVagaRelampago(vaga.id)}
+                            disabled={aceitandoVagaId === vaga.id || bloqueadoFinanceiro || jaCandidatado}
                             className="rounded-lg bg-red-600 hover:bg-red-500 disabled:bg-red-800/50 disabled:text-red-200/80 text-white px-3 py-2 text-xs font-bold"
                           >
-                            {bloqueadoFinanceiro ? '⛔ Bloqueado' : (aceitandoVagaId === vaga.id ? 'Assumindo...' : 'Assumir')}
+                            {bloqueadoFinanceiro ? '⛔ Bloqueado' : jaCandidatado ? 'Candidatura enviada' : (aceitandoVagaId === vaga.id ? 'Candidatando...' : 'Candidatar-se')}
                           </button>
                         </div>
                       </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </div>
               )}

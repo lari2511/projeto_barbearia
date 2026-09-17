@@ -1066,8 +1066,10 @@ class CadeiraAcionada(Base):
     Evento de vaga relampago acionada pela barbearia para aceite em tempo real.
 
     Fluxo principal:
-    - status='disponivel': vaga aberta para barbeiros/clientes elegiveis.
-    - status='ocupada_por_barbeiro': barbeiro assumiu a cadeira.
+    - status='disponivel': vaga aberta para barbeiros/clientes elegiveis. Barbeiros
+      podem se candidatar (CadeiraAcionadaCandidatura) sem mudar este status.
+    - status='ocupada_por_barbeiro': a barbearia escolheu um candidato, que assumiu
+      a cadeira.
     - status='reservada_por_cliente': cliente reservou atendimento imediato.
     - status='expirada': tempo limite encerrado sem aceite valido.
     """
@@ -1096,6 +1098,25 @@ class CadeiraAcionada(Base):
     cadeira = relationship("Cadeira", foreign_keys=[cadeira_id])
     barbeiro = relationship("Usuario", foreign_keys=[barbeiro_id])
     cliente = relationship("Usuario", foreign_keys=[cliente_id])
+
+
+class CadeiraAcionadaCandidatura(Base):
+    """
+    Candidatura de um freelancer a uma vaga relampago (CadeiraAcionada) ainda
+    disponivel. Registra apenas o interesse - nao muda o status da vaga nem
+    coloca o freelancer na cadeira. Somente a barbearia dona da vaga escolhe,
+    entre os candidatos, quem assume (ver escolher_freelancer_cadeira_acionada).
+    """
+
+    __tablename__ = "cadeiras_acionadas_candidaturas"
+
+    id = Column(Integer, primary_key=True, index=True)
+    vaga_id = Column(Integer, ForeignKey("cadeiras_acionadas.id"), nullable=False, index=True)
+    barbeiro_id = Column(Integer, ForeignKey("usuarios.id"), nullable=False, index=True)
+    criado_em = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+
+    vaga = relationship("CadeiraAcionada")
+    barbeiro = relationship("Usuario", foreign_keys=[barbeiro_id])
 
 
 class NotificacaoBarbeiro(Base):
