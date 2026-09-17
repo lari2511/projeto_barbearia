@@ -43,12 +43,14 @@ export default function CronometroAtendimento({
   if (status !== 'em_atendimento') return null;
 
   // Quando o cliente seleciona varios servicos juntos (grupo_id compartilhado),
-  // o cronometro precisa contar ate o fim do ULTIMO servico do grupo, nao so do
-  // que esta em_atendimento agora -- senao mostraria "livre" 10min antes do fim
-  // do primeiro servico mesmo com outro ja esperando na fila.
-  const statusAtivoNaFila = ['pendente', 'confirmado', 'em_atendimento'];
+  // o cronometro precisa contar a duracao TOTAL do grupo (soma de todos os
+  // servicos), nao so a do que esta em_atendimento agora. Usa exatamente a
+  // mesma lista (so por grupo_id, sem filtro de status) que ja agrega nome e
+  // duracao total pro card do chamado -- um filtro de status a mais aqui fazia
+  // o cronometro cair pra duracao de um unico servico sempre que outro membro
+  // do grupo estivesse num status fora da lista permitida.
   const membrosGrupo = chamado.grupo_id
-    ? chamadosGrupo.filter((c) => c.grupo_id === chamado.grupo_id && statusAtivoNaFila.includes(String(c.status || '').toLowerCase()))
+    ? chamadosGrupo.filter((c) => c.grupo_id === chamado.grupo_id)
     : [chamado];
 
   const fim = membrosGrupo.reduce((maior, membro) => {
