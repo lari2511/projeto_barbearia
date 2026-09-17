@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { Home, ClipboardList, Star, User, CreditCard, LogOut, CheckCircle, XCircle, DollarSign, Copy, Phone, Scissors, MapPin, RefreshCw } from 'lucide-react';
+import { Home, ClipboardList, Star, User, CreditCard, LogOut, CheckCircle, XCircle, DollarSign, Copy, Phone, Scissors, MapPin, RefreshCw, Bell } from 'lucide-react';
 import { useApp } from '../contexts/AppContext';
 import { getApiBaseUrl, getWsBaseUrl, resolveMediaUrl } from '../utils/api';
 import { obterLocalizacaoAtual } from '../utils/location';
@@ -10,6 +10,7 @@ import TrackingPanel from './TrackingPanel';
 import ChatRoom from './ChatRoom';
 import ProfileCard from './ProfileCard';
 import CronometroAtendimento, { parseDataServidorUTC } from './CronometroAtendimento';
+import BotaoVoltar from './BotaoVoltar';
 import { useBackHandler } from '../utils/useBackHandler';
 
 function Avatar({ nome, foto, API_URL, size = 44 }) {
@@ -90,6 +91,11 @@ export default function PainelBarberMovePremium({ token: tokenProp, logout: logo
   const [vagasRelampago, setVagasRelampago] = useState([]);
   const [aceitandoVagaId, setAceitandoVagaId] = useState(null);
   const [vagasCandidatadas, setVagasCandidatadas] = useState(() => new Set()); // ids de vaga que este freelancer ja se candidatou
+  // Sino de notificações (fonte única: Notificacao) — mesmo sistema já usado
+  // no painel da barbearia (novo chamado, agendamento, vaga de cadeira, etc).
+  const [notificacoes, setNotificacoes] = useState([]);
+  const [notificacoesAbertas, setNotificacoesAbertas] = useState(false);
+  const naoLidasCount = notificacoes.filter((n) => !n.lido).length;
   const [agoraMs, setAgoraMs] = useState(Date.now());
   const [isPaused, setIsPaused] = useState(false);
   const [pausadoEmMs, setPausadoEmMs] = useState(null);
@@ -268,6 +274,10 @@ export default function PainelBarberMovePremium({ token: tokenProp, logout: logo
   }, [carregarPerfil]);
 
   useBackHandler(() => {
+    if (notificacoesAbertas) {
+      setNotificacoesAbertas(false);
+      return true;
+    }
     if (barbeariaPerfilModal) {
       setBarbeariaPerfilModal(null);
       return true;
@@ -281,7 +291,7 @@ export default function PainelBarberMovePremium({ token: tokenProp, logout: logo
       return true;
     }
     return false;
-  }, [tab, perfilSection, barbeariaPerfilModal]);
+  }, [tab, perfilSection, barbeariaPerfilModal, notificacoesAbertas]);
 
   const carregarGanhos = useCallback(async () => {
     if (!token) return;
@@ -525,6 +535,47 @@ export default function PainelBarberMovePremium({ token: tokenProp, logout: logo
     }
   }, [token, API_URL]);
 
+  // Sino de notificações — fonte única (Notificacao), mesmo endpoint já usado
+  // no painel da barbearia. GET com token so retorna notificacoes do proprio
+  // freelancer autenticado.
+  const carregarNotificacoes = useCallback(async () => {
+    if (!token) return;
+    try {
+      const res = await fetch(`${API_URL}/api/v1/notificacoes/?limite=20`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+      setNotificacoes(Array.isArray(data) ? data : []);
+    } catch (_err) {
+      // Notificações são um extra; falha silenciosa não deve travar o painel.
+    }
+  }, [token, API_URL]);
+
+  const marcarNotificacaoLida = async (id) => {
+    setNotificacoes((prev) => prev.map((n) => (n.id === id ? { ...n, lido: true } : n)));
+    try {
+      await fetch(`${API_URL}/api/v1/notificacoes/${id}/marcar-lida`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+    } catch (_err) {
+      // UI já foi atualizada; próxima sincronização corrige se falhar.
+    }
+  };
+
+  const marcarTodasNotificacoesLidas = async () => {
+    setNotificacoes((prev) => prev.map((n) => ({ ...n, lido: true })));
+    try {
+      await fetch(`${API_URL}/api/v1/notificacoes/marcar-todas-lidas`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+    } catch (_err) {
+      // idem
+    }
+  };
+
   // Candidatar-se a uma vaga de cadeira: so registra o interesse do freelancer.
   // Nao assume a cadeira nem muda o status pra PRESENTE - isso so acontece
   // quando o proprietario escolhe o freelancer entre os candidatos.
@@ -647,6 +698,13 @@ export default function PainelBarberMovePremium({ token: tokenProp, logout: logo
     const t = setInterval(carregarVagasRelampago, 8000);
     return () => clearInterval(t);
   }, [carregarVagasRelampago]);
+
+  useEffect(() => {
+    if (!token) return;
+    carregarNotificacoes();
+    const t = setInterval(carregarNotificacoes, 20000);
+    return () => clearInterval(t);
+  }, [token, carregarNotificacoes]);
 
   useEffect(() => {
     if (!token) return;
@@ -863,13 +921,30 @@ export default function PainelBarberMovePremium({ token: tokenProp, logout: logo
         {/* HEADER */}
         <div className="sticky top-0 z-20 px-3 pt-3 pb-2 bg-[#050505]/95 backdrop-blur-xl">
           <div className="flex justify-between items-center rounded-2xl border border-zinc-800/80 bg-zinc-950/90 px-4 py-3">
-            <div>
-              <p className="text-[10px] uppercase tracking-widest text-zinc-500">Freelancer</p>
-              <h1 className="text-base font-black text-white">✂️ {perfil?.nome || 'Barbeiro'}</h1>
+            <div className="flex items-center gap-2 min-w-0">
+              {tab !== 'inicio' && <BotaoVoltar />}
+              <div className="min-w-0">
+                <p className="text-[10px] uppercase tracking-widest text-zinc-500">Freelancer</p>
+                <h1 className="text-base font-black text-white truncate">✂️ {perfil?.nome || 'Barbeiro'}</h1>
+              </div>
             </div>
-            <button onClick={handleLogout} className="h-10 w-10 rounded-full bg-zinc-900 border border-zinc-800 flex items-center justify-center text-zinc-400 hover:text-white transition-colors">
-              <LogOut size={16} />
-            </button>
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                onClick={() => setNotificacoesAbertas((v) => !v)}
+                className="relative h-10 w-10 rounded-full bg-zinc-900 border border-zinc-800 flex items-center justify-center text-zinc-400 hover:text-white hover:bg-zinc-800 transition-colors"
+                aria-label="Notificações"
+              >
+                <Bell size={18} />
+                {naoLidasCount > 0 && (
+                  <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full bg-orange-500 text-white text-[10px] font-bold flex items-center justify-center leading-none">
+                    {naoLidasCount > 9 ? '9+' : naoLidasCount}
+                  </span>
+                )}
+              </button>
+              <button onClick={handleLogout} className="h-10 w-10 rounded-full bg-zinc-900 border border-zinc-800 flex items-center justify-center text-zinc-400 hover:text-white transition-colors">
+                <LogOut size={16} />
+              </button>
+            </div>
           </div>
         </div>
 
@@ -1538,6 +1613,46 @@ export default function PainelBarberMovePremium({ token: tokenProp, logout: logo
                 token={token}
                 onNotify={notify}
               />
+            </div>
+          </div>
+        )}
+
+        {notificacoesAbertas && (
+          <div className="fixed inset-0 z-[2300]" onClick={() => setNotificacoesAbertas(false)}>
+            <div
+              onClick={(e) => e.stopPropagation()}
+              className="absolute top-16 right-3 left-3 sm:left-auto sm:w-[380px] max-h-[70vh] overflow-y-auto bg-zinc-950 border border-zinc-800 rounded-2xl shadow-2xl p-3 space-y-2"
+            >
+              <div className="flex items-center justify-between mb-1">
+                <h3 className="text-sm font-bold text-white">Notificações</h3>
+                {naoLidasCount > 0 && (
+                  <button
+                    type="button"
+                    onClick={marcarTodasNotificacoesLidas}
+                    className="text-[11px] text-orange-400 hover:text-orange-300 font-bold"
+                  >
+                    Marcar todas como lidas
+                  </button>
+                )}
+              </div>
+              {notificacoes.length === 0 ? (
+                <p className="text-xs text-zinc-500 py-4 text-center">Nenhuma notificação por aqui.</p>
+              ) : (
+                notificacoes.map((n) => (
+                  <button
+                    key={n.id}
+                    type="button"
+                    onClick={() => !n.lido && marcarNotificacaoLida(n.id)}
+                    className={`w-full text-left rounded-xl border p-3 space-y-0.5 ${n.lido ? 'bg-black/20 border-zinc-800/60' : 'bg-orange-500/10 border-orange-500/30'}`}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-xs font-bold text-white truncate">{n.titulo}</p>
+                      {!n.lido && <span className="shrink-0 h-2 w-2 rounded-full bg-orange-400" />}
+                    </div>
+                    <p className="text-[11px] text-zinc-400">{n.mensagem}</p>
+                  </button>
+                ))
+              )}
             </div>
           </div>
         )}

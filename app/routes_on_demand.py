@@ -913,13 +913,29 @@ async def acionar_cadeira_relampago(
             continue
 
         barbeiro = db.query(Usuario).filter(Usuario.id == radar.freelancer_id).first()
-        if barbeiro and barbeiro.device_token:
+        if not barbeiro:
+            continue
+
+        # Fica registrada no sino de notificacoes do freelancer, alem do push
+        # (push exige device_token e pode nao chegar; a notificacao no sino
+        # fica disponivel de qualquer forma).
+        db.add(Notificacao(
+            usuario_id=barbeiro.id,
+            titulo="Nova vaga de cadeira disponível 💈",
+            mensagem=f"{barbearia.nome} anunciou uma vaga de cadeira perto de você.",
+            tipo="vaga_disponivel",
+            referencia_id=vaga.id,
+        ))
+
+        if barbeiro.device_token:
             enviar_notificacao_novo_chamado(
                 token_dispositivo=barbeiro.device_token,
                 nome_cliente="BarberMove",
                 nome_servico=request.tipo_servico or "Vaga relampago",
                 nome_barbearia=barbearia.nome,
             )
+
+    db.commit()
 
     await broadcast_event(
         "cadeira_acionada_aberta",

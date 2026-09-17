@@ -1389,7 +1389,14 @@ export function TelaPerfilUsuario({
   return (
     <ScreenWrapper>
       {mostrarCabecalho && (
-        <Header title={meta.titulo} actionButton={{ icon: <LogOut size={14} />, label: 'Sair', onClick: onLogout }} />
+        // Freelancer ja tem sino de notificacoes funcional e botao Sair no
+        // cabecalho principal do painel (PainelBarberMovePremium) - aqui so
+        // duplicaria os dois, um deles nem funcional.
+        <Header
+          title={meta.titulo}
+          mostrarSino={perfilTipo !== 'barbeiro'}
+          actionButton={perfilTipo === 'barbeiro' ? undefined : { icon: <LogOut size={14} />, label: 'Sair', onClick: onLogout }}
+        />
       )}
 
       {perfilTipo === 'barbearia' && (
