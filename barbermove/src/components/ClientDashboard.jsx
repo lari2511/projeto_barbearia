@@ -664,8 +664,21 @@ export default function ClientDashboard({ token, logout, API_URL: apiUrlProp, no
         const prev = prevChamadoRef.current;
 
         if (prev && !activeChamado) {
-            // Chamado desapareceu da lista (pode ter sido cancelado ou concluído)
-            notifySafe('Seu chamado foi cancelado ou finalizado por outra parte.', 'info');
+            // Chamado desapareceu da lista ativa (cancelado ou concluído). Busca o
+            // registro atualizado em myOrders pra saber exatamente o que houve e,
+            // se foi o freelancer quem recusou/cancelou, avisar com essa causa.
+            const chamadoFinal = (myOrders || []).find((pedido) => pedido.id === prev.id);
+            const statusFinal = (chamadoFinal?.status || '').toLowerCase();
+            const motivo = String(chamadoFinal?.motivo_cancelamento || '').toLowerCase();
+            if (statusFinal === 'cancelado' && motivo.includes('freelancer')) {
+                notifySafe('Chamado cancelado pelo freelancer.', 'warning');
+            } else if (statusFinal === 'cancelado') {
+                notifySafe('Seu chamado foi cancelado.', 'warning');
+            } else if (statusFinal === 'concluido' || statusFinal === 'concluído') {
+                notifySafe('Seu chamado foi concluído.', 'success');
+            } else {
+                notifySafe('Seu chamado foi cancelado ou finalizado por outra parte.', 'info');
+            }
         } else if (prev && activeChamado && prev.status !== (activeChamado.status || '')) {
             const novoStatus = (activeChamado.status || '').toLowerCase();
             if (novoStatus === 'cancelado') {
@@ -676,7 +689,7 @@ export default function ClientDashboard({ token, logout, API_URL: apiUrlProp, no
         }
 
         prevChamadoRef.current = activeChamado;
-    }, [activeChamado, notifySafe]);
+    }, [activeChamado, myOrders, notifySafe]);
 
     // Fluxo automatico: apos pagamento confirmado, abrir a avaliacao (freelancer + barbearia)
     useEffect(() => {
@@ -904,6 +917,13 @@ export default function ClientDashboard({ token, logout, API_URL: apiUrlProp, no
                         const vaga = payload?.vaga;
                         if (!vaga?.id) return;
                         setVagasRelampago((prev) => prev.filter((item) => Number(item.id) !== Number(vaga.id)));
+                        return;
+                    }
+
+                    // Freelancer recusou/cancelou um chamado: sincroniza na hora, mesmo
+                    // com a tela do cliente ja aberta, sem esperar o proximo polling.
+                    if (payload?.type === 'chamado_cancelado') {
+                        carregarMeusPedidos();
                     }
                 } catch (_err) {
                     // noop
@@ -918,7 +938,7 @@ export default function ClientDashboard({ token, logout, API_URL: apiUrlProp, no
                 try { ws.close(); } catch (_err) { /* noop */ }
             }
         };
-    }, [token]);
+    }, [token, carregarMeusPedidos]);
 
     useEffect(() => {
         if (isPerfilTab) return;

@@ -2308,8 +2308,12 @@ def aceitar_chamado(id: int, token: str = Depends(oauth2_scheme), db: Session = 
 
 
 @router.put("/chamados/{id}/recusar")
-def recusar_chamado(id: int, token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
-    # Barbeiro recusa um chamado pendente, liberando para outros barbeiros da região.
+async def recusar_chamado(id: int, token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
+    # Barbeiro recusa um chamado pendente direcionado a ele. O cliente chama um
+    # freelancer especifico (nao existe fila compartilhada nessa tela), entao
+    # recusar cancela o chamado de fato e avisa o cliente na hora - antes so
+    # limpava barbeiro_id e deixava o chamado "pendente" pra sempre, e o
+    # cliente nunca ficava sabendo que tinha sido recusado.
     user = get_current_user(token=token, db=db)
     if user.tipo != "barbeiro":
         raise HTTPException(status_code=403, detail="Apenas barbeiros podem recusar chamados")
@@ -2324,18 +2328,39 @@ def recusar_chamado(id: int, token: str = Depends(oauth2_scheme), db: Session = 
     if chamado.barbeiro_id not in (None, user.id):
         raise HTTPException(status_code=403, detail="Você não faz parte deste chamado")
 
+    status_anterior = chamado.status
+    chamado.status = models.StatusAgendamento.CANCELADO.value
     chamado.barbeiro_id = None
+    chamado.cancelado_em = datetime.utcnow()
+    chamado.motivo_cancelamento = f"Recusado pelo freelancer {user.nome}"
     db.commit()
+    db.refresh(chamado)
 
-    historico = models.ChamadoHistorico(
+    db.add(models.ChamadoHistorico(
         chamado_id=chamado.id,
-        status_anterior=chamado.status,
+        status_anterior=status_anterior,
         status_novo=chamado.status,
         usuario_id=user.id,
         observacao=f"Recusado por {user.nome}"
-    )
-    db.add(historico)
+    ))
+    db.add(models.Notificacao(
+        usuario_id=chamado.cliente_id,
+        titulo="Chamado cancelado pelo freelancer",
+        mensagem=f"{user.nome} cancelou seu chamado. Você pode fazer um novo chamado.",
+        tipo="chamado_cancelado_freelancer",
+        referencia_id=chamado.id,
+    ))
     db.commit()
+
+    try:
+        await broadcast_event(
+            "chamado_cancelado",
+            chamado_id=chamado.id,
+            cliente_id=chamado.cliente_id,
+            motivo="freelancer",
+        )
+    except Exception:
+        pass
 
     return {"id": chamado.id, "status": chamado.status}
 
@@ -3445,6 +3470,7 @@ def listar_meus_pedidos_cliente(token: str = Depends(oauth2_scheme), db: Session
             "descricao": servico.nome if servico else None,
             "valor": servico.valor if servico else 0,
             "status": chamado.status,
+            "motivo_cancelamento": chamado.motivo_cancelamento,
             "cadeira_id": chamado.cadeira_id,
             "cadeira_numero": cadeira.numero if cadeira else None,
             "data_hora_inicio": chamado.data_hora_inicio.isoformat() if chamado.data_hora_inicio else None,
