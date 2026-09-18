@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { LogOut, Search, MapPin, Star, Calendar, ArrowRight, CheckCircle, User, CreditCard, MessageSquare, DollarSign, QrCode } from 'lucide-react';
-import TelaPagamento from './TelaPagamento';
+import { LogOut, Search, MapPin, Star, Calendar, ArrowRight, CheckCircle, User, MessageSquare, QrCode } from 'lucide-react';
 import TelaPerfilUsuario from './TelaPerfilUsuario';
 import MapEmbed from './MapEmbed';
 import AbaPadronizadaAvaliacoes from './AbaPadronizadaAvaliacoes';
@@ -233,19 +232,18 @@ export default function ClientDashboard({ token, logout, API_URL: apiUrlProp, no
 
     const NGROK_TEST_OVERRIDE = typeof window !== 'undefined' && String(window.location.hostname || '').includes('ngrok-free.dev');
     const TEST_GPS_OVERRIDE_ATIVO = DEV_GPS_OVERRIDE || NGROK_TEST_OVERRIDE;
-    const TABS_VALIDAS = ['inicio', 'buscar', 'agenda', 'avaliar', 'perfil', 'pagamento'];
+    const TABS_VALIDAS = ['inicio', 'buscar', 'agenda', 'avaliar', 'perfil'];
     const [shops, setShops] = useState([]); // Agora são BARBEIROS
     const [tab, setTab] = useState(() => {
         const tabSalva = lerTabSalva();
         return TABS_VALIDAS.includes(tabSalva) ? tabSalva : 'inicio';
-    }); // 'buscar' | 'agenda' | 'avaliar' | 'perfil' | 'pagamento' 
+    }); // 'buscar' | 'agenda' | 'avaliar' | 'perfil'
     const [selectedBarber, setSelectedBarber] = useState(null); // Barbeiro selecionado
     const [barbearias, setBarbearias] = useState([]); // Barbearias disponíveis
     const [selectedBarbearia, setSelectedBarbearia] = useState(null); // Barbearia escolhida
     const [services, setServices] = useState([]);
     const [selectedServices, setSelectedServices] = useState([]);
     const [myOrders, setMyOrders] = useState([]);
-        const [chamadoParaPagar, setChamadoParaPagar] = useState(null); // { id, valor, descricao }
     const [barbeiroInfo, setBarbeiroInfo] = useState(null);
     const [userLocation, setUserLocation] = useState(null);
     const [loadingLocation, setLoadingLocation] = useState(false);
@@ -265,7 +263,7 @@ export default function ClientDashboard({ token, logout, API_URL: apiUrlProp, no
     const [vagasRelampago, setVagasRelampago] = useState([]);
     const [barbeariasProximasHome, setBarbeariasProximasHome] = useState([]); // "Barbearias BarberMove perto de você" (Home)
     const [loadingBarbeariasProximasHome, setLoadingBarbeariasProximasHome] = useState(false);
-    const [avaliacaoPendente, setAvaliacaoPendente] = useState(null); // pendencia do fluxo automatico pos-pagamento
+    const [avaliacaoPendente, setAvaliacaoPendente] = useState(null); // pendencia do fluxo automatico pos-conclusao do servico
     const [passoAvaliacaoForcado, setPassoAvaliacaoForcado] = useState(null); // 'freelancer' | 'barbearia' quando o cliente escolhe direto na Home
     const [pendenciasClienteLista, setPendenciasClienteLista] = useState([]); // todas as pendencias (independente de "ja visto"), usada na Home
     const fluxoAvaliacaoVistoRef = useRef(null);
@@ -316,12 +314,6 @@ export default function ClientDashboard({ token, logout, API_URL: apiUrlProp, no
     }, [API_URL, token, fluxoAvaliacaoJaVisto, marcarFluxoAvaliacaoVisto]);
 
     const isConcluido = (status = '') => (status || '').toString().toLowerCase().includes('conclu');
-    const isPagamentoConcluido = (order = {}) => {
-        if (!order || typeof order !== 'object') return false;
-        if (order.pagamento_concluido === true) return true;
-        if (order.pagamento_pago_em) return true;
-        return false;
-    };
 
     const getCancelamentoInfo = (chamado) => {
         if (!chamado) return { taxa: 0, motivo: '', minutos: 0, segundos: 0, tempoRestante: '5:00', texto: '' };
@@ -691,12 +683,12 @@ export default function ClientDashboard({ token, logout, API_URL: apiUrlProp, no
         prevChamadoRef.current = activeChamado;
     }, [activeChamado, myOrders, notifySafe]);
 
-    // Fluxo automatico: apos pagamento confirmado, abrir a avaliacao (freelancer + barbearia)
+    // Fluxo automatico: apos o servico ser concluido, abrir a avaliacao (freelancer + barbearia).
+    // Fase 1 do BarberMove nao cobra o cliente - nao depende mais de pagamento.
     useEffect(() => {
         if (avaliacaoPendente) return;
         const candidato = (myOrders || []).find((o) => (
             isConcluido(o.status)
-            && isPagamentoConcluido(o)
             && !(o.avaliacao_freelancer_enviada && o.avaliacao_barbearia_enviada)
             && !fluxoAvaliacaoJaVisto(o.id)
         ));
@@ -1169,13 +1161,12 @@ export default function ClientDashboard({ token, logout, API_URL: apiUrlProp, no
         if (cancelModalOpen) { setCancelModalOpen(false); return true; }
         if (barbeariaEscolhaPreview) { setBarbeariaEscolhaPreview(null); return true; }
         if (perfilModal) { setPerfilModal(null); return true; }
-        if (chamadoParaPagar) { setChamadoParaPagar(null); return true; }
         if (tab === 'buscar' && step === 'servicos') { voltarParaBarbearias(); return true; }
         if (tab === 'buscar' && step === 'barbearias') { voltarParaBarbeiros(); return true; }
         if (tab === 'buscar' && step === 'barbeiros') { setStep('inicio'); return true; }
         if (tab !== 'inicio') { setTab('inicio'); return true; }
         return false;
-    }, [tab, step, cancelModalOpen, perfilModal, chamadoParaPagar, barbeariaEscolhaPreview]);
+    }, [tab, step, cancelModalOpen, perfilModal, barbeariaEscolhaPreview]);
 
     const toggleServiceSelection = (service) => {
         setSelectedServices((prev) => {
@@ -1206,27 +1197,21 @@ export default function ClientDashboard({ token, logout, API_URL: apiUrlProp, no
     }, [activeChamado, myOrders]);
 
     // Atendimento concluido mais recente que ainda tem alguma acao pendente
-    // (pagamento e/ou avaliacao do freelancer/barbearia) -> card de destaque
-    // na Home. Cada atendimento tem seu proprio pagamento (Pagamento.chamado_id
-    // e unico no banco), entao um pagamento antigo pendente nunca substitui o
-    // do atendimento mais recente: a lista ja vem ordenada do mais recente
-    // para o mais antigo, e o primeiro concluido com pendencia e o escolhido.
+    // (avaliacao do freelancer/barbearia pendente) -> card de destaque na Home.
+    // Fase 1 do BarberMove nao cobra o cliente, entao so avaliacao pendente
+    // importa aqui - a lista ja vem ordenada do mais recente para o mais
+    // antigo, e o primeiro concluido com avaliacao pendente e o escolhido.
     const pagamentoPendenteHome = useMemo(() => {
         const base = Array.isArray(myOrders) ? myOrders : [];
         return base.find((o) => {
             const concluido = (o.status || '').toString().toLowerCase().includes('conclu');
             if (!concluido) return false;
-            const pago = o.pagamento_concluido === true || Boolean(o.pagamento_pago_em);
             const pendencia = pendenciasClienteLista.find((p) => p.chamado_id === o.id);
             const faltaAvaliarFreelancer = pendencia ? !pendencia.avaliacao_freelancer_enviada : false;
             const faltaAvaliarBarbearia = pendencia ? !pendencia.avaliacao_barbearia_enviada : false;
-            return !pago || faltaAvaliarFreelancer || faltaAvaliarBarbearia;
+            return faltaAvaliarFreelancer || faltaAvaliarBarbearia;
         }) || null;
     }, [myOrders, pendenciasClienteLista]);
-
-    const pagamentoAindaPendenteHome = pagamentoPendenteHome
-        ? !(pagamentoPendenteHome.pagamento_concluido === true || Boolean(pagamentoPendenteHome.pagamento_pago_em))
-        : false;
 
     // Pendencia de avaliacao (freelancer/barbearia) do MESMO atendimento
     // exibido na Home — sempre casada pelo chamado_id real, nunca pelo
@@ -1752,7 +1737,7 @@ export default function ClientDashboard({ token, logout, API_URL: apiUrlProp, no
                                 <h2 className="text-lg font-black text-white">BarberMove</h2>
                             </div>
                         </div>
-                        <p className="text-sm text-zinc-400">Encontre barbeiros próximos, acompanhe seus chamados e gerencie seus pagamentos.</p>
+                        <p className="text-sm text-zinc-400">Encontre barbeiros próximos e acompanhe seus chamados.</p>
                     </div>
 
                     {pagamentoPendenteHome && (
@@ -1764,21 +1749,6 @@ export default function ClientDashboard({ token, logout, API_URL: apiUrlProp, no
                                 </p>
                             </div>
                             <div className="flex flex-col gap-2">
-                                {pagamentoAindaPendenteHome && (
-                                    <button
-                                        onClick={() => {
-                                            setChamadoParaPagar({
-                                                id: pagamentoPendenteHome.id,
-                                                valor: Number(pagamentoPendenteHome.valor || 0),
-                                                descricao: pagamentoPendenteHome.servico_nome || pagamentoPendenteHome.descricao || 'Serviço',
-                                            });
-                                            setTab('pagamento');
-                                        }}
-                                        className="w-full flex items-center justify-center gap-1.5 rounded-lg bg-emerald-500 px-3 py-2 text-sm font-bold text-black"
-                                    >
-                                        Fazer pagamento — {pagamentoPendenteHome.barbearia_nome || 'Barbearia'} <ArrowRight size={14} />
-                                    </button>
-                                )}
                                 {pendenciaAvaliacaoHome && !pendenciaAvaliacaoHome.avaliacao_freelancer_enviada && (
                                     <button
                                         onClick={() => {
@@ -1820,11 +1790,6 @@ export default function ClientDashboard({ token, logout, API_URL: apiUrlProp, no
                             <Star size={22} className="text-yellow-400" />
                             <span className="text-sm font-bold">Avaliar</span>
                             <span className="text-xs text-zinc-500">Avalie o serviço</span>
-                        </button>
-                        <button onClick={() => setTab('pagamento')} className="dashboard-card bg-zinc-900 rounded-2xl p-4 border border-zinc-800/60 flex flex-col items-center gap-2 hover:border-orange-500 transition-colors">
-                            <CreditCard size={22} className="text-green-400" />
-                            <span className="text-sm font-bold">Carteira</span>
-                            <span className="text-xs text-zinc-500">Pagamentos</span>
                         </button>
                     </div>
 
@@ -1907,7 +1872,7 @@ export default function ClientDashboard({ token, logout, API_URL: apiUrlProp, no
                                 </div>
                                 <h2 className="text-lg font-black tracking-tight text-white">Buscar barbeiros</h2>
                                 <p className="text-sm leading-relaxed text-zinc-300">
-                                    Aqui você encontra profissionais próximos, acompanha chamados e acessa pagamentos e avaliações sem tela de barbearia.
+                                    Aqui você encontra profissionais próximos, acompanha chamados e acessa avaliações sem tela de barbearia.
                                 </p>
                             </div>
 
@@ -2341,16 +2306,6 @@ export default function ClientDashboard({ token, logout, API_URL: apiUrlProp, no
                                         </div>
                                     )}
 
-                                    {isConcluido(order.status) ? (
-                                        <div className="mt-2 rounded-lg border border-green-500/30 bg-green-500/10 p-2.5">
-                                            <p className="text-[11px] font-bold text-green-300">Pagamento liberado</p>
-                                            <p className="text-[11px] text-zinc-300">O serviço já foi concluído. A cobrança aparece na aba Pagamentos.</p>
-                                        </div>
-                                    ) : (
-                                        <div className="mt-2 rounded-lg border border-zinc-700 bg-zinc-950/60 p-2.5">
-                                            <p className="text-[11px] text-zinc-400">O pagamento só fica disponível depois da conclusão do serviço.</p>
-                                        </div>
-                                    )}
                                 </div>
                             ))}
                         </div>
@@ -2394,79 +2349,6 @@ export default function ClientDashboard({ token, logout, API_URL: apiUrlProp, no
                 </div>
             )}
 
-            {/* ABA: PAGAMENTO */}
-            {/* ABA: PAGAMENTO */}
-            {tab === 'pagamento' && !chamadoParaPagar && (
-                <div className="p-2 sm:p-4 pb-20 max-w-3xl mx-auto w-full">
-                    <h2 className="text-sm font-bold text-zinc-300 uppercase tracking-wide mb-4">Pagamentos do serviço concluído</h2>
-                    {(() => {
-                        const pendentes = (myOrders || []).filter(o =>
-                            isConcluido(o.status)
-                        );
-                        if (pendentes.length === 0) {
-                            return (
-                                <div className="text-center py-14 space-y-2">
-                                    <CheckCircle size={40} className="mx-auto text-zinc-700" />
-                                    <p className="text-zinc-500 text-sm">Sem pagamentos liberados</p>
-                                    <p className="text-zinc-600 text-xs">O pagamento aparece quando o serviço é concluído</p>
-                                </div>
-                            );
-                        }
-                        return (
-                            <div className="space-y-3 max-w-2xl mx-auto w-full">
-                                {pendentes.map(order => (
-                                    <div key={order.id} className="bm-card p-3.5 rounded-xl border border-zinc-800/80 space-y-2.5 overflow-hidden">
-                                        <div className="flex justify-between items-start">
-                                            <div className="min-w-0 pr-2">
-                                                <p className="font-bold text-white text-sm truncate">{order.servico_nome || order.descricao || 'Serviço'}</p>
-                                                <p className="text-zinc-400 text-xs truncate">{order.barbeiro_nome || 'Barbeiro'} · {order.nome_barbearia || 'Barbearia'}</p>
-                                            </div>
-                                            <span className="text-green-400 font-bold text-sm">R$ {Number(order.valor || 0).toFixed(2)}</span>
-                                        </div>
-                                        <div className="flex gap-2 pt-1">
-                                            {isPagamentoConcluido(order) ? (
-                                                <div className="flex-1 bg-emerald-600/20 border border-emerald-500/40 text-emerald-300 py-2 rounded-lg text-xs font-bold flex items-center justify-center gap-1">
-                                                    <CheckCircle size={13} /> Concluído
-                                                </div>
-                                            ) : (
-                                                <button
-                                                    onClick={() => setChamadoParaPagar({ id: order.id, valor: Number(order.valor || 0), descricao: order.servico_nome || order.descricao || 'Serviço' })}
-                                                    className="flex-1 bg-gradient-to-r from-orange-600 to-orange-500 hover:from-orange-700 hover:to-orange-600 text-white py-2 rounded-lg text-xs font-bold flex items-center justify-center gap-1 active:scale-95 transition-all"
-                                                >
-                                                    <DollarSign size={13} /> Pagar agora
-                                                </button>
-                                            )}
-                                        </div>
-                                    </div>
-                                ))}
-                            </div>
-                        );
-                    })()}
-                </div>
-            )}
-
-            {/* TELA DE PAGAMENTO (modal overlay) */}
-            {tab === 'pagamento' && chamadoParaPagar && (
-                <div className="p-2 sm:p-4 pb-20 max-w-3xl mx-auto w-full">
-                    <TelaPagamento
-                        chamadoId={chamadoParaPagar.id}
-                        valor={chamadoParaPagar.valor}
-                        onPago={(resultadoPagamento) => {
-                            if (resultadoPagamento?.aguarda_confirmacao_barbeiro) {
-                                notifySafe('Dinheiro registrado. Aguarde o barbeiro confirmar o recebimento.', 'warning');
-                            } else {
-                                notifySafe('Pagamento confirmado!', 'success');
-                            }
-                            setChamadoParaPagar(null);
-                            carregarMeusPedidos();
-                            if (!resultadoPagamento?.aguarda_confirmacao_barbeiro) {
-                                // Pagamento ja confirmado -> abre a avaliacao do cliente
-                                setTimeout(() => { verificarAvaliacoesPendentes(); }, 400);
-                            }
-                        }}
-                    />
-                </div>
-            )}
         </div>
 
         {/* NAVBAR */}
@@ -2476,7 +2358,6 @@ export default function ClientDashboard({ token, logout, API_URL: apiUrlProp, no
             <button data-active={tab === 'agenda'} onClick={() => setTab('agenda')} className={`bm-bottom-nav-btn dashboard-nav-btn flex flex-col items-center justify-center gap-1 h-[3.35rem] flex-1 text-center ${tab === 'agenda' ? 'text-orange-500 bg-orange-500/5' : 'text-zinc-400 hover:text-zinc-200'}`}><Calendar size={14} /><span>Chamadas</span></button>
             <button data-active={tab === 'avaliar'} onClick={() => setTab('avaliar')} className={`bm-bottom-nav-btn dashboard-nav-btn flex flex-col items-center justify-center gap-1 h-[3.35rem] flex-1 text-center ${tab === 'avaliar' ? 'text-orange-500 bg-orange-500/5' : 'text-zinc-400 hover:text-zinc-200'}`}><Star size={14} /><span>Avaliar</span></button>
             <button data-active={tab === 'perfil'} onClick={() => setTab('perfil')} className={`bm-bottom-nav-btn dashboard-nav-btn flex flex-col items-center justify-center gap-1 h-[3.35rem] flex-1 text-center ${tab === 'perfil' ? 'text-orange-500 bg-orange-500/5' : 'text-zinc-400 hover:text-zinc-200'}`}><User size={14} /><span>Perfil</span></button>
-            <button data-active={tab === 'pagamento'} onClick={() => setTab('pagamento')} className={`bm-bottom-nav-btn dashboard-nav-btn flex flex-col items-center justify-center gap-1 h-[3.35rem] flex-1 text-center ${tab === 'pagamento' ? 'text-orange-500 bg-orange-500/5' : 'text-zinc-400 hover:text-zinc-200'}`}><CreditCard size={14} /><span>Carteira</span></button>
         </div>
 
         {avaliacaoPendente && (
