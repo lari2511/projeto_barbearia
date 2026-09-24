@@ -10,6 +10,15 @@ load_dotenv()
 # DATABASE_URL pode ser PostgreSQL ou SQLite; default para SQLite local
 SQLALCHEMY_DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./barbearia.db")
 
+# Sem driver explícito, versões recentes do SQLAlchemy tentam importar o
+# psycopg (v3) para "postgresql://", que não está instalado (só temos
+# psycopg2-binary no requirements.txt) e derruba o app no boot. Fixa o
+# driver pra não depender da resolução automática do SQLAlchemy.
+if SQLALCHEMY_DATABASE_URL.startswith("postgresql://"):
+    SQLALCHEMY_DATABASE_URL = SQLALCHEMY_DATABASE_URL.replace(
+        "postgresql://", "postgresql+psycopg2://", 1
+    )
+
 # Se usar SQLite, habilitar check_same_thread
 engine_kwargs = {"connect_args": {"check_same_thread": False}} if SQLALCHEMY_DATABASE_URL.startswith("sqlite") else {}
 engine = create_engine(SQLALCHEMY_DATABASE_URL, **engine_kwargs)
