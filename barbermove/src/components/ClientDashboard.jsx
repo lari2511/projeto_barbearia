@@ -713,13 +713,17 @@ export default function ClientDashboard({ token, logout, API_URL: apiUrlProp, no
         return () => clearInterval(intervalo);
     }, [activeChamado?.id, activeChamado?.horario_match, isChamadoVisivel(activeChamado), isPerfilTab]);
 
-    // Tick do cronômetro do atendimento em andamento (mesmo padrão do painel do freelancer)
+    // Tick do cronômetro do atendimento em andamento (mesmo padrão do painel do freelancer).
+    // Também roda na fila de espera (chamado confirmado, freelancer em_atendimento com outro
+    // cliente) pra manter o cronômetro sincronizado enquanto o cliente aguarda a vez dele.
     const [agoraMsCronometro, setAgoraMsCronometro] = useState(Date.now());
     useEffect(() => {
-        if (String(activeChamado?.status || '').toLowerCase() !== 'em_atendimento') return;
+        const status = String(activeChamado?.status || '').toLowerCase();
+        const naFilaDeEspera = status === 'confirmado' && activeChamado?.barbeiro_em_atendimento && activeChamado?.barbeiro_ocupado_ate;
+        if (status !== 'em_atendimento' && !naFilaDeEspera) return;
         const t = setInterval(() => setAgoraMsCronometro(Date.now()), 1000);
         return () => clearInterval(t);
-    }, [activeChamado?.status]);
+    }, [activeChamado?.status, activeChamado?.barbeiro_em_atendimento, activeChamado?.barbeiro_ocupado_ate]);
 
     const requestUserLocation = () => {
         if (isFetchingLocationRef.current) return;
@@ -1684,6 +1688,22 @@ export default function ClientDashboard({ token, logout, API_URL: apiUrlProp, no
                             </div>
                         )}
                     </div>
+                    {/* Fila de espera: freelancer já está atendendo outro cliente agora -
+                        mostra o mesmo cronômetro que ele/o cliente atual/o dono já veem,
+                        pra este cliente acompanhar quanto falta pro atendimento atual acabar. */}
+                    {String(activeChamado.status || '').toLowerCase() === 'confirmado' && activeChamado.barbeiro_em_atendimento && activeChamado.barbeiro_ocupado_ate && (
+                        <div className="rounded-2xl border border-orange-500/30 bg-orange-500/10 p-3.5 space-y-2">
+                            <p className="text-xs font-bold text-orange-200">
+                                Você está na fila. {activeChamado.barbeiro_nome || 'O freelancer'} está terminando o atendimento atual.
+                            </p>
+                            <CronometroAtendimento
+                                chamado={{ id: `fila-${activeChamado.id}`, status: 'em_atendimento', data_hora_fim: activeChamado.barbeiro_ocupado_ate }}
+                                agoraMs={agoraMsCronometro}
+                                compacto
+                            />
+                        </div>
+                    )}
+
                     <div className="grid grid-cols-1 gap-3 items-start">
                         <TrackingPanel chamado={activeChamado} token={token} API_URL={API_URL} notify={notify} />
                         <div className="min-h-0">

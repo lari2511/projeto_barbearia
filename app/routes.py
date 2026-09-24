@@ -1454,7 +1454,15 @@ def criar_chamado(chamado: schemas.ChamadoCreate, token: str = Depends(oauth2_sc
             hora_fim
         )
 
-        if not disponivel:
+        # Fila de espera: se o barbeiro já está EM_ATENDIMENTO com outro
+        # cliente agora, a sobreposição de horário com esse atendimento atual
+        # é esperada - o chamado deve entrar na fila (PENDENTE, aguardando o
+        # barbeiro aceitar) e só começar quando o atendimento atual acabar.
+        # O limite de 1 cliente por fila já foi garantido pela checagem de
+        # ativos_fila acima.
+        barbeiro_em_atendimento_agora = bool(barbeiro_check and barbeiro_check.em_atendimento)
+
+        if not disponivel and not barbeiro_em_atendimento_agora:
             raise HTTPException(
                 status_code=400,
                 detail="Barbeiro ja tem um corte aceito nesse horario. Tente outro horario."
@@ -2158,12 +2166,16 @@ def aceitar_chamado(id: int, token: str = Depends(oauth2_scheme), db: Session = 
     # ✅ GUARDIÃO: Se tem cadeira associada, verificar se está DISPONÍVEL
     if chamado.cadeira_id:
         cadeira = db.query(models.Cadeira).filter(models.Cadeira.id == chamado.cadeira_id).first()
-        if cadeira and cadeira.status != models.StatusCadeira.DISPONIVEL:
+        # Fila de espera: se a cadeira está ocupada pelo PRÓPRIO barbeiro que
+        # está aceitando (ele está atendendo outro cliente nela agora), não é
+        # conflito - é a fila dele. Só bloqueia se for outro freelancer.
+        cadeira_e_do_proprio_barbeiro_na_fila = bool(cadeira and cadeira.freelancer_id == user.id)
+        if cadeira and cadeira.status != models.StatusCadeira.DISPONIVEL and not cadeira_e_do_proprio_barbeiro_na_fila:
             raise HTTPException(
                 status_code=400,
                 detail=f"Cadeira {cadeira.numero} não está mais disponível (Status: {cadeira.status}). Solicite ao dono liberar novamente."
             )
-        
+
         # ✅ Verificar conflitos de horário na cadeira
         if chamado.data_hora_inicio and chamado.data_hora_fim:
             conflito = db.query(models.Chamado).filter(
@@ -2173,10 +2185,11 @@ def aceitar_chamado(id: int, token: str = Depends(oauth2_scheme), db: Session = 
                     models.StatusAgendamento.EM_ATENDIMENTO.value,
                 ]),
                 models.Chamado.id != id,  # Não contar o próprio agendamento
+                models.Chamado.barbeiro_id != user.id,  # Fila do próprio barbeiro não é conflito
                 models.Chamado.data_hora_inicio < chamado.data_hora_fim,
                 models.Chamado.data_hora_fim > chamado.data_hora_inicio
             ).first()
-            
+
             if conflito:
                 horario_conflito = f"{conflito.data_hora_inicio.strftime('%H:%M')} às {conflito.data_hora_fim.strftime('%H:%M')}"
                 raise HTTPException(
@@ -2228,22 +2241,30 @@ def aceitar_chamado(id: int, token: str = Depends(oauth2_scheme), db: Session = 
     chamado.aprovado_barbeiro_em = datetime.utcnow()
     chamado.horario_match = datetime.utcnow()  # ✅ Iniciar contagem de 5 minutos para cancelamento
 
+    # Fila de espera: se o barbeiro já está EM_ATENDIMENTO agora (com outro
+    # chamado), este aceite é apenas a confirmação da fila - não deve mexer
+    # na referência/estado do atendimento em andamento (senão o cronômetro e
+    # a tela do dono passariam a apontar pro chamado que ainda nem começou).
+    barbeiro_ja_em_atendimento_agora = bool(barbeiro and barbeiro.em_atendimento)
+
     # ✅ BLOQUEAR CADEIRA ASSOCIADA AO CHAMADO AO ACEITAR
     if chamado.cadeira_id:
         cadeira_aceita = db.query(models.Cadeira).filter(models.Cadeira.id == chamado.cadeira_id).first()
         if cadeira_aceita:
             cadeira_aceita.status = models.StatusCadeira.OCUPADA
             cadeira_aceita.freelancer_id = user.id
-            cadeira_aceita.chamado_id = chamado.id
-            cadeira_aceita.ocupada_em = datetime.now()
-    
+            if not barbeiro_ja_em_atendimento_agora:
+                cadeira_aceita.chamado_id = chamado.id
+                cadeira_aceita.ocupada_em = datetime.now()
+
     # ✅ MARCAR BARBEIRO COMO RESERVADO PARA ESTA FILA
     if not barbeiro:
         raise HTTPException(status_code=500, detail="Erro ao recuperar dados do barbeiro")
-    
+
     barbeiro.disponivel = False
-    barbeiro.em_atendimento = False
-    barbeiro.ocupado_ate = _calcular_fim_grupo(db, chamado)
+    if not barbeiro_ja_em_atendimento_agora:
+        barbeiro.em_atendimento = False
+        barbeiro.ocupado_ate = _calcular_fim_grupo(db, chamado)
     
     db.commit()
     db.refresh(chamado)
@@ -3504,6 +3525,12 @@ def listar_meus_pedidos_cliente(token: str = Depends(oauth2_scheme), db: Session
             "aprovado_barbeiro_em": chamado.aprovado_barbeiro_em.isoformat() if chamado.aprovado_barbeiro_em else None,
             "barbeiro_presente_em_local": bool(barbeiro.presente_em_local) if barbeiro else False,
             "barbeiro_barbearia_atual_id": barbeiro.barbearia_atual_id if barbeiro else None,
+            # Fila de espera: cliente CONFIRMADO aguardando um freelancer que já
+            # está EM_ATENDIMENTO com outro cliente precisa saber quando esse
+            # atendimento atual termina, pra sincronizar o mesmo cronômetro que
+            # o freelancer/dono/cliente atual já veem (sem expor dados do outro chamado).
+            "barbeiro_em_atendimento": bool(barbeiro.em_atendimento) if barbeiro else False,
+            "barbeiro_ocupado_ate": barbeiro.ocupado_ate.isoformat() if barbeiro and barbeiro.ocupado_ate else None,
             "criado_em": chamado.criado_em.isoformat() if chamado.criado_em else None,
             "barbearia_nome": barbearia.nome if barbearia else "Barbearia",
             "barbearia_endereco": barbearia.endereco if barbearia else None,

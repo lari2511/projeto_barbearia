@@ -1288,10 +1288,29 @@ export default function PainelBarberMovePremium({ token: tokenProp, logout: logo
                         <Avatar nome={proximoNaFila.cliente_nome || proximoNaFila.nome_cliente} foto={proximoNaFila.cliente_foto} API_URL={API_URL} size={36} />
                         <div className="min-w-0 flex-1">
                           <p className="text-sm font-bold text-white truncate">{proximoNaFila.cliente_nome || proximoNaFila.nome_cliente}</p>
-                          <p className="text-xs text-amber-300">Aguardando</p>
+                          <p className="text-xs text-amber-300">
+                            {String(proximoNaFila.status || '').toLowerCase() === 'pendente' ? 'Aguardando sua resposta' : 'Aguardando'}
+                          </p>
                         </div>
                         <span className="text-[10px] font-bold px-2 py-1 rounded-full border border-zinc-700 text-zinc-300 shrink-0">Posição 2º</span>
                       </div>
+                      {String(proximoNaFila.status || '').toLowerCase() === 'pendente' && (
+                        <div className="flex gap-2 mt-2">
+                          <button
+                            onClick={() => !bloqueadoFinanceiro && aceitarChamado(proximoNaFila.id)}
+                            disabled={bloqueadoFinanceiro}
+                            className="flex-1 bg-green-600 hover:bg-green-700 disabled:bg-zinc-700 disabled:text-zinc-400 text-white font-black rounded-xl py-2.5 text-xs"
+                          >
+                            {bloqueadoFinanceiro ? '⛔ Bloqueado por saldo devedor' : '✅ Aceitar'}
+                          </button>
+                          <button
+                            onClick={() => recusarChamado(proximoNaFila.id)}
+                            className="rounded-xl border border-red-500/60 text-red-400 hover:bg-red-500/10 font-black px-4 py-2.5 text-xs"
+                          >
+                            ❌ Recusar
+                          </button>
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
