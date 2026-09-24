@@ -781,6 +781,25 @@ export default function PainelBarberMovePremium({ token: tokenProp, logout: logo
     } catch (_) { notify('Erro de conexão', 'error'); }
   };
 
+  // Cancela um chamado ja aceito, disponivel so antes do atendimento comecar.
+  const cancelarChamadoBarbeiro = async (id) => {
+    if (!window.confirm('Cancelar este chamado? O cliente será avisado imediatamente.')) return;
+    try {
+      const res = await fetch(`${API_URL}/api/v1/chamados/${id}/cancelar-barbeiro`, {
+        method: 'PUT', headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) {
+        notify('Chamado cancelado', 'info');
+        setChamados((prev) => prev.filter((c) => c.id !== id));
+        setChamadoAtivo((prev) => (prev?.id === id ? null : prev));
+        carregarChamados();
+      } else {
+        const data = await res.json().catch(() => ({}));
+        notify(data?.detail || 'Erro ao cancelar', 'error');
+      }
+    } catch (_) { notify('Erro de conexão', 'error'); }
+  };
+
   useEffect(() => {
     if (!chamadoAtivo?.id) {
       setIsPaused(false);
@@ -1279,6 +1298,16 @@ export default function PainelBarberMovePremium({ token: tokenProp, logout: logo
                         ❌ Recusar
                       </button>
                     </div>
+                  )}
+
+                  {/* So depois de aceito (confirmado) e antes do atendimento comecar. */}
+                  {!chamadoAtivoEmAtendimento && ['confirmado', 'aceito'].includes((chamadoAtivo.status || '').toLowerCase()) && (
+                    <button
+                      onClick={() => cancelarChamadoBarbeiro(chamadoAtivo.id)}
+                      className="w-full rounded-xl border border-red-500/60 text-red-400 hover:bg-red-500/10 font-black py-3 text-sm"
+                    >
+                      ❌ Cancelar Chamado
+                    </button>
                   )}
 
                   {proximoNaFila && (

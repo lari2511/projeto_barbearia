@@ -2690,6 +2690,98 @@ def cancelar_chamado_cliente(id: int, token: str = Depends(oauth2_scheme), db: S
     }
 
 
+@router.put("/chamados/{id}/cancelar-barbeiro")
+async def cancelar_chamado_barbeiro(id: int, token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
+    # Freelancer cancela um chamado que ele mesmo ja aceitou, antes do
+    # atendimento comecar (so faz sentido em "aceito"/"confirmado" - antes
+    # disso e recusar_chamado, depois de em_atendimento nao cancela mais por aqui).
+    user = get_current_user(token=token, db=db)
+    if user.tipo != "barbeiro":
+        raise HTTPException(status_code=403, detail="Apenas barbeiros podem cancelar este chamado")
+
+    chamado = db.query(models.Chamado).filter(models.Chamado.id == id).first()
+    if not chamado:
+        raise HTTPException(status_code=404, detail="Chamado não encontrado")
+
+    if chamado.barbeiro_id != user.id:
+        raise HTTPException(status_code=403, detail="Você não faz parte deste chamado")
+
+    status_normalizado = _normalizar_status_chamado(chamado.status)
+    if status_normalizado not in {"aceito", models.StatusAgendamento.CONFIRMADO.value}:
+        raise HTTPException(status_code=400, detail="Só é possível cancelar antes do início do atendimento")
+
+    barbeiro = db.query(models.Usuario).filter(models.Usuario.id == user.id).first()
+
+    # Fila de espera: se o barbeiro esta EM_ATENDIMENTO com OUTRO chamado agora
+    # (este sendo cancelado e o da fila), nao mexer no estado do atendimento em
+    # andamento - mesma guarda usada em aceitar_chamado.
+    barbeiro_ocupado_com_outro_atendimento = bool(
+        barbeiro and db.query(models.Chamado).filter(
+            models.Chamado.barbeiro_id == barbeiro.id,
+            models.Chamado.barbearia_id == chamado.barbearia_id,
+            models.Chamado.status == models.StatusAgendamento.EM_ATENDIMENTO.value,
+            models.Chamado.id != chamado.id,
+        ).first()
+    )
+
+    status_anterior = chamado.status
+    chamado.status = models.StatusAgendamento.CANCELADO.value
+    chamado.cancelado_em = datetime.utcnow()
+    chamado.motivo_cancelamento = f"Cancelado pelo freelancer {user.nome}"
+    chamado.observacao = chamado.motivo_cancelamento
+
+    if chamado.cadeira_id:
+        cadeira = db.query(models.Cadeira).filter(models.Cadeira.id == chamado.cadeira_id).first()
+        if cadeira and cadeira.chamado_id == chamado.id:
+            cadeira.status = models.StatusCadeira.DISPONIVEL
+            cadeira.freelancer_id = None
+            cadeira.chamado_id = None
+            cadeira.liberada_em = datetime.utcnow()
+
+    if barbeiro and not barbeiro_ocupado_com_outro_atendimento:
+        barbeiro.disponivel = True
+        barbeiro.em_atendimento = False
+        barbeiro.ocupado_ate = None
+
+    db.add(models.ChamadoHistorico(
+        chamado_id=chamado.id,
+        status_anterior=status_anterior,
+        status_novo=chamado.status,
+        usuario_id=user.id,
+        observacao=f"Cancelado pelo freelancer {user.nome}"
+    ))
+    db.add(models.Notificacao(
+        usuario_id=chamado.cliente_id,
+        titulo="Chamado cancelado pelo freelancer",
+        mensagem=f"{user.nome} cancelou seu chamado. Você pode fazer um novo chamado.",
+        tipo="chamado_cancelado_freelancer",
+        referencia_id=chamado.id,
+    ))
+
+    # Etapa 7: cancelamento pode ter esvaziado a fila do freelancer com saída pendente.
+    if barbeiro and not barbeiro_ocupado_com_outro_atendimento:
+        try:
+            from app.routes_freelancer_status import liberar_presenca_se_sem_pendencias
+            liberar_presenca_se_sem_pendencias(db, barbeiro.id)
+        except Exception:
+            pass
+
+    db.commit()
+    db.refresh(chamado)
+
+    try:
+        await broadcast_event(
+            "chamado_cancelado",
+            chamado_id=chamado.id,
+            cliente_id=chamado.cliente_id,
+            motivo="freelancer",
+        )
+    except Exception:
+        pass
+
+    return {"id": chamado.id, "status": chamado.status}
+
+
 @router.put("/chamados/{id}/iniciar-corte")
 def iniciar_corte(id: int, token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
     # Inicia o corte quando o cliente senta na cadeira.
