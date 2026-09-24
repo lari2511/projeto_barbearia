@@ -779,6 +779,82 @@ def deletar_portfolio_barbearia(foto_id: int, db: Session = Depends(get_db), usu
     return {"message": "Foto removida do portfólio"}
 
 
+# ==================== CONDIÇÕES E ESTRUTURA PARA FREELANCER ====================
+# Checklist fixo SIM/NÃO, editado pelo dono e visível só para freelancers
+# olhando o perfil da barbearia.
+
+_ITENS_CONDICOES_ESTRUTURA = [
+    "tomadas_equipamentos",
+    "local_carregar_celular",
+    "banheiro",
+    "bebedouro_agua",
+    "microondas",
+    "local_esquentar_marmita",
+    "capa_fornecida",
+    "espaco_adequado_trabalho",
+    "local_guardar_materiais",
+    "ar_condicionado",
+    "ventilador",
+    "wifi_freelancers",
+]
+
+
+def _serializar_condicoes_estrutura(registro):
+    return {item: (getattr(registro, item) if registro else None) for item in _ITENS_CONDICOES_ESTRUTURA}
+
+
+@router.get("/barbearia/{barbearia_id}/condicoes-estrutura")
+def obter_condicoes_estrutura_barbearia(
+    barbearia_id: int,
+    db: Session = Depends(get_db),
+    usuario = Depends(get_current_user),
+):
+    """Consulta o checklist de estrutura da barbearia. Só freelancers (ou a
+    própria barbearia dona) podem ver - clientes não têm acesso a essa seção."""
+    barbearia = db.query(models.Barbearia).filter(models.Barbearia.id == barbearia_id).first()
+    if not barbearia:
+        raise HTTPException(status_code=404, detail="Barbearia não encontrada")
+
+    e_dono = usuario.tipo == "barbearia" and barbearia.usuario_id == usuario.id
+    if usuario.tipo != "barbeiro" and not e_dono:
+        raise HTTPException(status_code=403, detail="Apenas freelancers podem ver essas informações")
+
+    registro = db.query(models.CondicoesEstruturaBarbearia).filter(
+        models.CondicoesEstruturaBarbearia.barbearia_id == barbearia_id
+    ).first()
+    return _serializar_condicoes_estrutura(registro)
+
+
+@router.put("/barbearia/condicoes-estrutura")
+def atualizar_condicoes_estrutura_barbearia(
+    payload: dict,
+    db: Session = Depends(get_db),
+    usuario = Depends(get_current_user),
+):
+    """A barbearia logada marca SIM/NÃO em cada item da estrutura oferecida."""
+    _dono_barbearia_ou_403(usuario)
+
+    barbearia = db.query(models.Barbearia).filter(models.Barbearia.usuario_id == usuario.id).first()
+    if not barbearia:
+        raise HTTPException(status_code=404, detail="Barbearia não encontrada para este usuário")
+
+    registro = db.query(models.CondicoesEstruturaBarbearia).filter(
+        models.CondicoesEstruturaBarbearia.barbearia_id == barbearia.id
+    ).first()
+    if not registro:
+        registro = models.CondicoesEstruturaBarbearia(barbearia_id=barbearia.id)
+        db.add(registro)
+
+    for item in _ITENS_CONDICOES_ESTRUTURA:
+        if item in payload:
+            valor = payload.get(item)
+            setattr(registro, item, bool(valor) if valor is not None else None)
+
+    db.commit()
+    db.refresh(registro)
+    return _serializar_condicoes_estrutura(registro)
+
+
 @router.patch("/barbearias/me/presenca")
 def marcar_presenca_barbearia(
     payload: dict,

@@ -156,6 +156,32 @@ class Barbearia(Base):
     cadeiras = relationship("Cadeira", back_populates="barbearia")
     avaliacoes_recebidas = relationship("AvaliacaoBarbearia", back_populates="barbearia")
 
+
+class CondicoesEstruturaBarbearia(Base):
+    """Checklist fixo (SIM/NAO) de estrutura oferecida ao freelancer, por barbearia."""
+    __tablename__ = "condicoes_estrutura_barbearia"
+
+    id = Column(Integer, primary_key=True, index=True)
+    barbearia_id = Column(Integer, ForeignKey("barbearias.id"), unique=True, nullable=False, index=True)
+
+    tomadas_equipamentos = Column(Boolean, nullable=True)
+    local_carregar_celular = Column(Boolean, nullable=True)
+    banheiro = Column(Boolean, nullable=True)
+    bebedouro_agua = Column(Boolean, nullable=True)
+    microondas = Column(Boolean, nullable=True)
+    local_esquentar_marmita = Column(Boolean, nullable=True)
+    capa_fornecida = Column(Boolean, nullable=True)
+    espaco_adequado_trabalho = Column(Boolean, nullable=True)
+    local_guardar_materiais = Column(Boolean, nullable=True)
+    ar_condicionado = Column(Boolean, nullable=True)
+    ventilador = Column(Boolean, nullable=True)
+    wifi_freelancers = Column(Boolean, nullable=True)
+
+    atualizado_em = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    barbearia = relationship("Barbearia")
+
+
 class Servico(Base):
     __tablename__ = "servicos"
     

@@ -45,6 +45,21 @@ const normalizePortfolioFotos = (value) => {
     .filter(Boolean);
 };
 
+const ITENS_CONDICOES_ESTRUTURA = [
+  { chave: 'tomadas_equipamentos', label: 'Tomadas para equipamentos' },
+  { chave: 'local_carregar_celular', label: 'Local para carregar celular' },
+  { chave: 'banheiro', label: 'Banheiro' },
+  { chave: 'bebedouro_agua', label: 'Bebedouro/água' },
+  { chave: 'microondas', label: 'Micro-ondas' },
+  { chave: 'local_esquentar_marmita', label: 'Local para esquentar marmita' },
+  { chave: 'capa_fornecida', label: 'Capa fornecida pela barbearia' },
+  { chave: 'espaco_adequado_trabalho', label: 'Espaço adequado para trabalhar' },
+  { chave: 'local_guardar_materiais', label: 'Local para guardar materiais' },
+  { chave: 'ar_condicionado', label: 'Ar-condicionado' },
+  { chave: 'ventilador', label: 'Ventilador' },
+  { chave: 'wifi_freelancers', label: 'Wi-Fi para freelancers' },
+];
+
 const normalizeAvaliacoes = (value) => {
   if (!value || typeof value !== 'object') {
     return { media: 0, total: 0, ultimas: [] };
@@ -84,6 +99,7 @@ export default function ProfileCard({ usuarioId, userType, token, isOwnProfile: 
   const [chatLoading, setChatLoading] = useState(false);
   const [fotoPerfilFalhou, setFotoPerfilFalhou] = useState(false);
   const [fotosQueFalharam, setFotosQueFalharam] = useState({});
+  const [condicoesEstrutura, setCondicoesEstrutura] = useState(null);
 
   const appContext = useContext(AppContext);
   const { notify } = appContext || {};
@@ -127,6 +143,9 @@ export default function ProfileCard({ usuarioId, userType, token, isOwnProfile: 
   const podeVerAvaliacoesDeProprietarios = ['barbearia', 'admin'].includes(
     String(readStorageValue('userType') || '').toLowerCase()
   );
+  // Condições e estrutura para freelancer: só quem está vendo é freelancer
+  // (o backend também bloqueia cliente, isso só evita a chamada à toa).
+  const visitanteEhFreelancer = String(readStorageValue('userType') || '').toLowerCase() === 'barbeiro';
 
   const carregarPerfil = useCallback(async () => {
     try {
@@ -232,6 +251,19 @@ export default function ProfileCard({ usuarioId, userType, token, isOwnProfile: 
             });
             setCadeirasBarbearia(cadeiras);
 
+            if (visitanteEhFreelancer && token) {
+              try {
+                const condicoesRes = await fetch(`${API_URL}/api/v1/barbearia/${barbeariaDoPerfil.id}/condicoes-estrutura`, {
+                  headers: { 'Authorization': `Bearer ${token}` }
+                });
+                if (condicoesRes.ok) {
+                  setCondicoesEstrutura(await condicoesRes.json());
+                }
+              } catch (_err) {
+                setCondicoesEstrutura(null);
+              }
+            }
+
             // Interesse de clientes: cliente abriu o perfil de uma barbearia
             // sem cadeira disponivel agora. So contagem agregada pro dono
             // (via sino de notificacoes) - nunca cria solicitacao/chamado.
@@ -324,8 +356,10 @@ export default function ProfileCard({ usuarioId, userType, token, isOwnProfile: 
   // Calcular média de avaliações
   const mediaAvaliacoes = avaliacoesNormalizadas.media;
   const totalAvaliacoes = avaliacoesNormalizadas.total;
+  // Perfil do freelancer nao mostra mais a barbearia vinculada como
+  // informacao do perfil (segue vinculada internamente pra presenca/matching).
   const statusDisponibilidade =
-    profile?.presente_em_local && profile?.barbearia_atual_nome
+    userType !== 'barbeiro' && profile?.presente_em_local && profile?.barbearia_atual_nome
       ? `Disponível em ${profile.barbearia_atual_nome}`
       : 'Disponível';
   const cadeirasDisponiveis = cadeirasBarbearia.filter((cadeira) => {
@@ -450,7 +484,8 @@ export default function ProfileCard({ usuarioId, userType, token, isOwnProfile: 
               </div>
             )}
 
-            {profile.email && (
+            {/* E-mail nao e mais exibido no perfil (continua existindo no cadastro/login). */}
+            {profile.email && userType === 'barbearia' && (
               <div className="flex items-start gap-3">
                 <Mail size={18} className="text-blue-400 shrink-0 mt-1" />
                 <div>
@@ -530,6 +565,33 @@ export default function ProfileCard({ usuarioId, userType, token, isOwnProfile: 
                   <p className="text-xs text-zinc-500">Nenhuma cadeira cadastrada ou disponível para essa barbearia.</p>
                 )
               )}
+            </div>
+          )}
+
+          {/* Condições e estrutura para freelancer: só visível pra quem está
+              logado como freelancer (cliente não vê essa seção). */}
+          {userType === 'barbearia' && visitanteEhFreelancer && condicoesEstrutura && (
+            <div className="mt-6 pt-6 border-t border-zinc-800 space-y-3">
+              <p className="text-xs text-zinc-400 uppercase">Condições e estrutura para freelancer</p>
+              <div className="space-y-2">
+                {ITENS_CONDICOES_ESTRUTURA.map(({ chave, label }) => {
+                  const valor = condicoesEstrutura[chave];
+                  return (
+                    <div key={chave} className="flex items-center justify-between gap-3 rounded-lg border border-zinc-800 bg-black/30 px-3 py-2">
+                      <span className="text-sm text-white">{label}</span>
+                      <span className={`px-2 py-1 rounded text-[10px] font-bold border shrink-0 ${
+                        valor === true
+                          ? 'bg-green-500/15 text-green-400 border-green-500/30'
+                          : valor === false
+                            ? 'bg-red-500/15 text-red-400 border-red-500/30'
+                            : 'bg-zinc-700/30 text-zinc-400 border-zinc-700'
+                      }`}>
+                        {valor === true ? 'SIM' : valor === false ? 'NÃO' : 'NÃO INFORMADO'}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
           )}
           {profile.telefone && userType === 'barbeiro' && (

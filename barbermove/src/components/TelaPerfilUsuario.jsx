@@ -17,6 +17,21 @@ const PERFIL_META = {
   barbearia: { badge: 'Barbearia Parceira', titulo: 'Meu Perfil' },
 };
 
+const ITENS_CONDICOES_ESTRUTURA = [
+  { chave: 'tomadas_equipamentos', label: 'Tomadas para equipamentos' },
+  { chave: 'local_carregar_celular', label: 'Local para carregar celular' },
+  { chave: 'banheiro', label: 'Banheiro' },
+  { chave: 'bebedouro_agua', label: 'Bebedouro/água' },
+  { chave: 'microondas', label: 'Micro-ondas' },
+  { chave: 'local_esquentar_marmita', label: 'Local para esquentar marmita' },
+  { chave: 'capa_fornecida', label: 'Capa fornecida pela barbearia' },
+  { chave: 'espaco_adequado_trabalho', label: 'Espaço adequado para trabalhar' },
+  { chave: 'local_guardar_materiais', label: 'Local para guardar materiais' },
+  { chave: 'ar_condicionado', label: 'Ar-condicionado' },
+  { chave: 'ventilador', label: 'Ventilador' },
+  { chave: 'wifi_freelancers', label: 'Wi-Fi para freelancers' },
+];
+
 const PRECO_PRIMEIRA_CADEIRA = 47.9;
 const PRECO_SEGUNDA_CADEIRA = 37.9;
 const PRECO_TERCEIRA_CADEIRA = 27.9;
@@ -381,6 +396,11 @@ export function TelaPerfilUsuario({
   const [barbeariaAtualEndereco, setBarbeariaAtualEndereco] = useState('');
   const barbeariaAtualEnderecoFormatado = formatarEndereco(barbeariaAtualEndereco);
 
+  // Condições e estrutura para freelancer: checklist fixo SIM/NÃO, editado
+  // pelo dono aqui e exibido só para freelancers no perfil da barbearia.
+  const [condicoesEstrutura, setCondicoesEstrutura] = useState({});
+  const [salvandoCondicaoEstrutura, setSalvandoCondicaoEstrutura] = useState(null); // chave em salvamento
+
   const [saving, setSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -509,6 +529,18 @@ export function TelaPerfilUsuario({
             setBarbeariaId(id);
             if (barbearia?.nome) setNomeBarbearia(String(barbearia.nome));
             setEnderecoBarbearia(String(barbearia?.endereco || ''));
+
+            try {
+              const condicoesRes = await fetch(`${apiBase}/api/v1/barbearia/${id}/condicoes-estrutura`, {
+                headers: { Authorization: `Bearer ${token}` },
+              });
+              if (condicoesRes.ok) {
+                setCondicoesEstrutura(await safeReadJson(condicoesRes, {}));
+              }
+            } catch (_e) {
+              // manter estado atual
+            }
+
             setLatitudeBarbearia(
               Number.isFinite(Number(barbearia?.latitude)) ? Number(barbearia.latitude) : null
             );
@@ -961,6 +993,26 @@ export function TelaPerfilUsuario({
       onNotify?.('Foto excluída', 'success');
     } catch (_e) {
       onNotify?.('Não foi possível excluir a foto', 'error');
+    }
+  };
+
+  const definirCondicaoEstrutura = async (chave, valor) => {
+    if (!token || !apiBase || perfilTipo !== 'barbearia') return;
+    const anterior = condicoesEstrutura[chave];
+    setCondicoesEstrutura((prev) => ({ ...prev, [chave]: valor }));
+    setSalvandoCondicaoEstrutura(chave);
+    try {
+      const res = await fetch(`${apiBase}/api/v1/barbearia/condicoes-estrutura`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ [chave]: valor }),
+      });
+      if (!res.ok) throw new Error('falha');
+    } catch (_e) {
+      setCondicoesEstrutura((prev) => ({ ...prev, [chave]: anterior }));
+      onNotify?.('Não foi possível salvar', 'error');
+    } finally {
+      setSalvandoCondicaoEstrutura(null);
     }
   };
 
@@ -1510,14 +1562,6 @@ export function TelaPerfilUsuario({
               <p className="font-bold text-orange-300 mb-1">STATUS ATUAL</p>
               <p className="text-sm font-bold text-white">{statusAtualTexto}</p>
             </div>
-
-            {barbeariaAtualNome && (
-              <div className="rounded-xl border border-orange-500/30 bg-orange-500/10 p-3 text-xs text-zinc-300">
-                <p className="font-bold text-orange-300 mb-1">Barbearia atual</p>
-                <p className="text-sm font-bold text-white">{barbeariaAtualNome}</p>
-                <p className="text-zinc-400 mt-1">{barbeariaAtualEnderecoFormatado || 'Endereco nao informado'}</p>
-              </div>
-            )}
           </div>
         </AppCard>
       )}
@@ -1643,10 +1687,7 @@ export function TelaPerfilUsuario({
               <input type="text" value={nome} onChange={(e) => setNome(e.target.value)} className={styles.input + ' mt-2'} />
             </div>
 
-            <div>
-              <label className={styles.label}>E-mail cadastrado</label>
-              <input type="email" value={email} disabled className={styles.input + ' mt-2'} />
-            </div>
+            {/* E-mail nao e mais exibido no perfil (continua existindo no cadastro/login). */}
 
             <div>
               <label className={styles.label}>Telefone / WhatsApp</label>
@@ -1852,10 +1893,7 @@ export function TelaPerfilUsuario({
               <p className="mt-1 text-[11px] text-zinc-500">Nome público que clientes e freelancers veem.</p>
             </div>
 
-            <div>
-              <label className={styles.label}>E-mail cadastrado</label>
-              <input type="email" value={email} disabled className={styles.input + ' mt-2'} />
-            </div>
+            {/* E-mail nao e mais exibido no perfil (continua existindo no cadastro/login). */}
 
             <div>
               <label className={styles.label}>Telefone / WhatsApp</label>
@@ -1910,6 +1948,42 @@ export function TelaPerfilUsuario({
               />
             </div>
 
+          </div>
+        </AppCard>
+      )}
+
+      {perfilTipo === 'barbearia' && editMode && (
+        <AppCard>
+          <div className="space-y-3">
+            <p className={styles.labelStrong}>Condições e estrutura para freelancer</p>
+            <p className="text-[11px] text-zinc-500">
+              Visível só para freelancers ao ver o perfil da sua barbearia.
+            </p>
+            <div className="space-y-2">
+              {ITENS_CONDICOES_ESTRUTURA.map(({ chave, label }) => (
+                <div key={chave} className="flex items-center justify-between gap-3 rounded-lg border border-zinc-800 bg-zinc-950/50 px-3 py-2">
+                  <span className="text-sm text-zinc-200">{label}</span>
+                  <div className="flex gap-1 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => definirCondicaoEstrutura(chave, true)}
+                      disabled={salvandoCondicaoEstrutura === chave}
+                      className={`px-3 py-1 rounded-md text-xs font-bold border ${condicoesEstrutura[chave] === true ? 'bg-green-600 border-green-500 text-white' : 'border-zinc-700 text-zinc-400'}`}
+                    >
+                      Sim
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => definirCondicaoEstrutura(chave, false)}
+                      disabled={salvandoCondicaoEstrutura === chave}
+                      className={`px-3 py-1 rounded-md text-xs font-bold border ${condicoesEstrutura[chave] === false ? 'bg-red-600 border-red-500 text-white' : 'border-zinc-700 text-zinc-400'}`}
+                    >
+                      Não
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
           </div>
         </AppCard>
       )}
