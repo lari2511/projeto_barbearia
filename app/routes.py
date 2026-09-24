@@ -2417,9 +2417,23 @@ async def chegar_chamado(id: int, token: str = Depends(oauth2_scheme), db: Sessi
         and int(barbeiro.barbearia_atual_id) == int(chamado.barbearia_id)
     )
 
+    # Se o barbeiro já está em atendimento com OUTRO chamado nesta barbearia,
+    # o cliente da fila pode confirmar chegada, mas isso não deve iniciar o
+    # atendimento/cronômetro dele agora - só quando o atendimento atual for
+    # finalizado (_finalizar_chamado_e_avancar_fila cuida do avanço da fila).
+    barbeiro_ocupado_em_outro_atendimento = bool(
+        barbeiro
+        and db.query(models.Chamado).filter(
+            models.Chamado.barbeiro_id == barbeiro.id,
+            models.Chamado.barbearia_id == chamado.barbearia_id,
+            models.Chamado.status == models.StatusAgendamento.EM_ATENDIMENTO.value,
+            models.Chamado.id != chamado.id,
+        ).first()
+    )
+
     # Se o barbeiro já está marcado como presente na barbearia do chamado,
     # considera a chegada dele automaticamente para não exigir confirmação manual.
-    if barbeiro_ja_presente_na_barbearia:
+    if barbeiro_ja_presente_na_barbearia and not barbeiro_ocupado_em_outro_atendimento:
         chamado.barbeiro_chegou = True
 
     if user.tipo == "cliente":
@@ -2443,7 +2457,12 @@ async def chegar_chamado(id: int, token: str = Depends(oauth2_scheme), db: Sessi
     status_anterior = chamado.status
     virou_em_atendimento = False
 
-    if cliente_chegou and barbeiro_chegou and status_normalizado != models.StatusAgendamento.EM_ATENDIMENTO.value:
+    if (
+        cliente_chegou
+        and barbeiro_chegou
+        and status_normalizado != models.StatusAgendamento.EM_ATENDIMENTO.value
+        and not barbeiro_ocupado_em_outro_atendimento
+    ):
         agora_inicio = datetime.utcnow()
 
         chamado.status = models.StatusAgendamento.EM_ATENDIMENTO.value
