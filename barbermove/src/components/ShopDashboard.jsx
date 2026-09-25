@@ -1544,7 +1544,6 @@ export default function ShopDashboard({ token, logout, notify, API_URL }) {
                                             <div className="flex justify-between items-start mb-2">
                                                 <div className="min-w-0 pr-2">
                                                     <p className="font-bold text-sm truncate">{freelancer.nome}</p>
-                                                    <p className="text-xs text-zinc-400 truncate">{freelancer.email}</p>
                                                 </div>
                                                 <div className="flex items-center gap-1.5 shrink-0">
                                                     <span className="h-2 w-2 bg-green-500 rounded-full animate-pulse"></span>

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useContext } from 'react';
-import { Star, MapPin, Phone, Mail, Award, TrendingUp, MessageCircle, Navigation, Scissors } from 'lucide-react';
+import { Star, MapPin, Phone, Award, TrendingUp, MessageCircle, Navigation, Scissors } from 'lucide-react';
 import ChatRoom from './ChatRoom';
 import ListaAvaliacoes from './ListaAvaliacoes';
 import { AppContext } from '../contexts/AppContext';
@@ -713,17 +713,7 @@ export default function ProfileCard({ usuarioId, userType, token, isOwnProfile: 
                 </div>
               </div>
             )}
-
-            {/* E-mail nao e mais exibido no perfil (continua existindo no cadastro/login). */}
-            {profile.email && userType === 'barbearia' && (
-              <div className="flex items-start gap-3">
-                <Mail size={18} className="text-blue-400 shrink-0 mt-1" />
-                <div>
-                  <p className="text-xs text-zinc-400">Email</p>
-                  <p className="text-sm text-white break-all">{profile.email}</p>
-                </div>
-              </div>
-            )}
+            {/* E-mail nao e exibido no perfil publico (continua existindo no cadastro/login). */}
           </div>
 
           {mapaEmbedSrc && (
