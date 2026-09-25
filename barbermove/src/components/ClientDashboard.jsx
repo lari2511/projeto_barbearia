@@ -1697,7 +1697,11 @@ export default function ClientDashboard({ token, logout, API_URL: apiUrlProp, no
                                 Você está na fila. {activeChamado.barbeiro_nome || 'O freelancer'} está terminando o atendimento atual.
                             </p>
                             <CronometroAtendimento
-                                chamado={{ id: `fila-${activeChamado.id}`, status: 'em_atendimento', data_hora_fim: activeChamado.barbeiro_ocupado_ate }}
+                                chamado={{ id: activeChamado.id, status: 'em_atendimento', data_hora_fim: activeChamado.barbeiro_ocupado_ate }}
+                                chamadoAtivoId={activeChamado.id}
+                                isPausado={Boolean(activeChamado.barbeiro_atendimento_atual_pausado)}
+                                pausadoEmMs={activeChamado.barbeiro_atendimento_atual_pausado_em ? parseDataServidorUTC(activeChamado.barbeiro_atendimento_atual_pausado_em) : null}
+                                pausaAcumuladaMs={Math.round((Number(activeChamado.barbeiro_atendimento_atual_pausa_acumulada_segundos) || 0) * 1000)}
                                 agoraMs={agoraMsCronometro}
                                 compacto
                             />

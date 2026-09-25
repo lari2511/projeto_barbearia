@@ -3573,6 +3573,17 @@ def listar_meus_pedidos_cliente(token: str = Depends(oauth2_scheme), db: Session
         freelancer_distancia = None
         freelancer_eta = None
 
+        # Fila de espera: se o freelancer esta em_atendimento com outro cliente,
+        # busca o pausado/pausado_em/pausa_acumulada_segundos DESSE chamado atual
+        # pra este cliente na fila sincronizar o mesmo estado de pausa que
+        # freelancer/dono/cliente atual ja veem (sem expor mais nada do outro chamado).
+        atendimento_atual_barbeiro = None
+        if barbeiro and barbeiro.em_atendimento and chamado.status == models.StatusAgendamento.CONFIRMADO.value:
+            atendimento_atual_barbeiro = db.query(models.Chamado).filter(
+                models.Chamado.barbeiro_id == barbeiro.id,
+                models.Chamado.status == models.StatusAgendamento.EM_ATENDIMENTO.value,
+            ).first()
+
         if barbearia and barbearia.latitude is not None and barbearia.longitude is not None:
             if user.latitude is not None and user.longitude is not None:
                 cliente_distancia = calcular_distancia_km(
@@ -3623,6 +3634,9 @@ def listar_meus_pedidos_cliente(token: str = Depends(oauth2_scheme), db: Session
             # o freelancer/dono/cliente atual já veem (sem expor dados do outro chamado).
             "barbeiro_em_atendimento": bool(barbeiro.em_atendimento) if barbeiro else False,
             "barbeiro_ocupado_ate": barbeiro.ocupado_ate.isoformat() if barbeiro and barbeiro.ocupado_ate else None,
+            "barbeiro_atendimento_atual_pausado": bool(atendimento_atual_barbeiro.pausado_em) if atendimento_atual_barbeiro else False,
+            "barbeiro_atendimento_atual_pausado_em": atendimento_atual_barbeiro.pausado_em.isoformat() if atendimento_atual_barbeiro and atendimento_atual_barbeiro.pausado_em else None,
+            "barbeiro_atendimento_atual_pausa_acumulada_segundos": (atendimento_atual_barbeiro.pausa_acumulada_segundos or 0) if atendimento_atual_barbeiro else 0,
             "criado_em": chamado.criado_em.isoformat() if chamado.criado_em else None,
             "barbearia_nome": barbearia.nome if barbearia else "Barbearia",
             "barbearia_endereco": barbearia.endereco if barbearia else None,
