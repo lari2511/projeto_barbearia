@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useContext } from 'react';
-import { Star, MapPin, Phone, Mail, Award, TrendingUp, MessageCircle } from 'lucide-react';
+import { Star, MapPin, Phone, Mail, Award, TrendingUp, MessageCircle, Navigation, Scissors } from 'lucide-react';
 import ChatRoom from './ChatRoom';
 import ListaAvaliacoes from './ListaAvaliacoes';
 import { AppContext } from '../contexts/AppContext';
@@ -100,6 +100,8 @@ export default function ProfileCard({ usuarioId, userType, token, isOwnProfile: 
   const [fotoPerfilFalhou, setFotoPerfilFalhou] = useState(false);
   const [fotosQueFalharam, setFotosQueFalharam] = useState({});
   const [condicoesEstrutura, setCondicoesEstrutura] = useState(null);
+  const [servicosBarbearia, setServicosBarbearia] = useState([]);
+  const [avaliacoesExpandido, setAvaliacoesExpandido] = useState(false);
 
   const appContext = useContext(AppContext);
   const { notify } = appContext || {};
@@ -146,6 +148,15 @@ export default function ProfileCard({ usuarioId, userType, token, isOwnProfile: 
   // Condições e estrutura para freelancer: só quem está vendo é freelancer
   // (o backend também bloqueia cliente, isso só evita a chamada à toa).
   const visitanteEhFreelancer = String(readStorageValue('userType') || '').toLowerCase() === 'barbeiro';
+  // Perfil de barbearia visto pelo cliente: visao simplificada e reordenada
+  // (portfolio -> servicos -> endereco -> como chegar -> avaliacoes -> contato).
+  // Freelancer/dono/admin continuam vendo o layout completo (cadeiras, condicoes de estrutura etc.).
+  const isClienteViewingBarbearia = userType === 'barbearia' && String(readStorageValue('userType') || '').toLowerCase() === 'cliente';
+  const wazeUrl = Number.isFinite(Number(coordenadaLat)) && Number.isFinite(Number(coordenadaLon))
+    ? `https://waze.com/ul?ll=${Number(coordenadaLat)},${Number(coordenadaLon)}&navigate=yes`
+    : enderecoMapa
+      ? `https://waze.com/ul?q=${encodeURIComponent(enderecoMapa)}&navigate=yes`
+      : '';
 
   const carregarPerfil = useCallback(async () => {
     try {
@@ -230,6 +241,14 @@ export default function ProfileCard({ usuarioId, userType, token, isOwnProfile: 
           };
 
           if (barbeariaDoPerfil.id) {
+            try {
+              const servicosRes = await fetch(`${API_URL}/api/v1/barbearias/${barbeariaDoPerfil.id}/servicos`);
+              const servicosData = servicosRes.ok ? await servicosRes.json() : null;
+              setServicosBarbearia(Array.isArray(servicosData?.servicos) ? servicosData.servicos : []);
+            } catch (_err) {
+              setServicosBarbearia([]);
+            }
+
             const cadeirasRes = await fetch(`${API_URL}/api/v1/cadeiras/barbearia/${barbeariaDoPerfil.id}`, {
               headers: token ? { 'Authorization': `Bearer ${token}` } : {}
             });
@@ -276,6 +295,7 @@ export default function ProfileCard({ usuarioId, userType, token, isOwnProfile: 
           } else {
             setBarbeariaProfile(null);
             setCadeirasBarbearia([]);
+            setServicosBarbearia([]);
           }
         } catch (_err) {
           setBarbeariaProfile(null);
@@ -366,6 +386,216 @@ export default function ProfileCard({ usuarioId, userType, token, isOwnProfile: 
     const status = String(cadeira?.status || cadeira?.status_atendimento || '').toLowerCase();
     return status.includes('dispon') || status === 'livre' || status === 'ativo';
   });
+
+  if (isClienteViewingBarbearia) {
+    return (
+      <div className="space-y-5">
+        {/* Cabecalho simples: foto + nome + avaliacao rapida */}
+        <div className="flex items-center gap-3">
+          {fotoPerfilExibicao ? (
+            <img
+              src={fotoPerfilExibicao}
+              alt={profile.nome}
+              className="w-16 h-16 rounded-full border-2 border-zinc-800 object-cover shrink-0"
+              onError={() => setFotoPerfilFalhou(true)}
+            />
+          ) : (
+            <div className="w-16 h-16 rounded-full border-2 border-zinc-800 bg-zinc-800 flex items-center justify-center shrink-0">
+              <span className="text-xl font-black text-zinc-300">{String(profile.nome || '?').charAt(0).toUpperCase()}</span>
+            </div>
+          )}
+          <div className="min-w-0">
+            <h1 className="text-xl font-bold text-white truncate">{profile.nome}</h1>
+            <div className="flex items-center gap-1 text-xs text-zinc-400">
+              <Star size={13} className={mediaAvaliacoes > 0 ? 'text-yellow-400 fill-yellow-400' : 'text-zinc-600'} />
+              <span>{mediaAvaliacoes > 0 ? mediaAvaliacoes.toFixed(1) : 'Novo'}</span>
+              {totalAvaliacoes > 0 && <span>({totalAvaliacoes})</span>}
+            </div>
+          </div>
+        </div>
+
+        {/* 1. PORTFOLIO em destaque no topo */}
+        {fotosPortfolioExibicao.length > 0 && (
+          <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-4">
+            <h3 className="text-sm font-bold text-white mb-3">Portfólio</h3>
+            <div className="grid grid-cols-3 gap-2">
+              {fotosPortfolioExibicao.map((foto, idx) => (
+                <div
+                  key={idx}
+                  className="aspect-square rounded-lg overflow-hidden border border-zinc-800 cursor-pointer group"
+                  onClick={() => {
+                    if (fotosQueFalharam[foto]) return;
+                    setZoomFoto(foto);
+                  }}
+                >
+                  {fotosQueFalharam[foto] ? (
+                    <div className="w-full h-full flex items-center justify-center bg-zinc-900 text-[10px] text-zinc-500 px-1 text-center">
+                      Imagem indisponível
+                    </div>
+                  ) : (
+                    <img
+                      src={foto}
+                      alt={`Portfólio ${idx + 1}`}
+                      className="w-full h-full object-cover group-hover:scale-105 transition-transform"
+                      onError={() => setFotosQueFalharam((prev) => ({ ...prev, [foto]: true }))}
+                    />
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* 2. SERVICOS + VALORES direto no perfil */}
+        {servicosBarbearia.length > 0 && (
+          <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-4">
+            <h3 className="text-sm font-bold text-white mb-3 flex items-center gap-2">
+              <Scissors size={15} className="text-orange-400" /> Serviços e valores
+            </h3>
+            <div className="space-y-2">
+              {servicosBarbearia.map((servico) => (
+                <div key={servico.id} className="flex items-center justify-between gap-3 rounded-lg border border-zinc-800 bg-black/30 px-3 py-2">
+                  <span className="text-sm text-white truncate">{servico.nome}</span>
+                  <span className="text-sm font-bold text-green-400 shrink-0">R$ {Number(servico.valor).toFixed(2)}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* 3. ENDERECO */}
+        {profile.endereco && (
+          <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-4">
+            <div className="flex items-start gap-3">
+              <MapPin size={18} className="text-orange-400 shrink-0 mt-0.5" />
+              <div>
+                <p className="text-xs text-zinc-400">Endereço</p>
+                <p className="text-sm text-white">{enderecoPerfilFormatado}</p>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* 4. COMO CHEGAR (Waze) */}
+        {wazeUrl && (
+          <a
+            href={wazeUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="w-full bg-orange-600 hover:bg-orange-700 text-white px-4 py-3 rounded-lg font-bold flex items-center justify-center gap-2 active:scale-95 transition-all"
+          >
+            <Navigation size={18} />
+            Como chegar
+          </a>
+        )}
+
+        {/* 5. AVALIACOES compactas */}
+        <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Star size={16} className={mediaAvaliacoes > 0 ? 'text-yellow-400 fill-yellow-400' : 'text-zinc-600'} />
+              <span className="text-sm font-bold text-white">
+                {mediaAvaliacoes > 0 ? mediaAvaliacoes.toFixed(1) : 'Sem avaliações'}
+              </span>
+              <span className="text-xs text-zinc-400">
+                ({totalAvaliacoes} {totalAvaliacoes === 1 ? 'avaliação' : 'avaliações'})
+              </span>
+            </div>
+            {avaliacoesUltimas.length > 0 && (
+              <button
+                onClick={() => setAvaliacoesExpandido((v) => !v)}
+                className="text-xs font-bold text-orange-400 hover:text-orange-300"
+              >
+                {avaliacoesExpandido ? 'Ocultar' : 'Ver avaliações'}
+              </button>
+            )}
+          </div>
+          {avaliacoesExpandido && avaliacoesUltimas.length > 0 && (
+            <div className="mt-3 space-y-2">
+              {avaliacoesUltimas.map((aval, idx) => (
+                <div key={idx} className="bg-black/40 p-3 rounded-lg border border-zinc-800/50">
+                  <div className="flex justify-between items-start mb-1">
+                    <p className="font-bold text-white text-sm">{aval.avaliador_nome || 'Usuário'}</p>
+                    <div className="flex gap-0.5">
+                      {[...Array(5)].map((_, i) => (
+                        <Star key={i} size={12} className={i < aval.nota ? 'text-yellow-400 fill-yellow-400' : 'text-zinc-700'} />
+                      ))}
+                    </div>
+                  </div>
+                  {aval.comentario && <p className="text-xs text-zinc-300">{aval.comentario}</p>}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* 6. TELEFONE/CONTATO discreto */}
+        {profile.telefone && (
+          <div className="flex items-center gap-2 text-xs text-zinc-500 px-1">
+            <Phone size={14} />
+            <span>{profile.telefone}</span>
+          </div>
+        )}
+
+        {token && (
+          <button
+            onClick={async () => {
+              if (chatLoading || !chatChamadoId) return;
+              setChatLoading(true);
+              try {
+                setChatOpen(true);
+              } catch (err) {
+                console.error(err);
+                safeNotify('Erro ao iniciar conversa', 'error');
+              } finally {
+                setChatLoading(false);
+              }
+            }}
+            disabled={chatLoading || !chatChamadoId}
+            className={`w-full px-4 py-3 rounded-lg font-bold flex items-center justify-center gap-2 ${chatLoading ? 'bg-zinc-700 text-zinc-300' : chatChamadoId ? 'bg-orange-600 hover:bg-orange-700 text-white' : 'bg-zinc-800 text-zinc-500 cursor-not-allowed'}`}
+            title={chatChamadoId ? 'Abrir conversa do chamado confirmado' : 'Conversa liberada após o chamado ser confirmado'}
+          >
+            <MessageCircle size={18} />
+            {chatLoading ? 'Abrindo...' : chatChamadoId ? 'Conversar' : 'Aguardando confirmação'}
+          </button>
+        )}
+
+        {zoomFoto && (
+          <div
+            className="fixed inset-0 bg-black z-[2600] flex items-center justify-center p-2"
+            onClick={() => setZoomFoto(null)}
+          >
+            <div onClick={(e) => e.stopPropagation()} className="relative">
+              <button
+                onClick={() => setZoomFoto(null)}
+                className="absolute -top-10 right-0 bg-red-600 text-white px-3 py-1 rounded text-xs font-bold hover:bg-red-700"
+              >
+                ✕ Fechar
+              </button>
+              <img src={zoomFoto} alt="Zoom" className="max-w-[90vw] max-h-[85vh] object-contain rounded-lg" />
+            </div>
+          </div>
+        )}
+
+        {chatOpen && (
+          <div className="fixed inset-0 bg-black/80 z-[2600] flex items-center justify-center p-2 sm:p-4">
+            <div className="w-full max-w-[96vw] sm:max-w-5xl lg:max-w-6xl h-[92vh] bg-zinc-950 border border-zinc-800 rounded-2xl p-3 sm:p-5 flex flex-col shadow-2xl">
+              <div className="flex items-center justify-between gap-3 mb-4 pb-3 border-b border-zinc-800">
+                <div>
+                  <h3 className="text-base sm:text-lg font-bold text-white">Chat com {profile.nome}</h3>
+                  <p className="text-[11px] sm:text-xs text-zinc-400 mt-1">Conversa em tempo real com espaço maior para acompanhar a troca de mensagens</p>
+                </div>
+                <button onClick={() => setChatOpen(false)} className="text-zinc-400 hover:text-white transition-colors text-lg leading-none">✕</button>
+              </div>
+              <div className="flex-1 min-h-0 overflow-hidden">
+                <ChatRoom chamadoId={chatChamadoId} token={token} API_URL={API_URL} compact={false} />
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
