@@ -3222,6 +3222,8 @@ def listar_barbeiros_proximos(
         models.Usuario.longitude.isnot(None),
         or_(
             models.Usuario.disponivel == True,
+            # EM_ATENDIMENTO continua visivel para outro cliente entrar na fila de espera.
+            models.Usuario.em_atendimento == True,
             and_(
                 models.Usuario.ocupado_ate.isnot(None),
                 models.Usuario.ocupado_ate > agora_filtro,
@@ -3968,7 +3970,9 @@ def listar_barbeiros_priorizados_barbearia(
                     continue
 
         disponivel_real = (bool(barbeiro.disponivel) and not esta_em_servico_agora(db, barbeiro.id)) or na_janela_liberacao
-        if not incluir_indisponiveis and not disponivel_real:
+        # EM_ATENDIMENTO continua visivel: outro cliente pode entrar na fila de espera
+        # (limite de 1 aguardando e garantido na criacao do chamado).
+        if not incluir_indisponiveis and not disponivel_real and not barbeiro.em_atendimento:
             continue
 
         resultado.append({
