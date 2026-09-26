@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { LogOut, Search, MapPin, Star, Calendar, ArrowRight, CheckCircle, User, MessageSquare, QrCode } from 'lucide-react';
+import { LogOut, Search, MapPin, Star, Calendar, ArrowRight, CheckCircle, User, MessageSquare, QrCode, Bell } from 'lucide-react';
 import TelaPerfilUsuario from './TelaPerfilUsuario';
 import MapEmbed from './MapEmbed';
 import AbaPadronizadaAvaliacoes from './AbaPadronizadaAvaliacoes';
@@ -268,6 +268,9 @@ export default function ClientDashboard({ token, logout, API_URL: apiUrlProp, no
     const [pendenciasClienteLista, setPendenciasClienteLista] = useState([]); // todas as pendencias (independente de "ja visto"), usada na Home
     const fluxoAvaliacaoVistoRef = useRef(null);
     const isPerfilTab = tab === 'perfil';
+    const [notificacoes, setNotificacoes] = useState([]); // sino da Home (fonte única: Notificacao)
+    const [notificacoesAbertas, setNotificacoesAbertas] = useState(false);
+    const naoLidasCount = notificacoes.filter((n) => !n.lido).length;
 
     const marcarFluxoAvaliacaoVisto = useCallback((chamadoId) => {
         try {
@@ -578,6 +581,52 @@ export default function ClientDashboard({ token, logout, API_URL: apiUrlProp, no
             setLoadingBarbeariasProximasHome(false);
         }
     }, [API_URL, token, notifySafe]);
+
+    // Sino de notificações da Home: reusa os endpoints de Notificacao já usados
+    // pelos painéis do dono e do freelancer.
+    const carregarNotificacoes = useCallback(async () => {
+        if (!token) return;
+        try {
+            const res = await fetch(`${API_URL}/api/v1/notificacoes/?limite=20`, {
+                headers: { 'Authorization': `Bearer ${token}` },
+            });
+            if (!res.ok) return;
+            const data = await safeReadJson(res, []);
+            setNotificacoes(Array.isArray(data) ? data : []);
+        } catch (_err) {
+            // Notificações são um extra; falha silenciosa não deve travar a Home.
+        }
+    }, [API_URL, token]);
+
+    useEffect(() => {
+        carregarNotificacoes();
+        const interval = setInterval(carregarNotificacoes, 20000);
+        return () => clearInterval(interval);
+    }, [carregarNotificacoes]);
+
+    const marcarNotificacaoLida = async (id) => {
+        setNotificacoes((prev) => prev.map((n) => (n.id === id ? { ...n, lido: true } : n)));
+        try {
+            await fetch(`${API_URL}/api/v1/notificacoes/${id}/marcar-lida`, {
+                method: 'POST',
+                headers: { 'Authorization': `Bearer ${token}` },
+            });
+        } catch (_err) {
+            // UI já foi atualizada; próxima sincronização corrige se falhar.
+        }
+    };
+
+    const marcarTodasNotificacoesLidas = async () => {
+        setNotificacoes((prev) => prev.map((n) => ({ ...n, lido: true })));
+        try {
+            await fetch(`${API_URL}/api/v1/notificacoes/marcar-todas-lidas`, {
+                method: 'POST',
+                headers: { 'Authorization': `Bearer ${token}` },
+            });
+        } catch (_err) {
+            // idem
+        }
+    };
 
     // Botão "Atualizar localização" da Home: pega o GPS, sincroniza com a conta e recarrega a lista.
     const atualizarLocalizacaoBarbeariasHome = useCallback(async () => {
@@ -1162,6 +1211,7 @@ export default function ClientDashboard({ token, logout, API_URL: apiUrlProp, no
     };
 
     useBackHandler(() => {
+        if (notificacoesAbertas) { setNotificacoesAbertas(false); return true; }
         if (cancelModalOpen) { setCancelModalOpen(false); return true; }
         if (barbeariaEscolhaPreview) { setBarbeariaEscolhaPreview(null); return true; }
         if (perfilModal) { setPerfilModal(null); return true; }
@@ -1170,7 +1220,7 @@ export default function ClientDashboard({ token, logout, API_URL: apiUrlProp, no
         if (tab === 'buscar' && step === 'barbeiros') { setStep('inicio'); return true; }
         if (tab !== 'inicio') { setTab('inicio'); return true; }
         return false;
-    }, [tab, step, cancelModalOpen, perfilModal, barbeariaEscolhaPreview]);
+    }, [tab, step, cancelModalOpen, perfilModal, barbeariaEscolhaPreview, notificacoesAbertas]);
 
     const toggleServiceSelection = (service) => {
         setSelectedServices((prev) => {
@@ -1536,9 +1586,26 @@ export default function ClientDashboard({ token, logout, API_URL: apiUrlProp, no
             <div className="w-full min-h-[100dvh] max-w-[430px] flex flex-col overflow-x-hidden bg-[#050505] shadow-[0_0_0_1px_rgba(255,255,255,0.04)] dashboard-surface">
         {/* HEADER */}
         <div className="sticky top-0 z-20 px-3 pt-3 pb-2 bg-[#050505]/95 backdrop-blur-xl flex-shrink-0">
+            {tab === 'inicio' ? (
+            <div className="flex justify-between items-center px-1">
+                <img src="/logo.jpeg" alt="BarberMove" className="h-12 w-12 rounded-xl object-cover border border-zinc-800/60" />
+                <button
+                    onClick={() => setNotificacoesAbertas((v) => !v)}
+                    className="relative h-10 w-10 rounded-full bg-zinc-900 border border-zinc-800 flex items-center justify-center text-zinc-400 hover:text-white hover:bg-zinc-800 transition-colors"
+                    aria-label="Notificações"
+                >
+                    <Bell size={18} />
+                    {naoLidasCount > 0 && (
+                        <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full bg-orange-500 text-white text-[10px] font-bold flex items-center justify-center leading-none">
+                            {naoLidasCount > 9 ? '9+' : naoLidasCount}
+                        </span>
+                    )}
+                </button>
+            </div>
+            ) : (
             <div className="dashboard-card bg-zinc-900 rounded-2xl p-4 border border-zinc-800/60 flex justify-between items-center">
                 <div className="flex items-center gap-2 min-w-0">
-                    {tab !== 'inicio' && <BotaoVoltar />}
+                    <BotaoVoltar />
                     <div className="min-w-0">
                         <p className="text-[10px] uppercase tracking-[0.2em] text-zinc-500 font-semibold">BarberMove</p>
                         <h1 className="text-lg font-black tracking-tight">Buscar Barbeiros</h1>
@@ -1548,7 +1615,48 @@ export default function ClientDashboard({ token, logout, API_URL: apiUrlProp, no
                     <LogOut size={18}/>
                 </button>
             </div>
+            )}
         </div>
+
+        {notificacoesAbertas && (
+            <div className="fixed inset-0 z-[2300]" onClick={() => setNotificacoesAbertas(false)}>
+                <div
+                    onClick={(e) => e.stopPropagation()}
+                    className="absolute top-16 right-3 left-3 sm:left-auto sm:w-[380px] max-h-[70vh] overflow-y-auto bg-zinc-950 border border-zinc-800 rounded-2xl shadow-2xl p-3 space-y-2"
+                >
+                    <div className="flex items-center justify-between mb-1">
+                        <h3 className="text-sm font-bold text-white">Notificações</h3>
+                        {naoLidasCount > 0 && (
+                            <button
+                                type="button"
+                                onClick={marcarTodasNotificacoesLidas}
+                                className="text-[11px] text-orange-400 hover:text-orange-300 font-bold"
+                            >
+                                Marcar todas como lidas
+                            </button>
+                        )}
+                    </div>
+                    {notificacoes.length === 0 ? (
+                        <p className="text-xs text-zinc-500 py-4 text-center">Nenhuma notificação por aqui.</p>
+                    ) : (
+                        notificacoes.map((n) => (
+                            <button
+                                key={n.id}
+                                type="button"
+                                onClick={() => !n.lido && marcarNotificacaoLida(n.id)}
+                                className={`w-full text-left rounded-xl border p-3 space-y-0.5 ${n.lido ? 'bg-black/20 border-zinc-800/60' : 'bg-orange-500/10 border-orange-500/30'}`}
+                            >
+                                <div className="flex items-center justify-between gap-2">
+                                    <p className="text-xs font-bold text-white truncate">{n.titulo}</p>
+                                    {!n.lido && <span className="shrink-0 h-2 w-2 rounded-full bg-orange-400" />}
+                                </div>
+                                <p className="text-[11px] text-zinc-400">{n.mensagem}</p>
+                            </button>
+                        ))
+                    )}
+                </div>
+            </div>
+        )}
 
         {/* Painel de rastreamento/chat ativo (quando há um chamado imediato) */}
         {!isPerfilTab && isChamadoVisivel(activeChamado) && atendimentoEmAndamento && (
@@ -1752,17 +1860,7 @@ export default function ClientDashboard({ token, logout, API_URL: apiUrlProp, no
 
             {/* ABA: INÍCIO */}
             {tab === 'inicio' && (
-                <div className="p-4 space-y-4 max-w-3xl mx-auto w-full">
-                    <div className="dashboard-card bg-zinc-900 rounded-2xl p-5 border border-zinc-800/60 space-y-3">
-                        <div className="flex items-center gap-3">
-                            <div className="w-12 h-12 rounded-2xl bg-orange-500/15 border border-orange-500/30 flex items-center justify-center text-2xl">✂️</div>
-                            <div>
-                                <p className="text-xs text-zinc-500 uppercase tracking-widest">Bem-vindo</p>
-                                <h2 className="text-lg font-black text-white">BarberMove</h2>
-                            </div>
-                        </div>
-                        <p className="text-sm text-zinc-400">Encontre barbeiros próximos e acompanhe seus chamados.</p>
-                    </div>
+                <div className="px-4 pt-1 pb-4 space-y-4 max-w-3xl mx-auto w-full">
 
                     {pagamentoPendenteHome && (
                         <div className="w-full dashboard-card rounded-2xl p-4 border border-emerald-500/40 bg-emerald-500/10 space-y-3">
@@ -1799,37 +1897,30 @@ export default function ClientDashboard({ token, logout, API_URL: apiUrlProp, no
                         </div>
                     )}
 
-                    <div className="grid grid-cols-2 gap-3">
-                        <button onClick={() => setTab('buscar')} className="dashboard-card bg-zinc-900 rounded-2xl p-4 border border-zinc-800/60 flex flex-col items-center gap-2 hover:border-orange-500 transition-colors">
-                            <Search size={22} className="text-orange-400" />
-                            <span className="text-sm font-bold">Buscar</span>
-                            <span className="text-xs text-zinc-500">Barbeiros e barbearias</span>
-                        </button>
-                        <button onClick={() => setTab('agenda')} className="dashboard-card bg-zinc-900 rounded-2xl p-4 border border-zinc-800/60 flex flex-col items-center gap-2 hover:border-orange-500 transition-colors">
-                            <Calendar size={22} className="text-blue-400" />
-                            <span className="text-sm font-bold">Chamadas</span>
-                            <span className="text-xs text-zinc-500">Seus agendamentos</span>
-                        </button>
-                        <button onClick={() => setTab('avaliar')} className="dashboard-card bg-zinc-900 rounded-2xl p-4 border border-zinc-800/60 flex flex-col items-center gap-2 hover:border-orange-500 transition-colors">
-                            <Star size={22} className="text-yellow-400" />
-                            <span className="text-sm font-bold">Avaliar</span>
-                            <span className="text-xs text-zinc-500">Avalie o serviço</span>
-                        </button>
-                    </div>
-
-                    {/* Barbearias BarberMove perto de você */}
-                    <div className="dashboard-card bg-zinc-900 rounded-2xl p-4 border border-zinc-800/60 space-y-3">
-                        <div className="flex items-center justify-between gap-2">
-                            <h3 className="text-sm font-black text-white">Barbearias BarberMove perto de você</h3>
-                            <button
-                                type="button"
-                                onClick={atualizarLocalizacaoBarbeariasHome}
-                                disabled={loadingBarbeariasProximasHome}
-                                className="shrink-0 flex items-center gap-1 rounded-lg border border-zinc-700 bg-black/30 px-2.5 py-1.5 text-[11px] font-bold text-zinc-300 hover:border-orange-500 hover:text-orange-300 transition-colors disabled:opacity-60"
-                            >
-                                <MapPin size={12} />
-                                {loadingBarbeariasProximasHome ? 'Atualizando...' : 'Atualizar localização'}
-                            </button>
+                    {/* Barbearias perto de você */}
+                    <div className="space-y-3">
+                        <div className="space-y-1.5">
+                            <h2 className="text-xl font-black text-white tracking-tight">Barbearias perto de você</h2>
+                            <div className="flex items-center justify-between gap-2">
+                                <p className="min-w-0 flex items-center gap-1 text-[11px] text-zinc-400">
+                                    <MapPin size={11} className="shrink-0 text-orange-400" />
+                                    <span className="truncate">
+                                        {userData?.endereco
+                                            || (normalizarNumero(userData?.latitude) != null && normalizarNumero(userData?.longitude) != null
+                                                ? 'Sua localização atual'
+                                                : 'Localização não definida')}
+                                    </span>
+                                </p>
+                                <button
+                                    type="button"
+                                    onClick={atualizarLocalizacaoBarbeariasHome}
+                                    disabled={loadingBarbeariasProximasHome}
+                                    className="shrink-0 flex items-center gap-1 rounded-lg border border-zinc-700 bg-black/30 px-2.5 py-1.5 text-[11px] font-bold text-zinc-300 hover:border-orange-500 hover:text-orange-300 transition-colors disabled:opacity-60"
+                                >
+                                    <MapPin size={12} />
+                                    {loadingBarbeariasProximasHome ? 'Atualizando...' : 'Atualizar localização'}
+                                </button>
+                            </div>
                         </div>
 
                         {loadingBarbeariasProximasHome && barbeariasProximasHome.length === 0 ? (
@@ -1879,6 +1970,15 @@ export default function ClientDashboard({ token, logout, API_URL: apiUrlProp, no
                                 ))}
                             </div>
                         )}
+
+                        {/* Substitui o antigo acesso "Buscar" da Home (mesma ação). */}
+                        <button
+                            type="button"
+                            onClick={() => setTab('buscar')}
+                            className="w-full py-2 text-center text-xs font-semibold text-zinc-500 hover:text-orange-300 transition-colors"
+                        >
+                            Ver outras barbearias
+                        </button>
                     </div>
                 </div>
             )}
