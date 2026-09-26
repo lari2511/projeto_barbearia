@@ -646,6 +646,7 @@ export default function PainelBarberMovePremium({ token: tokenProp, logout: logo
   }, [token, API_URL]);
 
   const [atualizandoGpsBarbearias, setAtualizandoGpsBarbearias] = useState(false);
+  const [verTodasBarbeariasProximas, setVerTodasBarbeariasProximas] = useState(false); // Home: "Ver outras barbearias"
   // Toque manual em "atualizar GPS": obtem a posicao atual, persiste para
   // descoberta (mesmo endpoint do sync automatico) e recalcula a lista/distancias.
   const atualizarGpsBarbeariasProximas = useCallback(async () => {
@@ -939,14 +940,30 @@ export default function PainelBarberMovePremium({ token: tokenProp, logout: logo
 
         {/* HEADER */}
         <div className="sticky top-0 z-20 px-3 pt-3 pb-2 bg-[#050505]/95 backdrop-blur-xl">
-          <div className="flex justify-between items-center rounded-2xl border border-zinc-800/80 bg-zinc-950/90 px-4 py-3">
+          <div className={tab === 'inicio'
+            ? 'flex justify-between items-center gap-3 px-1'
+            : 'flex justify-between items-center rounded-2xl border border-zinc-800/80 bg-zinc-950/90 px-4 py-3'}>
+            {tab === 'inicio' ? (
+              <div className="flex items-center gap-3 min-w-0">
+                <Avatar nome={perfil?.nome} foto={perfil?.foto_perfil} API_URL={API_URL} size={44} />
+                <div className="min-w-0">
+                  <h1 className="text-base font-black text-white truncate">Olá, {perfil?.nome?.split(' ')[0] || 'Freelancer'}!</h1>
+                  <p className="text-[11px] text-emerald-300 truncate">
+                    {perfil?.presente_em_local && perfil?.barbearia_atual_nome
+                      ? `Presente em ${perfil.barbearia_atual_nome}`
+                      : 'Disponível na região'}
+                  </p>
+                </div>
+              </div>
+            ) : (
             <div className="flex items-center gap-2 min-w-0">
-              {tab !== 'inicio' && <BotaoVoltar />}
+              <BotaoVoltar />
               <div className="min-w-0">
                 <p className="text-[10px] uppercase tracking-widest text-zinc-500">Freelancer</p>
                 <h1 className="text-base font-black text-white truncate">✂️ {perfil?.nome || 'Barbeiro'}</h1>
               </div>
             </div>
+            )}
             <div className="flex items-center gap-2 shrink-0">
               <button
                 onClick={() => setNotificacoesAbertas((v) => !v)}
@@ -960,9 +977,11 @@ export default function PainelBarberMovePremium({ token: tokenProp, logout: logo
                   </span>
                 )}
               </button>
+              {tab !== 'inicio' && (
               <button onClick={handleLogout} className="h-10 w-10 rounded-full bg-zinc-900 border border-zinc-800 flex items-center justify-center text-zinc-400 hover:text-white transition-colors">
                 <LogOut size={16} />
               </button>
+              )}
             </div>
           </div>
         </div>
@@ -972,138 +991,68 @@ export default function PainelBarberMovePremium({ token: tokenProp, logout: logo
 
           {/* INÍCIO */}
           {tab === 'inicio' && (
-            <div className="p-4 space-y-4">
-              <div className="rounded-2xl border border-zinc-800 bg-zinc-900 p-5 space-y-3">
-                <div className="flex items-center gap-3">
-                  <div className="w-12 h-12 rounded-2xl bg-green-500/15 border border-green-500/30 flex items-center justify-center text-2xl">✂️</div>
-                  <div>
-                    <p className="text-xs text-zinc-500 uppercase tracking-widest">Bem-vindo</p>
-                    <h2 className="text-lg font-black">Olá, {perfil?.nome?.split(' ')[0] || 'Freelancer'}!</h2>
-                    <p className="text-[11px] text-zinc-400 mt-0.5">
-                      {perfil?.presente_em_local && perfil?.barbearia_atual_nome
-                        ? `Presente em ${perfil.barbearia_atual_nome}`
-                        : 'Disponível na região'}
-                    </p>
+            <div className="px-4 pt-1 pb-4 space-y-4">
+              {chamadoAtivo && (
+                <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-sm">
+                  <p className="font-bold text-amber-300">🔔 Chamado ativo: #{chamadoAtivo.id}</p>
+                  <p className="text-xs text-zinc-400 mt-0.5">{servicoNomeAtivo || chamadoAtivo.servico_nome || chamadoAtivo.descricao}</p>
+                  <div className="mt-2">
+                    <CronometroAtendimento
+                      chamado={chamadoAtivo}
+                      chamadosGrupo={chamados}
+                      chamadoAtivoId={chamadoAtivo?.id}
+                      isPausado={isPaused}
+                      pausadoEmMs={pausadoEmMs}
+                      pausaAcumuladaMs={pausaAcumuladaMs}
+                      agoraMs={agoraMs}
+                      compacto
+                    />
                   </div>
                 </div>
-                {chamadoAtivo && (
-                  <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-sm">
-                    <p className="font-bold text-amber-300">🔔 Chamado ativo: #{chamadoAtivo.id}</p>
-                    <p className="text-xs text-zinc-400 mt-0.5">{servicoNomeAtivo || chamadoAtivo.servico_nome || chamadoAtivo.descricao}</p>
-                    <div className="mt-2">
-                      <CronometroAtendimento
-                        chamado={chamadoAtivo}
-                        chamadosGrupo={chamados}
-                        chamadoAtivoId={chamadoAtivo?.id}
-                        isPausado={isPaused}
-                        pausadoEmMs={pausadoEmMs}
-                        pausaAcumuladaMs={pausaAcumuladaMs}
-                        agoraMs={agoraMs}
-                        compacto
-                      />
-                    </div>
-                  </div>
-                )}
-              </div>
+              )}
+
               <div className="grid grid-cols-2 gap-3">
                 <button onClick={() => setTab('chamados')} className="rounded-2xl border border-zinc-800 bg-zinc-900 p-4 flex flex-col items-center gap-2 hover:border-orange-500 transition-colors">
                   <ClipboardList size={22} className="text-orange-400" />
                   <span className="text-sm font-bold">Chamados</span>
                   <span className="text-xs text-zinc-500">{chamadoAtivo ? 'Em andamento' : `${historicoChamados.length} no histórico`}</span>
                 </button>
-                <button onClick={() => abrirPerfil('dados')} className="rounded-2xl border border-zinc-800 bg-zinc-900 p-4 flex flex-col items-center gap-2 hover:border-orange-500 transition-colors">
-                  <User size={22} className="text-purple-400" />
-                  <span className="text-sm font-bold">Perfil</span>
-                  <span className="text-xs text-zinc-500">Seus dados</span>
+                {/* Vagas relâmpago: a lista com "Candidatar-se" fica na aba Chamados. */}
+                <button onClick={() => setTab('chamados')} className="rounded-2xl border border-zinc-800 bg-zinc-900 p-4 flex flex-col items-center gap-2 hover:border-orange-500 transition-colors">
+                  <Scissors size={22} className="text-emerald-400" />
+                  <span className="text-sm font-bold">Vagas de cadeira</span>
+                  <span className="text-xs text-zinc-500">{vagasRelampago.length} {vagasRelampago.length === 1 ? 'disponível' : 'disponíveis'}</span>
                 </button>
-                <button onClick={() => abrirPerfil('carteira')} className="rounded-2xl border border-zinc-800 bg-zinc-900 p-4 flex flex-col items-center gap-2 hover:border-orange-500 transition-colors">
-                  <CreditCard size={22} className="text-emerald-400" />
-                  <span className="text-sm font-bold">Carteira</span>
-                  <span className="text-xs text-zinc-500">Ganhos e comissões</span>
-                </button>
-                <button onClick={() => abrirPerfil('avaliacoes')} className="rounded-2xl border border-zinc-800 bg-zinc-900 p-4 flex flex-col items-center gap-2 hover:border-orange-500 transition-colors">
-                  <Star size={22} className="text-yellow-400" />
-                  <span className="text-sm font-bold">Avaliações</span>
-                  <span className="text-xs text-zinc-500">Reputação do perfil</span>
-                </button>
-              </div>
-
-              <div className="rounded-2xl border border-orange-500/30 bg-orange-500/10 p-4 space-y-3">
-                <div className="flex items-center justify-between gap-3">
-                  <div>
-                    <p className="text-xs font-black uppercase tracking-widest text-orange-300">Vagas anunciadas</p>
-                    <p className="text-sm text-zinc-300">As vagas da barbearia aparecem aqui na abertura do painel.</p>
-                  </div>
-                  <span className="rounded-full border border-orange-500/40 bg-orange-500/15 px-3 py-1 text-xs font-bold text-orange-200">
-                    {vagasRelampago.length}
-                  </span>
-                </div>
-
-                {vagasRelampago.length > 0 ? (
-                  <div className="space-y-2">
-                    {vagasRelampago.slice(0, 3).map((vaga) => {
-                      const status = String(vaga.status || '').toLowerCase();
-                      const jaCandidatado = vagasCandidatadas.has(Number(vaga.id));
-                      const podeCandidatar = status === 'disponivel' && !bloqueadoFinanceiro && !jaCandidatado;
-                      return (
-                        <div key={vaga.id} className="rounded-xl border border-zinc-800 bg-zinc-950/70 p-3">
-                          <div className="flex items-start justify-between gap-3">
-                            <div className="min-w-0">
-                              <p className="text-sm font-bold text-white truncate">{vaga.barbearia_nome || 'Barbearia'} {vaga.cadeira_id ? `• Cadeira ${vaga.cadeira_id}` : ''}</p>
-                              <p className="text-xs text-zinc-400 truncate">Status: {status || 'desconhecido'}</p>
-                            </div>
-                            <div className="flex flex-col items-end gap-2">
-                              <span className={`rounded-full px-2.5 py-1 text-[10px] font-black uppercase tracking-wide ${status === 'disponivel' ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30' : 'bg-zinc-800 text-zinc-300 border border-zinc-700'}`}>
-                                {status === 'disponivel' ? 'Disponível' : status || 'Aberta'}
-                              </span>
-                              <button
-                                type="button"
-                                onClick={() => candidatarSeVagaRelampago(vaga.id)}
-                                disabled={!podeCandidatar || aceitandoVagaId === vaga.id}
-                                className="rounded-md bg-orange-600 hover:bg-orange-500 disabled:bg-zinc-700 disabled:text-zinc-400 text-white px-2.5 py-1.5 text-[11px] font-bold"
-                              >
-                                {bloqueadoFinanceiro ? 'Bloqueado' : jaCandidatado ? 'Candidatura enviada' : (aceitandoVagaId === vaga.id ? 'Candidatando...' : 'Candidatar-se')}
-                              </button>
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                ) : (
-                  <p className="text-xs text-zinc-400">Nenhuma vaga anunciada no momento.</p>
-                )}
               </div>
 
               {/* VISIBILIDADE: barbearias BarberMove perto de voce (somente visualizacao) */}
-              <div className="rounded-2xl border border-zinc-800 bg-zinc-900 p-4 space-y-3">
-                <div className="flex items-center justify-between gap-3">
-                  <div className="flex items-center gap-2 min-w-0">
-                    <div className="min-w-0">
-                      <p className="text-xs font-black uppercase tracking-widest text-zinc-300">Barbearias BarberMove perto de voce</p>
-                      <p className="text-[11px] text-zinc-500">Quem ja esta na plataforma na sua regiao.</p>
-                    </div>
+              <div className="space-y-3">
+                <div className="space-y-1.5">
+                  <h2 className="text-xl font-black text-white tracking-tight">Barbearias perto de você</h2>
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="min-w-0 flex items-center gap-1 text-[11px] text-zinc-400">
+                      <MapPin size={11} className="shrink-0 text-orange-400" />
+                      <span className="truncate">
+                        {perfil?.endereco || (minhaPosicao || perfil?.latitude != null ? 'Sua localização atual' : 'Localização não definida')}
+                      </span>
+                    </p>
                     <button
                       type="button"
                       onClick={atualizarGpsBarbeariasProximas}
                       disabled={atualizandoGpsBarbearias}
-                      title="Atualizar minha localizacao"
-                      aria-label="Atualizar minha localizacao"
-                      className="shrink-0 rounded-full border border-zinc-700 bg-zinc-800 p-1.5 text-zinc-300 hover:text-white hover:border-zinc-500 disabled:opacity-50"
+                      className="shrink-0 flex items-center gap-1 rounded-lg border border-zinc-700 bg-black/30 px-2.5 py-1.5 text-[11px] font-bold text-zinc-300 hover:border-orange-500 hover:text-orange-300 transition-colors disabled:opacity-60"
                     >
-                      <RefreshCw size={13} className={atualizandoGpsBarbearias ? 'animate-spin' : ''} />
+                      <RefreshCw size={12} className={atualizandoGpsBarbearias ? 'animate-spin' : ''} />
+                      {atualizandoGpsBarbearias ? 'Atualizando...' : 'Atualizar localização'}
                     </button>
                   </div>
-                  <span className="rounded-full border border-zinc-700 bg-zinc-800 px-3 py-1 text-xs font-bold text-zinc-300">
-                    {barbeariasProximas.length}
-                  </span>
                 </div>
 
                 {barbeariasProximas.length === 0 ? (
-                  <p className="text-xs text-zinc-500">Nenhuma barbearia BarberMove encontrada por perto ainda.</p>
+                  <p className="text-xs text-zinc-500 py-4 text-center">Nenhuma barbearia BarberMove encontrada por perto ainda.</p>
                 ) : (
                   <div className="space-y-2">
-                    {barbeariasProximas.slice(0, 6).map((b) => (
+                    {(verTodasBarbeariasProximas ? barbeariasProximas : barbeariasProximas.slice(0, 6)).map((b) => (
                       <button
                         type="button"
                         key={b.id}
@@ -1134,13 +1083,17 @@ export default function PainelBarberMovePremium({ token: tokenProp, logout: logo
                     ))}
                   </div>
                 )}
-              </div>
 
-              {totalBarbeariasCadastradas != null && (
-                <p className="text-[11px] text-zinc-500 text-center">
-                  {totalBarbeariasCadastradas} barbearias cadastradas no BarberMove
-                </p>
-              )}
+                {barbeariasProximas.length > 6 && !verTodasBarbeariasProximas && (
+                  <button
+                    type="button"
+                    onClick={() => setVerTodasBarbeariasProximas(true)}
+                    className="w-full py-2 text-center text-xs font-semibold text-zinc-500 hover:text-orange-300 transition-colors"
+                  >
+                    Ver outras barbearias
+                  </button>
+                )}
+              </div>
             </div>
           )}
 
