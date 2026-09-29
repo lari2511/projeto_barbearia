@@ -1150,7 +1150,13 @@ export default function PainelBarberMovePremium({ token: tokenProp, logout: logo
                   <div className="flex items-center gap-2">
                     <span className="w-2 h-2 rounded-full bg-emerald-400" />
                     <p className="text-xs font-bold text-emerald-300 uppercase tracking-wide">
-                      {String(chamadoAtivo.status || '').toLowerCase() === 'em_atendimento' ? 'Em atendimento' : `Chamado #${chamadoAtivo.id}`}
+                      {String(chamadoAtivo.status || '').toLowerCase() === 'em_atendimento'
+                        ? 'Em atendimento'
+                        : String(chamadoAtivo.status || '').toLowerCase() === 'pendente'
+                          ? 'Chamado recebido'
+                          : ['confirmado', 'aceito'].includes(String(chamadoAtivo.status || '').toLowerCase())
+                            ? 'Chamado aceito'
+                            : `Chamado #${chamadoAtivo.id}`}
                     </p>
                   </div>
 
@@ -1216,14 +1222,7 @@ export default function PainelBarberMovePremium({ token: tokenProp, logout: logo
                     </button>
                   )}
 
-                  {/* Deslocamento (mapa/GPS/ETA/Cheguei): so antes de iniciar o atendimento. */}
-                  {!chamadoAtivoEmAtendimento && chamadoAtivo.nome_barbearia && (
-                    <div className="flex items-center gap-2 rounded-xl border border-zinc-800 bg-zinc-950/60 px-3 py-2.5">
-                      <MapPin size={14} className="text-zinc-400 shrink-0" />
-                      <p className="text-xs text-zinc-400 truncate">{chamadoAtivo.nome_barbearia}</p>
-                    </div>
-                  )}
-
+                  {/* Deslocamento (mapa compacto do cliente + a caminho + Cheguei): so depois de aceito e antes do atendimento. */}
                   {!chamadoAtivoEmAtendimento && (
                     <TrackingPanel
                       chamado={chamadoAtivo}
@@ -1232,9 +1231,13 @@ export default function PainelBarberMovePremium({ token: tokenProp, logout: logo
                       notify={notify}
                       modo="barbeiro"
                       minhaPosicao={minhaPosicao}
+                      compacto
                     />
                   )}
-                  <ChatRoom chamadoId={chamadoAtivo.id} token={token} API_URL={API_URL} compact />
+                  {/* Chamado recebido: so o essencial para aceitar/recusar (conversa aparece depois de aceito). */}
+                  {(chamadoAtivo.status || '').toLowerCase() !== 'pendente' && (
+                    <ChatRoom chamadoId={chamadoAtivo.id} token={token} API_URL={API_URL} compact />
+                  )}
                   {['pendente'].includes((chamadoAtivo.status||'').toLowerCase()) && (
                     <div className="flex gap-2">
                       <button
@@ -1242,13 +1245,13 @@ export default function PainelBarberMovePremium({ token: tokenProp, logout: logo
                         disabled={bloqueadoFinanceiro}
                         className="flex-1 bg-green-600 hover:bg-green-700 disabled:bg-zinc-700 disabled:text-zinc-400 text-white font-black rounded-xl py-3 text-sm"
                       >
-                        {bloqueadoFinanceiro ? '⛔ Bloqueado por saldo devedor' : '✅ Aceitar Chamado'}
+                        {bloqueadoFinanceiro ? '⛔ Bloqueado por saldo devedor' : '✅ ACEITAR CHAMADO'}
                       </button>
                       <button
                         onClick={() => recusarChamado(chamadoAtivo.id)}
                         className="rounded-xl border border-red-500/60 text-red-400 hover:bg-red-500/10 font-black px-4 py-3 text-sm"
                       >
-                        ❌ Recusar
+                        ❌ RECUSAR
                       </button>
                     </div>
                   )}

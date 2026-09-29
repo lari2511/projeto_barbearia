@@ -356,42 +356,55 @@ export default function TrackingPanel({ chamado, token, API_URL, notify, modo = 
         ? 'Rastreamento obrigatório da unidade'
         : 'Rastreamento automático obrigatório';
 
-    // Versão enxuta para o cliente: só mapa pequeno do freelancer, "a caminho" e Cheguei.
+    // Versão enxuta (cliente e freelancer): só mapa pequeno da outra parte, "a caminho" e Cheguei.
     // Mesma lógica (GPS, polling, websocket, chegada) — só muda o que é exibido.
-    if (compacto && isClienteMode) {
+    if (compacto && (isClienteMode || isBarbeiroMode)) {
         if (!trackingAtivo) return null;
         const freelancerChegou = barbeiroChegou || barbeiroPresenteNoLocal;
+        const coordsOutraParte = isClienteMode ? coordsBarbeiro : coordsCliente;
+        const statusCaminho = isClienteMode
+            ? (freelancerChegou ? '✅ Freelancer chegou na barbearia' : '🚶 Freelancer a caminho')
+            : (freelancerChegou ? '✅ Você chegou na barbearia' : '🚶 Você está a caminho');
         return (
             <div className="w-full space-y-3 text-white">
-                {coordsBarbeiro && coordsBarbearia && (
+                {coordsOutraParte && coordsBarbearia && (
                     <TrackingMapRealtime
-                        origem={coordsBarbeiro}
+                        origem={coordsOutraParte}
                         destino={coordsBarbearia}
-                        titulo="Freelancer"
-                        subtitulo={freelancerChegou ? 'Chegou na barbearia' : 'A caminho'}
+                        titulo={isClienteMode ? 'Freelancer' : 'Cliente'}
+                        subtitulo={isClienteMode ? (freelancerChegou ? 'Chegou na barbearia' : 'A caminho') : (clienteChegou ? 'Chegou na barbearia' : 'A caminho')}
                         height="180px"
                         isMoving={posicaoAtual !== null}
                     />
                 )}
                 <div className={`rounded-xl border px-3 py-2.5 text-sm font-semibold text-center ${freelancerChegou ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-200' : 'border-zinc-700 bg-zinc-900/40 text-zinc-200'}`}>
-                    {freelancerChegou ? '✅ Freelancer chegou na barbearia' : '🚶 Freelancer a caminho'}
+                    {statusCaminho}
                 </div>
-                <button
-                    type="button"
-                    onClick={marcarChegada}
-                    disabled={marcandoChegada || chegadaDoUsuarioConfirmada || !dentroDoLimiteParaChegada}
-                    className="w-full rounded-xl bg-orange-500 px-3 py-3 text-sm font-black text-white transition-opacity disabled:opacity-50"
-                >
-                    {marcandoChegada
-                        ? 'Registrando...'
-                        : chegadaDoUsuarioConfirmada
-                            ? 'Chegada já confirmada'
-                            : dentroDoLimiteParaChegada
-                                ? 'CHEGUEI'
-                                : 'Aproxime-se para confirmar'}
-                </button>
-                {!chegadaDoUsuarioConfirmada && !dentroDoLimiteParaChegada && (
-                    <p className="text-[11px] text-zinc-500 text-center">Disponível a até 200m da barbearia.</p>
+                {isBarbeiroMode && barbeiroPresenteNoLocal ? (
+                    // Freelancer já presente na barbearia: sem Cheguei (mesma regra do painel completo).
+                    <div className="w-full rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-3 py-2.5 text-sm font-semibold text-emerald-200 text-center">
+                        Você já está presente na barbearia. Apenas o cliente precisa confirmar chegada.
+                    </div>
+                ) : (
+                    <>
+                        <button
+                            type="button"
+                            onClick={marcarChegada}
+                            disabled={marcandoChegada || chegadaDoUsuarioConfirmada || !dentroDoLimiteParaChegada}
+                            className="w-full rounded-xl bg-orange-500 px-3 py-3 text-sm font-black text-white transition-opacity disabled:opacity-50"
+                        >
+                            {marcandoChegada
+                                ? 'Registrando...'
+                                : chegadaDoUsuarioConfirmada
+                                    ? 'Chegada já confirmada'
+                                    : dentroDoLimiteParaChegada
+                                        ? 'CHEGUEI'
+                                        : 'Aproxime-se para confirmar'}
+                        </button>
+                        {!chegadaDoUsuarioConfirmada && !dentroDoLimiteParaChegada && (
+                            <p className="text-[11px] text-zinc-500 text-center">Disponível a até 200m da barbearia.</p>
+                        )}
+                    </>
                 )}
             </div>
         );
