@@ -1725,104 +1725,55 @@ export default function ClientDashboard({ token, logout, API_URL: apiUrlProp, no
         {/* Painel completo (deslocamento): so antes do atendimento comecar. */}
         {!isPerfilTab && isChamadoVisivel(activeChamado) && !atendimentoEmAndamento && (
             <div className="px-3 pt-2">
-                <div className="dashboard-card space-y-4 p-4">
-                    <div className="flex items-start justify-between gap-3">
-                        <div className="min-w-0">
-                            <span className="inline-flex items-center rounded-full border border-amber-500/20 bg-amber-500/10 px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.2em] text-amber-300">
-                                Chamado ativo
-                            </span>
-                            <p className="mt-2 text-sm font-semibold text-zinc-100 truncate">ID: {activeChamado.id} — {servicosDoAtendimento.join(' + ') || activeChamado.servico_nome || activeChamado.descricao || ''}</p>
-                        </div>
-                        <div className="text-right space-y-2 shrink-0">
-                            <div className="text-[10px] uppercase tracking-[0.15em] text-zinc-500 font-semibold">Status</div>
-                            <div className="text-sm font-bold text-white">{activeChamado.status || 'ativo'}</div>
-                            <div className="text-xs font-bold text-orange-300">
-                                ⏱️ {getCancelamentoInfo(activeChamado).tempoRestante}
-                            </div>
-                        </div>
-                    </div>
-                    <div className="grid grid-cols-1 gap-2">
-                        {typeof onChamadoAceito === 'function' && (
-                            <button
-                                onClick={() => onChamadoAceito(activeChamado.id)}
-                                className="bm-primary w-full text-center"
-                            >
-                                📍 Ver Rastreamento
-                            </button>
-                        )}
+                {/* Tela enxuta do chamado: ENVIADO (só cancelar) -> ACEITO (mapa + a caminho + conversa + cheguei + cancelar). */}
+                {String(activeChamado.status || '').toLowerCase() === 'pendente' ? (
+                    <div className="dashboard-card space-y-4 p-4">
+                        <p className="text-center text-lg font-black tracking-wide text-amber-300">CHAMADO ENVIADO</p>
+                        <p className="text-center text-xs text-zinc-400">Aguardando o freelancer aceitar.</p>
                         <button
                             onClick={abrirConfirmacaoCancelamento}
-                            className={`w-full text-center font-bold bm-secondary ${
-                                getCancelamentoInfo(activeChamado).taxa > 0 ? 'bm-card-danger' : ''
-                            }`}
+                            className="w-full rounded-xl border border-red-500/60 py-3 text-sm font-black text-red-400 hover:bg-red-500/10"
                         >
-                            {getCancelamentoBotaoTexto(activeChamado)}
+                            CANCELAR CHAMADO
                         </button>
                     </div>
-                    <div className={`bm-card p-3.5 text-sm leading-relaxed ${
-                        getCancelamentoInfo(activeChamado).taxa > 0
-                            ? 'bm-card-danger'
-                            : getCancelamentoInfo(activeChamado).tempoRestante === '0:00'
-                                ? 'bg-yellow-500/10 text-yellow-100 border-yellow-500/50'
-                                : 'bm-card-success'
-                    }`}>
-                        {getCancelamentoInfo(activeChamado).taxa === 0 ? (
-                            <>
-                                <div className="flex items-center gap-2 mb-1">
-                                    <span>✅ Cancelamento grátis disponível</span>
-                                </div>
-                                <div className="text-xs opacity-90">
-                                    Tempo restante para cancelar sem taxa: {getCancelamentoInfo(activeChamado).tempoRestante}
-                                </div>
-                            </>
-                        ) : (
-                            <>
-                                <div className="flex items-center gap-2 mb-1">
-                                    <span>⚠️ Janela de cancelamento grátis expirou</span>
-                                </div>
-                                <div className="text-xs opacity-90">
-                                    Taxa de cancelamento: R$ {getCancelamentoInfo(activeChamado).taxa.toFixed(2)}
-                                </div>
-                            </>
-                        )}
-                    </div>
+                ) : (
+                    <div className="dashboard-card space-y-4 p-4">
+                        <p className="text-center text-lg font-black tracking-wide text-emerald-300">CHAMADO ACEITO</p>
 
-                    {/* Painel de rastreamento e informações adicionais */}
-                    <div className="rounded-2xl border border-amber-500/30 bg-amber-500/10 p-3.5 text-xs text-amber-100 leading-relaxed">
-                        {getCancelamentoInfo(activeChamado).texto}
-                        {getCancelamentoInfo(activeChamado).taxa > 0 && (
-                            <div className="mt-1 font-bold">
-                                Taxa de cancelamento: R$ {getCancelamentoInfo(activeChamado).taxa.toFixed(2)}
+                        <TrackingPanel chamado={activeChamado} token={token} API_URL={API_URL} notify={notify} compacto />
+
+                        {/* Fila de espera: freelancer ainda terminando o atendimento atual. */}
+                        {String(activeChamado.status || '').toLowerCase() === 'confirmado' && activeChamado.barbeiro_em_atendimento && activeChamado.barbeiro_ocupado_ate && (
+                            <div className="rounded-2xl border border-orange-500/30 bg-orange-500/10 p-3.5 space-y-2">
+                                <p className="text-xs font-bold text-orange-200">
+                                    Você está na fila. {activeChamado.barbeiro_nome || 'O freelancer'} está terminando o atendimento atual.
+                                </p>
+                                <CronometroAtendimento
+                                    chamado={{ id: activeChamado.id, status: 'em_atendimento', data_hora_fim: activeChamado.barbeiro_ocupado_ate }}
+                                    chamadoAtivoId={activeChamado.id}
+                                    isPausado={Boolean(activeChamado.barbeiro_atendimento_atual_pausado)}
+                                    pausadoEmMs={activeChamado.barbeiro_atendimento_atual_pausado_em ? parseDataServidorUTC(activeChamado.barbeiro_atendimento_atual_pausado_em) : null}
+                                    pausaAcumuladaMs={Math.round((Number(activeChamado.barbeiro_atendimento_atual_pausa_acumulada_segundos) || 0) * 1000)}
+                                    agoraMs={agoraMsCronometro}
+                                    compacto
+                                />
                             </div>
                         )}
-                    </div>
-                    {/* Fila de espera: freelancer já está atendendo outro cliente agora -
-                        mostra o mesmo cronômetro que ele/o cliente atual/o dono já veem,
-                        pra este cliente acompanhar quanto falta pro atendimento atual acabar. */}
-                    {String(activeChamado.status || '').toLowerCase() === 'confirmado' && activeChamado.barbeiro_em_atendimento && activeChamado.barbeiro_ocupado_ate && (
-                        <div className="rounded-2xl border border-orange-500/30 bg-orange-500/10 p-3.5 space-y-2">
-                            <p className="text-xs font-bold text-orange-200">
-                                Você está na fila. {activeChamado.barbeiro_nome || 'O freelancer'} está terminando o atendimento atual.
-                            </p>
-                            <CronometroAtendimento
-                                chamado={{ id: activeChamado.id, status: 'em_atendimento', data_hora_fim: activeChamado.barbeiro_ocupado_ate }}
-                                chamadoAtivoId={activeChamado.id}
-                                isPausado={Boolean(activeChamado.barbeiro_atendimento_atual_pausado)}
-                                pausadoEmMs={activeChamado.barbeiro_atendimento_atual_pausado_em ? parseDataServidorUTC(activeChamado.barbeiro_atendimento_atual_pausado_em) : null}
-                                pausaAcumuladaMs={Math.round((Number(activeChamado.barbeiro_atendimento_atual_pausa_acumulada_segundos) || 0) * 1000)}
-                                agoraMs={agoraMsCronometro}
-                                compacto
-                            />
-                        </div>
-                    )}
 
-                    <div className="grid grid-cols-1 gap-3 items-start">
-                        <TrackingPanel chamado={activeChamado} token={token} API_URL={API_URL} notify={notify} />
-                        <div className="min-h-0">
+                        <div>
+                            <p className="text-[10px] uppercase tracking-[0.15em] text-zinc-500 font-semibold mb-2">💬 Conversa</p>
                             <ChatRoom chamadoId={activeChamado.id} token={token} API_URL={API_URL} compact={true} />
                         </div>
+
+                        <button
+                            onClick={abrirConfirmacaoCancelamento}
+                            className="w-full rounded-xl border border-red-500/60 py-3 text-sm font-black text-red-400 hover:bg-red-500/10"
+                        >
+                            CANCELAR CHAMADO
+                        </button>
                     </div>
-                </div>
+                )}
             </div>
         )}
 

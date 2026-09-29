@@ -17,7 +17,7 @@ const haversineKm = (lat1, lon1, lat2, lon2) => {
 // Botão "Cheguei" só fica disponível a até 200m do local do atendimento.
 const DISTANCIA_MAXIMA_CHEGADA_KM = 0.2;
 
-export default function TrackingPanel({ chamado, token, API_URL, notify, modo = 'cliente', barbeariaId = null }) {
+export default function TrackingPanel({ chamado, token, API_URL, notify, modo = 'cliente', barbeariaId = null, compacto = false }) {
     const [posicaoAtual, setPosicaoAtual] = useState(null);
     const [destinoInfo, setDestinoInfo] = useState(null);
     const [distanciaBackend, setDistanciaBackend] = useState(null);
@@ -355,6 +355,47 @@ export default function TrackingPanel({ chamado, token, API_URL, notify, modo = 
     const resumoLabel = isBarbeariaMode
         ? 'Rastreamento obrigatório da unidade'
         : 'Rastreamento automático obrigatório';
+
+    // Versão enxuta para o cliente: só mapa pequeno do freelancer, "a caminho" e Cheguei.
+    // Mesma lógica (GPS, polling, websocket, chegada) — só muda o que é exibido.
+    if (compacto && isClienteMode) {
+        if (!trackingAtivo) return null;
+        const freelancerChegou = barbeiroChegou || barbeiroPresenteNoLocal;
+        return (
+            <div className="w-full space-y-3 text-white">
+                {coordsBarbeiro && coordsBarbearia && (
+                    <TrackingMapRealtime
+                        origem={coordsBarbeiro}
+                        destino={coordsBarbearia}
+                        titulo="Freelancer"
+                        subtitulo={freelancerChegou ? 'Chegou na barbearia' : 'A caminho'}
+                        height="180px"
+                        isMoving={posicaoAtual !== null}
+                    />
+                )}
+                <div className={`rounded-xl border px-3 py-2.5 text-sm font-semibold text-center ${freelancerChegou ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-200' : 'border-zinc-700 bg-zinc-900/40 text-zinc-200'}`}>
+                    {freelancerChegou ? '✅ Freelancer chegou na barbearia' : '🚶 Freelancer a caminho'}
+                </div>
+                <button
+                    type="button"
+                    onClick={marcarChegada}
+                    disabled={marcandoChegada || chegadaDoUsuarioConfirmada || !dentroDoLimiteParaChegada}
+                    className="w-full rounded-xl bg-orange-500 px-3 py-3 text-sm font-black text-white transition-opacity disabled:opacity-50"
+                >
+                    {marcandoChegada
+                        ? 'Registrando...'
+                        : chegadaDoUsuarioConfirmada
+                            ? 'Chegada já confirmada'
+                            : dentroDoLimiteParaChegada
+                                ? 'CHEGUEI'
+                                : 'Aproxime-se para confirmar'}
+                </button>
+                {!chegadaDoUsuarioConfirmada && !dentroDoLimiteParaChegada && (
+                    <p className="text-[11px] text-zinc-500 text-center">Disponível a até 200m da barbearia.</p>
+                )}
+            </div>
+        );
+    }
 
     return (
         <div className="w-full max-w-[430px] mx-auto space-y-4 text-white selection:bg-orange-500/30">
