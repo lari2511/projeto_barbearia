@@ -8,6 +8,7 @@ import TelaPerfilUsuario from './TelaPerfilUsuario';
 import TelaMensalidadeAssinatura from './TelaMensalidadeAssinatura';
 import { useBackHandler } from '../utils/useBackHandler';
 import BotaoVoltar from './BotaoVoltar';
+import { formatarEndereco } from '../utils/address';
 import ProfileCard from './ProfileCard';
 import CronometroAtendimento, { parseDataServidorUTC } from './CronometroAtendimento';
 import DeslocamentoAtendimento from './DeslocamentoAtendimento';
@@ -66,6 +67,8 @@ export default function ShopDashboard({ token, logout, notify, API_URL }) {
     const [savingServiceEdit, setSavingServiceEdit] = useState(false);
     const [user, setUser] = useState(null);
     const [userData, setUserData] = useState(null);
+    const [barbeariaInfo, setBarbeariaInfo] = useState(null); // /barbearia/minha (Home: card da barbearia)
+    const [fotoBarbearia, setFotoBarbearia] = useState(''); // foto/logo escolhida pelo dono no perfil
     const [barbeariaNome, setBarbeariaNome] = useState('');
     const [tab, setTab] = useState(() => {
         if (typeof window === 'undefined') return 'barbeiros';
@@ -147,10 +150,18 @@ export default function ShopDashboard({ token, logout, notify, API_URL }) {
         .then(data => {
             if (data && data.id) {
                 setBarbeariaId(data.id);
+                setBarbeariaInfo(data);
                 if (data.nome) setBarbeariaNome(data.nome);
                 setUserData(prev => ({ ...(prev || {}), id: data.usuario_id || prev?.id }));
             }
         })
+        .catch(() => {});
+
+        fetch(`${API_URL}/api/v1/usuarios/perfil-completo`, {
+            headers: {'Authorization': `Bearer ${token}`}
+        })
+        .then(r => r.ok ? r.json() : null)
+        .then(data => { if (data?.foto_perfil) setFotoBarbearia(data.foto_perfil); })
         .catch(() => {});
     }, [API_URL, token]);
 
@@ -1021,8 +1032,17 @@ export default function ShopDashboard({ token, logout, notify, API_URL }) {
             <div className="app-container w-full min-h-[100dvh] max-w-[430px] flex flex-col overflow-x-hidden bg-[#050505] shadow-[0_0_0_1px_rgba(255,255,255,0.04)]">
             <div className="sticky top-0 z-20 px-3 pt-3 pb-2 bg-[#050505]/95 backdrop-blur-xl flex-shrink-0">
                 <div className="flex justify-between items-center rounded-[1.5rem] border border-zinc-800/80 bg-zinc-950/90 px-4 py-3 shadow-xl shadow-black/25">
+                    {tab === 'inicio' ? (
+                    <div className="flex items-center gap-3 min-w-0">
+                        <AvatarFreelancer nome={barbeariaNome || 'Barbearia'} foto={fotoBarbearia} API_URL={API_URL} size={40} />
+                        <h1 className="text-base font-black tracking-tight truncate">{barbeariaNome || 'Minha barbearia'}</h1>
+                        {user?.documento_verificado && (
+                            <CheckCircle size={14} className="text-blue-500 fill-blue-500 shrink-0" />
+                        )}
+                    </div>
+                    ) : (
                     <div className="flex items-center gap-2 min-w-0">
-                        {tab !== 'inicio' && <BotaoVoltar />}
+                        <BotaoVoltar />
                         <h1 className="text-lg font-black tracking-tight flex items-center gap-2 truncate">
                             <Store size={18} className="text-orange-500"/> Loja
                         </h1>
@@ -1030,6 +1050,7 @@ export default function ShopDashboard({ token, logout, notify, API_URL }) {
                             <CheckCircle size={14} className="text-blue-500 fill-blue-500" />
                         )}
                     </div>
+                    )}
                     <div className="flex items-center gap-2 shrink-0">
                         <button
                             onClick={() => setNotificacoesAbertas((v) => !v)}
@@ -1043,26 +1064,75 @@ export default function ShopDashboard({ token, logout, notify, API_URL }) {
                                 </span>
                             )}
                         </button>
+                        {tab !== 'inicio' && (
                         <button onClick={logout} className="h-10 w-10 rounded-full bg-zinc-900 border border-zinc-800 flex items-center justify-center text-zinc-400 hover:text-white hover:bg-zinc-800 transition-colors"><LogOut size={18}/></button>
+                        )}
                     </div>
                 </div>
             </div>
 
             <div className="flex-1 overflow-visible pb-[calc(6rem+env(safe-area-inset-bottom))]">
 
-                {/* ABA: INÍCIO */}
+                {/* ABA: INÍCIO — Minha barbearia -> Freelancers BarberMove perto de mim -> Total */}
                 {tab === 'inicio' && (
                     <div className="p-4 space-y-4 max-w-3xl mx-auto w-full">
-                        <div className="bm-card bg-zinc-900 rounded-2xl p-5 border border-zinc-800/60 space-y-3">
-                            <div className="flex items-center gap-3">
-                                <div className="w-12 h-12 rounded-2xl bg-orange-500/15 border border-orange-500/30 flex items-center justify-center text-2xl">💈</div>
-                                <div>
-                                    <p className="text-xs text-zinc-500 uppercase tracking-widest">Painel da</p>
-                                    <h2 className="text-lg font-black text-white">Barbearia</h2>
-                                </div>
+                        <div className="bm-card bg-zinc-900 rounded-2xl px-3 py-2.5 border border-zinc-800/60 flex items-center gap-3">
+                            <AvatarFreelancer nome={barbeariaNome || 'Barbearia'} foto={fotoBarbearia} API_URL={API_URL} size={40} />
+                            <div className="min-w-0 flex-1">
+                                <p className="text-sm font-bold text-white truncate">{barbeariaNome || 'Minha barbearia'}</p>
+                                {barbeariaInfo?.endereco && (
+                                    <p className="text-[11px] text-zinc-400 truncate">📍 {formatarEndereco(barbeariaInfo.endereco) || barbeariaInfo.endereco}</p>
+                                )}
                             </div>
-                            <p className="text-sm text-zinc-400">Gerencie seus freelancers, agendamentos, avaliações e financeiro.</p>
+                            {barbeariaInfo?.status_online && !barbeariaInfo?.bloqueada && (
+                                <span className="shrink-0 rounded-full border border-green-500/40 bg-green-500/10 px-2 py-0.5 text-[10px] font-black text-green-400">ABERTA</span>
+                            )}
                         </div>
+
+                        {/* Freelancers BarberMove perto de você: mesma consulta de proximidade
+                            da aba "Freelancers" (visibilidade). Toque abre o perfil do freelancer. */}
+                        <div className="space-y-3">
+                            <h3 className="text-base font-black text-white leading-tight uppercase tracking-wide">
+                                Freelancers BarberMove<br /><span className="text-orange-500">perto de você</span>
+                            </h3>
+                            {freelancersProximosRegiao.length === 0 ? (
+                                <p className="text-xs text-zinc-500">Nenhum freelancer perto de você agora.</p>
+                            ) : (
+                                <div className="space-y-2">
+                                    {freelancersProximosRegiao.map((f) => {
+                                        const presente = f.status === 'presente';
+                                        return (
+                                            <div
+                                                key={f.usuario_id}
+                                                onClick={() => abrirPerfilFreelancer(f.usuario_id, f.nome)}
+                                                role="button"
+                                                tabIndex={0}
+                                                className="bm-card bg-zinc-900 border border-zinc-800/60 rounded-2xl p-3 flex items-center gap-3 cursor-pointer hover:border-orange-500 transition-colors"
+                                            >
+                                                <div className="relative shrink-0">
+                                                    <AvatarFreelancer nome={f.nome} foto={f.foto_perfil} API_URL={API_URL} size={52} />
+                                                    <span className={`absolute bottom-0 right-0 w-3.5 h-3.5 rounded-full border-2 border-zinc-900 ${presente ? 'bg-orange-500' : 'bg-green-500'}`} />
+                                                </div>
+                                                <div className="min-w-0 flex-1">
+                                                    <p className="text-sm font-bold text-white truncate">{f.nome}</p>
+                                                    <p className={`text-xs ${presente ? 'text-orange-300' : 'text-green-400'}`}>
+                                                        {presente ? '💈 Presente na barbearia' : '🟢 Disponível na região'}
+                                                    </p>
+                                                </div>
+                                                <span className="shrink-0 text-xs text-zinc-400 font-semibold">📍 {f.distancia_aproximada}</span>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            )}
+                        </div>
+
+                        {totalFreelancersCadastrados != null && (
+                            <div className="bm-card bg-zinc-900 rounded-2xl p-3 border border-zinc-800/60 flex items-center justify-between gap-3">
+                                <p className="text-[11px] font-bold text-zinc-400 uppercase tracking-wide">Total de freelancers cadastrados</p>
+                                <p className="text-lg font-black text-orange-500">{totalFreelancersCadastrados}</p>
+                            </div>
+                        )}
 
                         {atendimentosAtivosInicio.length > 0 && (
                             <button
@@ -1100,71 +1170,6 @@ export default function ShopDashboard({ token, logout, notify, API_URL }) {
                             </button>
                         )}
 
-                        <div className="grid grid-cols-2 gap-3">
-                            <button onClick={() => setTab('barbeiros')} className="bm-card bg-zinc-900 rounded-2xl p-4 border border-zinc-800/60 flex flex-col items-center gap-2 hover:border-orange-500 transition-colors">
-                                <Store size={22} className="text-orange-400" />
-                                <span className="text-sm font-bold">Minha Loja</span>
-                                <span className="text-xs text-zinc-500">Serviços e cadeiras</span>
-                            </button>
-                            <button onClick={() => setTab('freelancers')} className="bm-card bg-zinc-900 rounded-2xl p-4 border border-zinc-800/60 flex flex-col items-center gap-2 hover:border-orange-500 transition-colors">
-                                <Users size={22} className="text-blue-400" />
-                                <span className="text-sm font-bold">Freelancers</span>
-                                <span className="text-xs text-zinc-500">Controle de presentes</span>
-                            </button>
-                            <button onClick={() => setTab('agenda')} className="bm-card bg-zinc-900 rounded-2xl p-4 border border-zinc-800/60 flex flex-col items-center gap-2 hover:border-orange-500 transition-colors">
-                                <Calendar size={22} className="text-green-400" />
-                                <span className="text-sm font-bold">Chamadas</span>
-                                <span className="text-xs text-zinc-500">Agendamentos</span>
-                            </button>
-                            <button onClick={() => setTab('avaliar')} className="bm-card bg-zinc-900 rounded-2xl p-4 border border-zinc-800/60 flex flex-col items-center gap-2 hover:border-orange-500 transition-colors">
-                                <Star size={22} className="text-yellow-400" />
-                                <span className="text-sm font-bold">Avaliar</span>
-                                <span className="text-xs text-zinc-500">Avaliações recebidas</span>
-                            </button>
-                            <button onClick={() => setTab('perfil')} className="bm-card bg-zinc-900 rounded-2xl p-4 border border-zinc-800/60 flex flex-col items-center gap-2 hover:border-orange-500 transition-colors">
-                                <User size={22} className="text-purple-400" />
-                                <span className="text-sm font-bold">Perfil</span>
-                                <span className="text-xs text-zinc-500">Seus dados</span>
-                            </button>
-                            <button onClick={() => setTab('pagamento')} className="bm-card bg-zinc-900 rounded-2xl p-4 border border-zinc-800/60 flex flex-col items-center gap-2 hover:border-orange-500 transition-colors">
-                                <CreditCard size={22} className="text-emerald-400" />
-                                <span className="text-sm font-bold">Carteira</span>
-                                <span className="text-xs text-zinc-500">Financeiro</span>
-                            </button>
-                        </div>
-
-                        {/* Freelancers BarberMove perto de você: mesma consulta de proximidade
-                            da aba "Freelancers" (visibilidade), só que resumida — nome + distância. */}
-                        <div className="bm-card bg-zinc-900 rounded-2xl p-4 border border-zinc-800/60 space-y-2">
-                            <h3 className="text-sm font-black text-white">Freelancers BarberMove perto de você</h3>
-                            {freelancersProximosRegiao.length === 0 ? (
-                                <p className="text-xs text-zinc-500">Nenhum freelancer perto de você agora.</p>
-                            ) : (
-                                <div className="space-y-2">
-                                    {freelancersProximosRegiao.map((f) => (
-                                        <div
-                                            key={f.usuario_id}
-                                            onClick={() => abrirPerfilFreelancer(f.usuario_id, f.nome)}
-                                            role="button"
-                                            tabIndex={0}
-                                            className="bg-black/30 border border-zinc-800 rounded-xl px-3 py-2.5 flex items-center justify-between gap-2 cursor-pointer hover:border-orange-500 transition-colors"
-                                        >
-                                            <span className="flex items-center gap-2 min-w-0 text-sm font-bold text-white truncate">
-                                                <AvatarFreelancer nome={f.nome} foto={f.foto_perfil} API_URL={API_URL} size={28} />
-                                                💈 {f.nome}
-                                            </span>
-                                            <span className="text-xs text-zinc-400 shrink-0">📍 {f.distancia_aproximada}</span>
-                                        </div>
-                                    ))}
-                                </div>
-                            )}
-                        </div>
-
-                        {totalFreelancersCadastrados != null && (
-                            <p className="text-[11px] text-zinc-500 text-center">
-                                {totalFreelancersCadastrados} freelancers cadastrados no BarberMove
-                            </p>
-                        )}
                     </div>
                 )}
 
