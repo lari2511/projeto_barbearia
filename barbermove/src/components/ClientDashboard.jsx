@@ -14,6 +14,7 @@ import { obterLocalizacaoAtual, obterPosicaoAltaPrecisa } from '../utils/locatio
 import { getApiBaseUrl, getWsBaseUrl, resolveMediaUrl } from '../utils/api';
 import { useBackHandler } from '../utils/useBackHandler';
 import BotaoVoltar from './BotaoVoltar';
+import AlteracaoServicoCliente from './AlteracaoServicoCliente';
 const getShopImage = (id) => `https://images.unsplash.com/photo-${id % 2 === 0 ? '1521590832874-552721032d00' : '1503951914290-d20607416905'}?auto=format&fit=crop&w=800&q=80`;
 const BARBEIROS_CACHE_KEY = 'barbermove.client.barbeiros_cache';
 const GPS_PREFERENCE_KEY = 'barbermove.client.gps_preference';
@@ -1244,7 +1245,7 @@ export default function ClientDashboard({ token, logout, API_URL: apiUrlProp, no
         if (!activeChamado) return [];
         const base = Array.isArray(myOrders) ? myOrders : [];
         const membros = activeChamado.grupo_id
-            ? base.filter((o) => o.grupo_id === activeChamado.grupo_id)
+            ? base.filter((o) => o.grupo_id === activeChamado.grupo_id && String(o.status || '').toLowerCase() !== 'cancelado')
             : [activeChamado];
         const nomes = membros.map((m) => m?.servico_nome || m?.descricao).filter(Boolean);
         return [...new Set(nomes)];
@@ -1584,6 +1585,7 @@ export default function ClientDashboard({ token, logout, API_URL: apiUrlProp, no
         return (
         <div className="client-dashboard-shell min-h-[100dvh] w-full bg-[#050505] text-white font-sans flex justify-center overflow-x-hidden">
             <div className="w-full min-h-[100dvh] max-w-[430px] flex flex-col overflow-x-hidden bg-[#050505] shadow-[0_0_0_1px_rgba(255,255,255,0.04)] dashboard-surface">
+        <AlteracaoServicoCliente token={token} API_URL={API_URL} notify={notifySafe} onRespondido={carregarMeusPedidos} />
         {/* HEADER */}
         <div className="sticky top-0 z-20 px-3 pt-3 pb-2 bg-[#050505]/95 backdrop-blur-xl flex-shrink-0">
             {tab === 'inicio' ? (

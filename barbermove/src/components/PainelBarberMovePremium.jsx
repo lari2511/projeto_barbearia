@@ -7,6 +7,7 @@ import AbaPadronizadaAvaliacoes from './AbaPadronizadaAvaliacoes';
 import AvaliacaoModal from './AvaliacaoModal';
 import TelaPerfilUsuario from './TelaPerfilUsuario';
 import PagamentoDiarioFreelancer from './PagamentoDiarioFreelancer';
+import AlterarServicoFreelancer from './AlterarServicoFreelancer';
 import TrackingPanel from './TrackingPanel';
 import ChatRoom from './ChatRoom';
 import ProfileCard from './ProfileCard';
@@ -65,7 +66,7 @@ export default function PainelBarberMovePremium({ token: tokenProp, logout: logo
     if (!chamadoAtivo) return [];
     const base = Array.isArray(chamados) ? chamados : [];
     return chamadoAtivo.grupo_id
-      ? base.filter((c) => c.grupo_id === chamadoAtivo.grupo_id)
+      ? base.filter((c) => c.grupo_id === chamadoAtivo.grupo_id && String(c.status || '').toLowerCase() !== 'cancelado')
       : [chamadoAtivo];
   }, [chamadoAtivo, chamados]);
 
@@ -1202,6 +1203,16 @@ export default function PainelBarberMovePremium({ token: tokenProp, logout: logo
                       <p className="text-sm font-bold text-emerald-400">R$ {valorTotalAtivo.toFixed(2)}</p>
                     </div>
                   </div>
+
+                  {['aceito', 'confirmado', 'em_atendimento'].includes(String(chamadoAtivo.status || '').toLowerCase()) && (
+                    <AlterarServicoFreelancer
+                      chamadoId={chamadoAtivo.id}
+                      token={token}
+                      API_URL={API_URL}
+                      notify={notify}
+                      onAtualizado={carregarChamados}
+                    />
+                  )}
 
                   {chamadoAtivoEmAtendimento && (
                     <CronometroAtendimento

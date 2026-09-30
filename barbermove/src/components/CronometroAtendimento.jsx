@@ -49,8 +49,9 @@ export default function CronometroAtendimento({
   // duracao total pro card do chamado -- um filtro de status a mais aqui fazia
   // o cronometro cair pra duracao de um unico servico sempre que outro membro
   // do grupo estivesse num status fora da lista permitida.
+  // Exceção única: serviço cancelado (ex.: removido numa alteração confirmada pelo cliente) não conta.
   const membrosGrupo = chamado.grupo_id
-    ? chamadosGrupo.filter((c) => c.grupo_id === chamado.grupo_id)
+    ? chamadosGrupo.filter((c) => c.grupo_id === chamado.grupo_id && String(c.status || '').toLowerCase() !== 'cancelado')
     : [chamado];
 
   const fim = membrosGrupo.reduce((maior, membro) => {

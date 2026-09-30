@@ -1215,3 +1215,27 @@ class FechamentoDiarioFreelancer(Base):
     decidido_por_id = Column(Integer, ForeignKey("usuarios.id"), nullable=True)
 
     freelancer = relationship("Usuario", foreign_keys=[freelancer_id])
+
+
+class AlteracaoServicoAtendimento(Base):
+    """
+    Pedido do freelancer para alterar os serviços de um atendimento com mais de um
+    serviço (ex.: Corte + Barba -> Corte). Só passa a valer quando o CLIENTE confirma;
+    até lá (ou se recusar) o atendimento segue com os serviços originais.
+    """
+    __tablename__ = "alteracoes_servico_atendimento"
+
+    id = Column(Integer, primary_key=True, index=True)
+    chamado_id = Column(Integer, ForeignKey("chamados.id"), nullable=False, index=True)  # chamado de referência
+    grupo_id = Column(Integer, nullable=True, index=True)
+    cliente_id = Column(Integer, ForeignKey("usuarios.id"), nullable=False, index=True)
+    barbeiro_id = Column(Integer, ForeignKey("usuarios.id"), nullable=False, index=True)
+    servicos_originais = Column(String, nullable=False)  # ex.: "Corte + Barba"
+    servicos_novos = Column(String, nullable=False)      # ex.: "Corte"
+    servicos_novos_ids = Column(String, nullable=False)  # ids separados por vírgula
+    valor_original = Column(Float, nullable=True)
+    valor_novo = Column(Float, nullable=True)
+    # pendente | confirmada | recusada | expirada
+    status = Column(String, default="pendente", nullable=False, index=True)
+    criado_em = Column(DateTime, default=datetime.utcnow)
+    respondido_em = Column(DateTime, nullable=True)
