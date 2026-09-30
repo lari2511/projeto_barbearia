@@ -223,6 +223,10 @@ def marcar_presenca_freelancer(
     if not freelancer or freelancer.tipo != "barbeiro":
         raise HTTPException(status_code=404, detail="Freelancer não encontrado")
 
+    from app.pagamento_diario import fechamento_bloqueante
+    if fechamento_bloqueante(db, freelancer.id):
+        raise HTTPException(status_code=409, detail="Este freelancer está indisponível no momento")
+
     if cadeira.status == StatusCadeira.OCUPADA and cadeira.freelancer_id != payload.freelancer_id:
         nome = cadeira.freelancer.nome if cadeira.freelancer else "Freelancer"
         raise HTTPException(status_code=400, detail=f"BRB ocupada por {nome}")
@@ -673,6 +677,9 @@ def ocupar_cadeira(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Apenas barbeiros podem ocupar cadeiras"
         )
+
+    from app.pagamento_diario import exigir_freelancer_liberado
+    exigir_freelancer_liberado(db, usuario_atual.id)
     
     # Buscar cadeira
     cadeira = db.query(Cadeira).filter(Cadeira.id == cadeira_id).first()
@@ -996,6 +1003,9 @@ def barbeiro_aceitar_cadeira(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Apenas barbeiros podem aceitar cadeiras"
         )
+
+    from app.pagamento_diario import exigir_freelancer_liberado
+    exigir_freelancer_liberado(db, usuario_atual.id)
     
     # Buscar cadeira
     cadeira = db.query(Cadeira).filter(Cadeira.id == cadeira_id).first()

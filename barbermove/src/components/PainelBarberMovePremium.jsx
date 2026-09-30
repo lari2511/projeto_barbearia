@@ -6,6 +6,7 @@ import { obterLocalizacaoAtual } from '../utils/location';
 import AbaPadronizadaAvaliacoes from './AbaPadronizadaAvaliacoes';
 import AvaliacaoModal from './AvaliacaoModal';
 import TelaPerfilUsuario from './TelaPerfilUsuario';
+import PagamentoDiarioFreelancer from './PagamentoDiarioFreelancer';
 import TrackingPanel from './TrackingPanel';
 import ChatRoom from './ChatRoom';
 import ProfileCard from './ProfileCard';
@@ -85,6 +86,7 @@ export default function PainelBarberMovePremium({ token: tokenProp, logout: logo
   const [minhaPosicao, setMinhaPosicao] = useState(null);
   const [ganhos, setGanhos] = useState(null);
   const [pixQuitacao, setPixQuitacao] = useState(null);
+  const [pagamentoDiario, setPagamentoDiario] = useState(null);
   const [processandoQuitacao, setProcessandoQuitacao] = useState(false);
   const [processandoSaque, setProcessandoSaque] = useState(false);
   const [perfil, setPerfil] = useState(user || null);
@@ -477,7 +479,7 @@ export default function PainelBarberMovePremium({ token: tokenProp, logout: logo
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data?.detail || 'Erro ao confirmar quitação');
-      notify('Saldo devedor quitado e app liberado', 'success');
+      notify(data?.message || 'Saldo devedor quitado e app liberado', 'success');
       setPixQuitacao(null);
       carregarGanhos();
     } catch (err) {
@@ -948,11 +950,15 @@ export default function PainelBarberMovePremium({ token: tokenProp, logout: logo
                 <Avatar nome={perfil?.nome} foto={perfil?.foto_perfil} API_URL={API_URL} size={44} />
                 <div className="min-w-0">
                   <h1 className="text-base font-black text-white truncate">Olá, {perfil?.nome?.split(' ')[0] || 'Freelancer'}!</h1>
+                  {pagamentoDiario?.bloqueado && !perfil?.presente_em_local ? (
+                    <p className="text-[11px] text-red-300 truncate">Offline · pagamento pendente</p>
+                  ) : (
                   <p className="text-[11px] text-emerald-300 truncate">
                     {perfil?.presente_em_local && perfil?.barbearia_atual_nome
                       ? `Presente em ${perfil.barbearia_atual_nome}`
                       : 'Disponível na região'}
                   </p>
+                  )}
                 </div>
               </div>
             ) : (
@@ -992,6 +998,7 @@ export default function PainelBarberMovePremium({ token: tokenProp, logout: logo
           {/* INÍCIO */}
           {tab === 'inicio' && (
             <div className="px-4 pt-1 pb-4 space-y-4">
+              <PagamentoDiarioFreelancer token={token} API_URL={API_URL} notify={notify} onResumo={setPagamentoDiario} />
               {chamadoAtivo && (
                 <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-sm">
                   <p className="font-bold text-amber-300">🔔 Chamado ativo: #{chamadoAtivo.id}</p>

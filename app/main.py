@@ -54,6 +54,8 @@ from .routes_senha import router as router_senha  # 🔑 Reset de senha
 from .routes_visibilidade import router as router_visibilidade  # 👁️ Camada de visibilidade do ecossistema local (somente leitura)
 from .routes_interesse import router as router_interesse  # 👀 Interesse de clientes (perfil de barbearia sem cadeira disponivel)
 from .realtime import realtime_manager
+from .pagamento_diario import loop_pagamento_diario
+import asyncio
 from .database import Base, engine, init_db
 from sqlalchemy import text
 from starlette.staticfiles import StaticFiles
@@ -65,9 +67,11 @@ import pathlib
 async def lifespan(app: FastAPI):
     # Startup
     init_db()
+    # Fechamento diário (21:00) e bloqueio por pagamento vencido (22:00), horário de São Paulo
+    tarefa_pagamento_diario = asyncio.create_task(loop_pagamento_diario())
     yield
     # Shutdown
-    pass
+    tarefa_pagamento_diario.cancel()
 
 app = FastAPI(
     title="BarberMove API", 

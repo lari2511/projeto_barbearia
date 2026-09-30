@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 from datetime import datetime
 
 from app.database import get_db
-from app.models import Usuario, Foto, Freelancer, PortfolioFreelancer
+from app.models import Usuario, Foto, Freelancer, PortfolioFreelancer, FechamentoDiarioFreelancer
 from app.routes import get_current_user
 
 router = APIRouter(prefix="/admin", tags=["Admin"])
@@ -269,6 +269,111 @@ def buscar_usuario(
         "tipo": u.tipo,
         "aprovado": u.perfil_aprovado,
     } for u in usuarios]
+
+# ============================================================================
+# PAGAMENTO DIÁRIO DO FREELANCER (fechamento 21:00 / prazo 22:00 - São Paulo)
+# ============================================================================
+
+def verificar_somente_admin(usuario = Depends(get_current_user)):
+    if usuario.tipo != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Acesso negado - apenas admins"
+        )
+    return usuario
+
+
+@router.get("/api/pagamentos-diarios")
+def listar_pagamentos_diarios(
+    db: Session = Depends(get_db),
+    admin = Depends(verificar_somente_admin)
+):
+    """Fechamentos diários em aberto (aguardando confirmação primeiro)."""
+    from app import pagamento_diario
+
+    agora = pagamento_diario.agora_sp()
+    fechamentos = db.query(FechamentoDiarioFreelancer).filter(
+        FechamentoDiarioFreelancer.status.in_(pagamento_diario.STATUS_ABERTOS)
+    ).order_by(FechamentoDiarioFreelancer.data_referencia.desc()).all()
+
+    ordem = {"aguardando_confirmacao": 0, "recusado": 1, "pendente": 2}
+    fechamentos.sort(key=lambda f: ordem.get(f.status, 9))
+
+    resultado = []
+    for f in fechamentos:
+        item = pagamento_diario.serializar_fechamento(f, agora)
+        u = f.freelancer
+        item["freelancer_nome"] = u.nome if u else None
+        item["freelancer_email"] = u.email if u else None
+        item["freelancer_telefone"] = u.telefone if u else None
+        item["bloqueado"] = bool(pagamento_diario.fechamento_bloqueante(db, f.freelancer_id, agora))
+        resultado.append(item)
+    return resultado
+
+
+@router.post("/api/pagamentos-diarios/{fechamento_id}/confirmar")
+def confirmar_pagamento_diario(
+    fechamento_id: int,
+    db: Session = Depends(get_db),
+    admin = Depends(verificar_somente_admin)
+):
+    """SIM - pagamento confirmado: quita na carteira e devolve o controle do status ao freelancer."""
+    from app import pagamento_diario
+    from app.routes_freelancer import _obter_ou_criar_carteira, _registrar_movimentacao
+
+    f = db.query(FechamentoDiarioFreelancer).filter(FechamentoDiarioFreelancer.id == fechamento_id).first()
+    if not f:
+        raise HTTPException(status_code=404, detail="Fechamento não encontrado")
+    if f.status == "confirmado":
+        raise HTTPException(status_code=400, detail="Pagamento já confirmado")
+
+    carteira = _obter_ou_criar_carteira(db, f.freelancer_id)
+    _registrar_movimentacao(
+        db,
+        carteira=carteira,
+        tipo="quitacao_debito_pix",
+        descricao=f"Pagamento diário via Pix ({f.data_referencia.strftime('%d/%m/%Y')}) confirmado pelo ADM",
+        valor=round(float(f.valor_devido or 0.0), 2),
+        chamado_id=None,
+    )
+    f.status = "confirmado"
+    f.decidido_em = datetime.utcnow()
+    f.decidido_por_id = admin.id
+    db.commit()
+
+    # Não coloca o freelancer online: apenas remove a trava (derivada dos fechamentos em aberto).
+    ainda_bloqueado = bool(pagamento_diario.fechamento_bloqueante(db, f.freelancer_id))
+    return {
+        "message": "Pagamento confirmado",
+        "fechamento": pagamento_diario.serializar_fechamento(f),
+        "freelancer_bloqueado": ainda_bloqueado,
+    }
+
+
+@router.post("/api/pagamentos-diarios/{fechamento_id}/recusar")
+def recusar_pagamento_diario(
+    fechamento_id: int,
+    db: Session = Depends(get_db),
+    admin = Depends(verificar_somente_admin)
+):
+    """NÃO - pagamento não confirmado: o freelancer continua bloqueado/OFFLINE."""
+    from app import pagamento_diario
+
+    f = db.query(FechamentoDiarioFreelancer).filter(FechamentoDiarioFreelancer.id == fechamento_id).first()
+    if not f:
+        raise HTTPException(status_code=404, detail="Fechamento não encontrado")
+    if f.status == "confirmado":
+        raise HTTPException(status_code=400, detail="Pagamento já confirmado")
+
+    f.status = "recusado"
+    f.decidido_em = datetime.utcnow()
+    f.decidido_por_id = admin.id
+    db.commit()
+    return {
+        "message": "Pagamento não confirmado",
+        "fechamento": pagamento_diario.serializar_fechamento(f),
+    }
+
 
 # ============================================================================
 # PÁGINA HTML DO DASHBOARD
@@ -623,6 +728,7 @@ _DASHBOARD_HTML = """
             <div class="tabs">
                 <button class="tab-btn active" onclick="mudarAba('pendentes')">⏳ Pendentes</button>
                 <button class="tab-btn" onclick="mudarAba('aprovados')">✅ Aprovados</button>
+                <button class="tab-btn" onclick="mudarAba('pagamentos')">💰 Pagamentos diários <span id="pagBadge"></span></button>
             </div>
             
             <!-- BUSCA -->
@@ -870,7 +976,109 @@ _DASHBOARD_HTML = """
                 }, { passive: true });
             })();
 
+            const STATUS_PAG = {
+                aguardando_confirmacao: ['⏳ Aguardando confirmação', '#f59e0b'],
+                recusado: ['❌ Não confirmado', '#ef4444'],
+                pendente: ['• Não pago', '#9ca3af'],
+            };
+
+            function dataBR(iso) {
+                const [a, m, d] = String(iso).split('-');
+                return `${d}/${m}/${a}`;
+            }
+
+            async function atualizarBadgePagamentos() {
+                try {
+                    const res = await fetch(API_URL + '/pagamentos-diarios', {
+                        headers: { 'Authorization': `Bearer ${token}` }
+                    });
+                    if (!res.ok) return;
+                    const lista = await res.json();
+                    const n = lista.filter(p => p.status === 'aguardando_confirmacao').length;
+                    document.getElementById('pagBadge').textContent = n ? `(${n})` : '';
+                } catch (_) {}
+            }
+
+            async function carregarPagamentos() {
+                const usersList = document.getElementById('usersList');
+                try {
+                    const res = await fetch(API_URL + '/pagamentos-diarios', {
+                        headers: { 'Authorization': `Bearer ${token}` }
+                    });
+                    if (res.status === 403) {
+                        usersList.innerHTML = '<div class="empty-state"><p>Apenas o ADM pode confirmar pagamentos.</p></div>';
+                        return;
+                    }
+                    const lista = await res.json();
+                    const n = lista.filter(p => p.status === 'aguardando_confirmacao').length;
+                    document.getElementById('pagBadge').textContent = n ? `(${n})` : '';
+                    if (lista.length === 0) {
+                        usersList.innerHTML = `
+                            <div class="empty-state">
+                                <div class="emoji">✨</div>
+                                <p>Nenhum pagamento diário em aberto!</p>
+                            </div>
+                        `;
+                        return;
+                    }
+                    usersList.innerHTML = lista.map(p => {
+                        const [rotulo, cor] = STATUS_PAG[p.status] || [p.status, '#9ca3af'];
+                        return `
+                        <div class="user-card">
+                            <div class="user-card-top">
+                                <div class="user-info">
+                                    <div>
+                                        <span class="user-badge barbeiro">FREELANCER</span>
+                                        <h3>${esc(p.freelancer_nome || ('#' + p.freelancer_id))}</h3>
+                                    </div>
+                                    <p>📧 ${esc(p.freelancer_email || '-')}</p>
+                                    <p>📞 ${esc(p.freelancer_telefone || 'Sem telefone')}</p>
+                                    <p>📅 Dia ${dataBR(p.data_referencia)} — <strong>R$ ${Number(p.valor_devido).toFixed(2).replace('.', ',')}</strong></p>
+                                    <p style="color: ${cor}">${rotulo}${p.bloqueado ? ' · 🔒 Bloqueado (OFFLINE)' : ''}</p>
+                                </div>
+                                <div class="user-actions">
+                                    <button class="btn btn-approve" onclick="decidirPagamento(${p.id}, true)">SIM — Pagamento confirmado</button>
+                                    ${p.status !== 'recusado' ? `<button class="btn btn-reject" onclick="decidirPagamento(${p.id}, false)">NÃO — Pagamento não confirmado</button>` : ''}
+                                </div>
+                            </div>
+                        </div>
+                    `}).join('');
+                } catch (err) {
+                    usersList.innerHTML = '<div class="loading">Erro ao carregar</div>';
+                }
+            }
+
+            async function decidirPagamento(id, confirmado) {
+                const msg = confirmado
+                    ? 'Confirmar o recebimento deste pagamento? O freelancer volta a poder escolher o status.'
+                    : 'Marcar como NÃO confirmado? O freelancer continua bloqueado (OFFLINE).';
+                if (!confirm(msg)) return;
+                try {
+                    const res = await fetch(API_URL + `/pagamentos-diarios/${id}/${confirmado ? 'confirmar' : 'recusar'}`, {
+                        method: 'POST',
+                        headers: { 'Authorization': `Bearer ${token}` }
+                    });
+                    const data = await res.json().catch(() => ({}));
+                    if (!res.ok) {
+                        alert('❌ ' + (data.detail || 'Erro ao registrar decisão'));
+                    } else if (confirmado) {
+                        alert(data.freelancer_bloqueado
+                            ? '✅ Pagamento confirmado. O freelancer ainda tem outro pagamento em aberto.'
+                            : '✅ Pagamento confirmado. Freelancer liberado.');
+                    } else {
+                        alert('❌ Pagamento marcado como não confirmado.');
+                    }
+                } catch (err) {
+                    alert('❌ Erro ao registrar decisão');
+                }
+                carregarPagamentos();
+            }
+
             async function carregarUsuarios() {
+                if (abaAtual === 'pagamentos') {
+                    return carregarPagamentos();
+                }
+                atualizarBadgePagamentos();
                 const endpoint = abaAtual === 'pendentes' ? '/pendentes' : '/aprovados';
                 const usersList = document.getElementById('usersList');
                 
@@ -962,7 +1170,7 @@ _DASHBOARD_HTML = """
             
             async function buscar() {
                 const q = document.getElementById('searchInput').value;
-                if (!q) {
+                if (!q || abaAtual === 'pagamentos') {
                     carregarUsuarios();
                     return;
                 }

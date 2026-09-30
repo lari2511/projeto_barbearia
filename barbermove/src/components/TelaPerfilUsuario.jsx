@@ -395,6 +395,26 @@ export function TelaPerfilUsuario({
   const [barbeariaAtualNome, setBarbeariaAtualNome] = useState('');
   const [barbeariaAtualEndereco, setBarbeariaAtualEndereco] = useState('');
   const barbeariaAtualEnderecoFormatado = formatarEndereco(barbeariaAtualEndereco);
+  // Pagamento diário vencido (22:00, horário de SP) sem confirmação do ADM: status travado em OFFLINE.
+  const [bloqueioPagamento, setBloqueioPagamento] = useState(null); // mensagem | null
+
+  useEffect(() => {
+    if (perfilTipo !== 'barbeiro' || !token || !apiBase) return undefined;
+    let ativo = true;
+    const carregar = () => {
+      fetch(`${apiBase}/api/v1/freelancer/carteira/resumo`, { headers: { Authorization: `Bearer ${token}` } })
+        .then((r) => (r.ok ? r.json() : null))
+        .then((d) => {
+          if (!ativo || !d) return;
+          const pd = d.pagamento_diario;
+          setBloqueioPagamento(pd?.bloqueado ? (pd.mensagem_bloqueio || 'Status bloqueado por pagamento pendente.') : null);
+        })
+        .catch(() => {});
+    };
+    carregar();
+    const t = setInterval(carregar, 30000);
+    return () => { ativo = false; clearInterval(t); };
+  }, [perfilTipo, token, apiBase]);
 
   // Condições e estrutura para freelancer: checklist fixo SIM/NÃO, editado
   // pelo dono aqui e exibido só para freelancers no perfil da barbearia.
@@ -1539,9 +1559,12 @@ export function TelaPerfilUsuario({
             <p className={styles.labelStrong}>Disponibilidade para clientes</p>
             <div className={styles.statusGrid}>
               <button type="button" onClick={() => atualizarStatusBarbeiro('offline')} className={`${styles.statusBtn} ${barberStatus === 'offline' ? styles.statusBtnActive : ''}`} disabled={saving}>Offline</button>
-              <button type="button" onClick={() => atualizarStatusBarbeiro('online')} className={`${styles.statusBtn} ${barberStatus === 'online' ? styles.statusBtnActive : ''}`} disabled={saving}>Ficar online</button>
-              <button type="button" onClick={() => atualizarStatusBarbeiro('presente')} className={`${styles.statusBtn} ${barberStatus === 'presente' ? styles.statusBtnActive : ''}`} disabled={saving}>Presente</button>
+              <button type="button" onClick={() => atualizarStatusBarbeiro('online')} className={`${styles.statusBtn} ${barberStatus === 'online' ? styles.statusBtnActive : ''}`} disabled={saving || Boolean(bloqueioPagamento)}>Ficar online</button>
+              <button type="button" onClick={() => atualizarStatusBarbeiro('presente')} className={`${styles.statusBtn} ${barberStatus === 'presente' ? styles.statusBtnActive : ''}`} disabled={saving || Boolean(bloqueioPagamento)}>Presente</button>
             </div>
+            {bloqueioPagamento && (
+              <p style={{ color: '#fca5a5', fontSize: 12 }}>🔒 {bloqueioPagamento} Pague pela tela inicial; o ADM libera após confirmar.</p>
+            )}
 
             <div>
               <label className={styles.label}>Barbearia para marcar presença</label>

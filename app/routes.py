@@ -1949,11 +1949,16 @@ def atualizar_status_freelancer(
         if not barbearia:
             raise HTTPException(status_code=404, detail="Barbearia não encontrada")
     
+    # Pagamento diário vencido e não confirmado pelo ADM: status travado em OFFLINE.
+    if status_valido != "offline":
+        from app.pagamento_diario import exigir_freelancer_liberado
+        exigir_freelancer_liberado(db, user.id)
+
     # Atualizar status no banco
     usuario = db.query(models.Usuario).filter(models.Usuario.id == user.id).first()
     if not usuario:
         raise HTTPException(status_code=404, detail="Usuário não encontrado")
-    
+
     # Reset de todos os status para a lógica correta
     usuario.offline = False
     usuario.presente_em_local = False
@@ -2100,6 +2105,9 @@ def aceitar_chamado(id: int, token: str = Depends(oauth2_scheme), db: Session = 
     user = get_current_user(token=token, db=db)
     if user.tipo != "barbeiro":
         raise HTTPException(status_code=403, detail="Apenas barbeiros podem aceitar chamados")
+
+    from app.pagamento_diario import exigir_freelancer_liberado
+    exigir_freelancer_liberado(db, user.id)
 
     carteira = db.query(models.CarteiraBarbeiro).filter(
         models.CarteiraBarbeiro.barbeiro_id == user.id

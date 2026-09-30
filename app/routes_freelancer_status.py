@@ -181,6 +181,11 @@ def alterar_status_freelancer(
     saida_registrada = False
     atendimentos_pendentes = 0
 
+    # Pagamento diário vencido e não confirmado pelo ADM: status travado em OFFLINE.
+    if request.status in ("online", "presente"):
+        from app.pagamento_diario import exigir_freelancer_liberado
+        exigir_freelancer_liberado(db, freelancer.id)
+
     if request.status in ("offline", "online"):
         destino = "offline" if request.status == "offline" else "online"
         esta_presente = bool(freelancer.presente_em_local and freelancer.barbearia_atual_id)

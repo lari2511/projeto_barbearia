@@ -1,7 +1,7 @@
 # --- ARQUIVO: app/models.py ---
 # Modelos SQLAlchemy para o banco de dados
 
-from sqlalchemy import Column, Integer, String, Float, DateTime, ForeignKey, Boolean, Enum, UniqueConstraint
+from sqlalchemy import Column, Integer, String, Float, DateTime, ForeignKey, Boolean, Enum, UniqueConstraint, Date
 from sqlalchemy.orm import relationship
 from datetime import datetime
 from .database import Base
@@ -1187,4 +1187,31 @@ class RequestView(Base):
     viewed_at = Column(DateTime, default=datetime.utcnow, index=True)
 
     solicitacao = relationship("SolicitacaoBarbeiro", back_populates="visualizacoes")
+    freelancer = relationship("Usuario", foreign_keys=[freelancer_id])
+
+
+class FechamentoDiarioFreelancer(Base):
+    """
+    Fechamento diário da carteira do freelancer (21:00 de São Paulo).
+
+    Prazo de pagamento via Pix: até 22:00 do mesmo dia. Depois disso, enquanto o
+    ADM não confirmar o pagamento, o freelancer fica travado em OFFLINE.
+    O bloqueio é derivado desta tabela (status != confirmado e prazo vencido).
+    """
+    __tablename__ = "fechamentos_diarios_freelancer"
+    __table_args__ = (
+        UniqueConstraint("freelancer_id", "data_referencia", name="uq_fechamento_freelancer_data"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    freelancer_id = Column(Integer, ForeignKey("usuarios.id"), nullable=False, index=True)
+    data_referencia = Column(Date, nullable=False, index=True)  # dia (calendário de São Paulo)
+    valor_devido = Column(Float, nullable=False)
+    # pendente | aguardando_confirmacao | recusado | confirmado
+    status = Column(String, default="pendente", nullable=False, index=True)
+    fechado_em = Column(DateTime, default=datetime.utcnow)
+    pagamento_informado_em = Column(DateTime, nullable=True)
+    decidido_em = Column(DateTime, nullable=True)
+    decidido_por_id = Column(Integer, ForeignKey("usuarios.id"), nullable=True)
+
     freelancer = relationship("Usuario", foreign_keys=[freelancer_id])

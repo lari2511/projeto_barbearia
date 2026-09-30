@@ -388,6 +388,11 @@ async def ligar_radar_barbeiro(
         RadarFreelancerResponse com status atual
     """
     
+    # Pagamento diário vencido e não confirmado pelo ADM: radar travado em offline.
+    from app.pagamento_diario import fechamento_bloqueante
+    if request.is_online and fechamento_bloqueante(db, current_user.id):
+        request.is_online = False
+
     # Buscar ou criar o radar para este barbeiro
     radar = db.query(RadarFreelancer).filter(
         RadarFreelancer.freelancer_id == current_user.id
@@ -701,6 +706,9 @@ async def barbeiro_aceitar_solicitacao(
             "mensagem": "Solicitação aceita! É hora de trabalhar"
         }
     """
+
+    from app.pagamento_diario import exigir_freelancer_liberado
+    exigir_freelancer_liberado(db, current_user.id)
     
     # Buscar solicitação
     solicitacao = db.query(SolicitacaoBarbeiro).filter(
@@ -1085,6 +1093,9 @@ async def candidatar_se_cadeira_acionada(
     if current_user.tipo != "barbeiro":
         raise HTTPException(status_code=403, detail="Apenas barbeiros podem se candidatar a essa vaga")
 
+    from app.pagamento_diario import exigir_freelancer_liberado
+    exigir_freelancer_liberado(db, current_user.id)
+
     if current_user.latitude is None or current_user.longitude is None:
         raise HTTPException(status_code=400, detail="Localizacao obrigatoria para se candidatar a vaga")
 
@@ -1226,6 +1237,10 @@ async def escolher_freelancer_cadeira_acionada(
         raise HTTPException(status_code=403, detail="Vaga nao pertence a esta barbearia")
     if vaga.status != "disponivel":
         raise HTTPException(status_code=409, detail=f"Vaga indisponivel (status: {vaga.status})")
+
+    from app.pagamento_diario import fechamento_bloqueante
+    if fechamento_bloqueante(db, request.barbeiro_id):
+        raise HTTPException(status_code=409, detail="Este freelancer está indisponível no momento")
 
     candidatura_escolhida = db.query(CadeiraAcionadaCandidatura).filter(
         CadeiraAcionadaCandidatura.vaga_id == vaga_id,

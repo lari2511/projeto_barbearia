@@ -18,3 +18,4 @@ fastapi-mail[jinja2]
 pydantic-settings
 mercadopago
 firebase-admin
+tzdata

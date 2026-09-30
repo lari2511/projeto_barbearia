@@ -27,6 +27,7 @@ from app.schemas import (
     SolicitarFreelancerRequest
 )
 from app.routes import get_current_user  # Import da função de autenticação
+from app import pagamento_diario
 
 router = APIRouter(prefix="/api/v1/freelancer", tags=["Freelancer"])
 
@@ -566,6 +567,8 @@ def aceitar_recusar_atendimento(
         )
     
     if dados.aceitar:
+        from app.pagamento_diario import exigir_freelancer_liberado
+        exigir_freelancer_liberado(db, usuario_atual.id)
         from app.models import StatusAgendamento
         chamado.status = StatusAgendamento.CONFIRMADO
         mensagem = "Atendimento aceito com sucesso!"
@@ -659,6 +662,7 @@ def obter_relatorio_comissoes(
         "limite_negativo": limite_negativo,
         "bloqueado_financeiro": bloqueado_financeiro,
         "historico_movimentacoes": historico_payload,
+        "pagamento_diario": pagamento_diario.resumo_pagamento_diario(db, usuario_atual.id),
     }
 
 
@@ -675,6 +679,7 @@ def obter_resumo_carteira(
         "saldo": saldo,
         "limite_negativo": limite_negativo,
         "bloqueado_financeiro": saldo <= limite_negativo,
+        "pagamento_diario": pagamento_diario.resumo_pagamento_diario(db, usuario_atual.id),
     }
 
 
@@ -685,10 +690,20 @@ def gerar_pix_quitacao_carteira(
 ):
     carteira = _obter_ou_criar_carteira(db, usuario_atual.id)
     saldo = float(carteira.saldo or 0.0)
-    if saldo >= 0:
-        raise HTTPException(status_code=400, detail="Não há saldo devedor para quitar")
 
-    valor = round(abs(saldo), 2)
+    # Fechamento diário (21:00) em aberto: o Pix cobra o valor fechado do(s) dia(s).
+    abertos = [
+        f for f in pagamento_diario.fechamentos_abertos(db, usuario_atual.id)
+        if f.status in ("pendente", "recusado")
+    ]
+    if abertos:
+        valor = round(sum(float(f.valor_devido or 0.0) for f in abertos), 2)
+    else:
+        if pagamento_diario.fechamentos_abertos(db, usuario_atual.id):
+            raise HTTPException(status_code=400, detail="Pagamento já informado. Aguardando confirmação do ADM.")
+        if saldo >= 0:
+            raise HTTPException(status_code=400, detail="Não há saldo devedor para quitar")
+        valor = round(abs(saldo), 2)
     pix_chave = os.getenv("PIX_CHAVE", "+5511999999999")
     nome_recebedor = (os.getenv("PIX_NOME", "BarberMove") + " " * 13)[:13]
     cidade_recebedor = (os.getenv("PIX_CIDADE", "SAO PAULO") + " " * 9)[:9]
@@ -722,6 +737,19 @@ def confirmar_quitacao_carteira(
     usuario_atual = Depends(get_current_user)
 ):
     carteira = _obter_ou_criar_carteira(db, usuario_atual.id)
+
+    # Fechamento diário em aberto: não credita na hora — o ADM confirma (SIM/NÃO).
+    informados = pagamento_diario.informar_pagamento(db, usuario_atual.id)
+    if informados:
+        db.commit()
+        return {
+            "message": "Pagamento enviado. Aguardando confirmação do ADM.",
+            "aguardando_confirmacao": True,
+            "pagamento_diario": pagamento_diario.resumo_pagamento_diario(db, usuario_atual.id),
+        }
+    if pagamento_diario.fechamentos_abertos(db, usuario_atual.id):
+        raise HTTPException(status_code=400, detail="Pagamento já informado. Aguardando confirmação do ADM.")
+
     valor = round(float(dados.valor or 0.0), 2)
     if valor <= 0:
         raise HTTPException(status_code=400, detail="Valor inválido para quitação")

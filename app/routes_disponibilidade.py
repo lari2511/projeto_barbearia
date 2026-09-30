@@ -45,6 +45,10 @@ def abrir_disponibilidade(
     if current_user.tipo not in ("barbeiro", "barbearia"):
         raise HTTPException(status_code=403, detail="Apenas barbeiro ou barbearia podem abrir disponibilidade")
 
+    if current_user.tipo == "barbeiro":
+        from app.pagamento_diario import exigir_freelancer_liberado
+        exigir_freelancer_liberado(db, current_user.id)
+
     agora = datetime.now()
     inicio = _parse_datetime(payload.inicio, agora)
     fim = _parse_datetime(payload.fim, agora + timedelta(hours=2))
