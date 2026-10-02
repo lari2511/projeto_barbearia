@@ -62,7 +62,12 @@ const emptyForm = {
   cep: '',
   cnpj: '',
   tipoDocumento: '', // 'cpf' | 'cnpj' — só usado no cadastro de barbearia
+  tempoExperiencia: '', // só usado no cadastro de freelancer
 }
+
+const temposExperiencia = [
+  'Menos de 1 ano', '1 ano', '2 anos', '3 anos', '4 anos', '5 anos', '6 anos ou mais',
+]
 
 const emptyPhotos = {
   portfolio: [],
@@ -89,6 +94,7 @@ function buildPayload(tipo, form) {
       ...base,
       cpf: form.cpf.trim(),
       endereco: form.endereco.trim(),
+      tempo_experiencia: form.tempoExperiencia,
     }
   }
 
@@ -359,6 +365,11 @@ export default function Cadastro({ initialType = 'cliente', onBack, onSuccess })
       }
 
       if (selectedType === 'barbeiro') {
+        if (!form.tempoExperiencia) {
+          void enviarDiagnosticoCadastro(API_URL, 'submit:validacao-falhou', 'Tempo de experiência não selecionado', null)
+          setLocalError('Informe quanto tempo de experiência você tem como barbeiro')
+          return
+        }
         if (photos.portfolio.length < 3) {
           void enviarDiagnosticoCadastro(API_URL, 'submit:validacao-falhou', 'Menos de 3 fotos de portfólio', { qtd: photos.portfolio.length })
           setLocalError('Barbeiro deve ter no mínimo 3 fotos de portfólio')
@@ -585,6 +596,25 @@ export default function Cadastro({ initialType = 'cliente', onBack, onSuccess })
                 </div>
               )}
             </>
+          )}
+
+          {selectedType === 'barbeiro' && (
+            <div className="mb-4">
+              <label className="mb-1 block text-sm font-medium text-zinc-300">
+                Quanto tempo de experiência você tem como barbeiro?
+              </label>
+              <select
+                value={form.tempoExperiencia}
+                onChange={handleChange('tempoExperiencia')}
+                required
+                className="w-full rounded-xl border border-zinc-700 bg-black/30 px-3 py-3 text-sm text-white"
+              >
+                <option value="">Selecione</option>
+                {temposExperiencia.map((opcao) => (
+                  <option key={opcao} value={opcao}>{opcao}</option>
+                ))}
+              </select>
+            </div>
           )}
 
           {selectedType === 'barbeiro' && (

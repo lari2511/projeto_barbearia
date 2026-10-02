@@ -111,6 +111,8 @@ class Usuario(Base):
     # Etapa 7: freelancer PRESENTE pediu para sair mas ainda tem atendimentos pendentes.
     # Valores: "online" | "offline" | None. Aplicado automaticamente quando a fila esvazia.
     saida_pendente = Column(String, nullable=True)
+    # Freelancer: tempo de experiência informado no cadastro ("Menos de 1 ano", "1 ano", ..., "6 anos ou mais")
+    tempo_experiencia = Column(String, nullable=True)
     criado_em = Column(DateTime, default=datetime.utcnow)
     
     # ✅ CONTROLE ADMIN - Flagging de usuários problemáticos

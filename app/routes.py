@@ -907,6 +907,7 @@ def cadastrar_barbeiro(
         telefone=barbeiro.telefone,
         cpf=barbeiro.cpf,
         tipo="barbeiro",
+        tempo_experiencia=barbeiro.tempo_experiencia,
         token_verificacao=token_verificacao,
         # Login liberado logo apos o cadastro: a mesma senha (email + senha)
         # tem que funcionar depois que o usuario sai e volta ao app.

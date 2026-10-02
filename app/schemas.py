@@ -90,11 +90,27 @@ class ClienteCreate(UsuarioBase):
         return v
 
 
+TEMPOS_EXPERIENCIA = [
+    "Menos de 1 ano", "1 ano", "2 anos", "3 anos", "4 anos", "5 anos", "6 anos ou mais",
+]
+
+
 class BarbeiroCreate(UsuarioBase):
     cpf: str  # Agora obrigatório
     endereco: Optional[str] = None
     latitude: Optional[float] = None  # Opcional - usado apenas na busca dinâmica
     longitude: Optional[float] = None  # Opcional - usado apenas na busca dinâmica
+    # Opcional no backend para não quebrar builds antigos do app; o cadastro atual exige.
+    tempo_experiencia: Optional[str] = None
+
+    @field_validator("tempo_experiencia")
+    @classmethod
+    def validate_tempo_experiencia(cls, v: Optional[str]) -> Optional[str]:
+        if not v:
+            return None
+        if v not in TEMPOS_EXPERIENCIA:
+            raise ValueError("Tempo de experiência inválido")
+        return v
 
     @field_validator("cpf")
     @classmethod

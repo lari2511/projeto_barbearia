@@ -69,6 +69,12 @@ def init_db():
                 connection.execute(text("ALTER TABLE usuarios ADD COLUMN saida_pendente VARCHAR(20)"))
                 print("[migracao] Coluna saida_pendente criada")
 
+        # Tempo de experiência do freelancer, informado no cadastro
+        if "tempo_experiencia" not in colunas_existentes:
+            with engine.begin() as connection:
+                connection.execute(text("ALTER TABLE usuarios ADD COLUMN tempo_experiencia VARCHAR(30)"))
+                print("[migracao] Coluna tempo_experiencia criada")
+
     if "chamados" in inspector.get_table_names():
         colunas_existentes = {coluna["name"] for coluna in inspector.get_columns("chamados")}
         colunas_esperadas = {

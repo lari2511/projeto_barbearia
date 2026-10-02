@@ -389,6 +389,7 @@ export function TelaPerfilUsuario({
   const [barberStatus, setBarberStatus] = useState('offline');
   // Etapa 7: freelancer presente pediu para sair mas ainda tem atendimentos pendentes.
   const [saidaPendente, setSaidaPendente] = useState(null); // 'online' | 'offline' | null
+  const [tempoExperiencia, setTempoExperiencia] = useState('');
   const [atendimentosPendentes, setAtendimentosPendentes] = useState(0);
   const [barbeariaPresencaId, setBarbeariaPresencaId] = useState('');
   const [barbeariasDisponiveis, setBarbeariasDisponiveis] = useState([]);
@@ -493,6 +494,7 @@ export function TelaPerfilUsuario({
           setBarbeariaAtualNome(data?.barbearia_atual_nome || '');
           setBarbeariaAtualEndereco(data?.barbearia_atual_endereco || '');
           setSaidaPendente(data?.saida_pendente || null);
+          setTempoExperiencia(data?.tempo_experiencia || '');
           if (data?.presente_em_local && data?.barbearia_atual_id) {
             setBarberStatus('presente');
             setBarbeariaPresencaId(String(data.barbearia_atual_id));
@@ -1517,6 +1519,9 @@ export function TelaPerfilUsuario({
             <div>
               <span className={styles.badge}>{meta.badge}</span>
             </div>
+            {perfilTipo === 'barbeiro' && tempoExperiencia && (
+              <p className="text-xs text-zinc-400 mt-1">{tempoExperiencia} de experiência</p>
+            )}
             {perfilTipo === 'barbearia' && !editMode && (
               <p className="text-xs text-zinc-400 mt-1">
                 {mediaAvaliacao

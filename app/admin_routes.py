@@ -101,6 +101,7 @@ def listar_pendentes(
         "documento_frente_url": u.documento_frente_url,
         "documento_verso_url": u.documento_verso_url,
         "selfie_documento_url": u.selfie_documento_url,
+        "tempo_experiencia": u.tempo_experiencia,
         "portfolio": _portfolio_de_usuario(db, u),
     } for u in pendentes]
 
@@ -125,6 +126,7 @@ def listar_aprovados(
         "documento_frente_url": u.documento_frente_url,
         "documento_verso_url": u.documento_verso_url,
         "selfie_documento_url": u.selfie_documento_url,
+        "tempo_experiencia": u.tempo_experiencia,
         "portfolio": _portfolio_de_usuario(db, u),
     } for u in aprovados]
 
@@ -191,6 +193,7 @@ def obter_usuario_detalhes(
         "documento_frente": usuario.documento_frente_url,
         "documento_verso": usuario.documento_verso_url,
         "selfie": usuario.selfie_documento_url,
+        "tempo_experiencia": usuario.tempo_experiencia,
         "portfolio": portfolio,
         "aprovado": usuario.perfil_aprovado,
         "aprovado_em": usuario.perfil_aprovado_em,
@@ -1105,6 +1108,7 @@ _DASHBOARD_HTML = """
                                     <div>
                                         <span class="user-badge ${u.tipo}">${u.tipo.toUpperCase()}</span>
                                         <h3>${u.nome}</h3>
+                                        ${u.tipo === 'barbeiro' && u.tempo_experiencia ? `<p><strong>${u.tempo_experiencia} de experiência</strong></p>` : ''}
                                     </div>
                                     <p>📧 ${u.email}</p>
                                     <p>📞 ${u.telefone || 'Sem telefone'}</p>
