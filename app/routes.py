@@ -912,8 +912,9 @@ def cadastrar_barbeiro(
         # Login liberado logo apos o cadastro: a mesma senha (email + senha)
         # tem que funcionar depois que o usuario sai e volta ao app.
         email_verificado=True,
-        perfil_aprovado=True,
-        perfil_aprovado_em=datetime.now(),
+        # Freelancer novo fica PENDENTE DE ANÁLISE até o ADM aprovar no painel
+        # (/admin). Enquanto pendente, não aparece para clientes/barbearias.
+        perfil_aprovado=False,
     )
     db.add(novo_usuario)
     db.commit()

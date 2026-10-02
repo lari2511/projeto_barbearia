@@ -390,6 +390,7 @@ export function TelaPerfilUsuario({
   // Etapa 7: freelancer presente pediu para sair mas ainda tem atendimentos pendentes.
   const [saidaPendente, setSaidaPendente] = useState(null); // 'online' | 'offline' | null
   const [tempoExperiencia, setTempoExperiencia] = useState('');
+  const [perfilEmAnalise, setPerfilEmAnalise] = useState(false);
   const [atendimentosPendentes, setAtendimentosPendentes] = useState(0);
   const [barbeariaPresencaId, setBarbeariaPresencaId] = useState('');
   const [barbeariasDisponiveis, setBarbeariasDisponiveis] = useState([]);
@@ -495,6 +496,7 @@ export function TelaPerfilUsuario({
           setBarbeariaAtualEndereco(data?.barbearia_atual_endereco || '');
           setSaidaPendente(data?.saida_pendente || null);
           setTempoExperiencia(data?.tempo_experiencia || '');
+          setPerfilEmAnalise(data?.perfil_aprovado === false);
           if (data?.presente_em_local && data?.barbearia_atual_id) {
             setBarberStatus('presente');
             setBarbeariaPresencaId(String(data.barbearia_atual_id));
@@ -1521,6 +1523,11 @@ export function TelaPerfilUsuario({
             </div>
             {perfilTipo === 'barbeiro' && tempoExperiencia && (
               <p className="text-xs text-zinc-400 mt-1">{tempoExperiencia} de experiência</p>
+            )}
+            {perfilTipo === 'barbeiro' && perfilEmAnalise && (
+              <p className="text-xs font-bold text-orange-400 mt-1">
+                🟠 Cadastro em análise. Você aparece para clientes e barbearias depois da aprovação do ADM.
+              </p>
             )}
             {perfilTipo === 'barbearia' && !editMode && (
               <p className="text-xs text-zinc-400 mt-1">
