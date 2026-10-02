@@ -271,12 +271,93 @@ def rejeitar_usuario(
     
     if not usuario:
         raise HTTPException(status_code=404, detail="Usuário não encontrado")
-    
-    # Deletar usuário
+
+    bloqueios = _historico_que_impede_exclusao(db, usuario)
+    if bloqueios:
+        raise HTTPException(
+            status_code=409,
+            detail="Não dá para recusar: este cadastro já tem histórico no app (" + ", ".join(bloqueios) + ")."
+        )
+
+    # Remove primeiro o que pertence só ao cadastro (fotos, portfólio, notificações...);
+    # sem isso o Postgres recusa apagar o usuário por causa das chaves estrangeiras.
+    _apagar_dados_do_cadastro(db, usuario)
     db.delete(usuario)
     db.commit()
-    
+
     return {"status": "rejeitado", "usuario_id": usuario_id}
+
+
+# Linhas que pertencem só ao cadastro e podem sair junto com ele: (tabela, coluna -> usuarios.id).
+_DADOS_DO_CADASTRO = {
+    ("fotos", "usuario_id"),
+    ("notificacoes", "usuario_id"),
+    ("notificacoes_barbeiro", "barbeiro_id"),
+    ("tokens_recuperacao", "usuario_id"),
+    ("disponibilidades", "usuario_id"),
+    ("radar_freelancer", "freelancer_id"),
+    ("request_views", "freelancer_id"),
+    ("favoritos", "usuario_id"),
+    ("favoritos", "favorito_id"),
+    ("precos_customizados", "barbeiro_id"),
+    ("configuracoes_repasse_usuarios", "usuario_id"),
+    ("contas_pagamento_usuarios", "usuario_id"),
+    ("carteiras", "barbeiro_id"),  # só sai se não tiver movimentação (historico_movimentacoes bloqueia)
+    ("freelancers", "usuario_id"),  # portfólio/especialidades saem junto; avaliações/comissões bloqueiam
+}
+_FILHOS_DO_FREELANCER = {"portfolio_freelancer", "especialidades_freelancer"}
+# Campos preenchidos pelo próprio ADM ao decidir algo; não são histórico do usuário recusado.
+_CAMPOS_DO_ADM = {"revisada_por_admin_id", "decidido_por_id", "atualizado_por_id"}
+
+_NOMES_HISTORICO = {
+    "chamados": "atendimentos", "agendamentos_ativos": "atendimentos", "cortes": "atendimentos",
+    "avaliacoes": "avaliações", "avaliacoes_freelancer": "avaliações", "avaliacoes_barbearia": "avaliações",
+    "fechamentos_diarios_freelancer": "pagamentos diários", "historico_movimentacoes": "movimentações financeiras",
+    "transacoes_financeiras": "transações", "saques": "saques", "comissoes": "comissões",
+    "barbearias": "barbearia cadastrada", "mensagens_chat": "mensagens",
+}
+
+
+def _fks_para(tabela_alvo: str):
+    from app.database import Base
+    for tabela in Base.metadata.sorted_tables:
+        for coluna in tabela.columns:
+            for fk in coluna.foreign_keys:
+                if fk.column.table.name == tabela_alvo and fk.column.name == "id":
+                    yield tabela, coluna
+
+
+def _historico_que_impede_exclusao(db: Session, usuario: Usuario):
+    """Tabelas com registros reais do usuário (atendimentos, pagamentos, avaliações...)."""
+    from sqlalchemy import select
+    achados = set()
+    for tabela, coluna in _fks_para("usuarios"):
+        if (tabela.name, coluna.name) in _DADOS_DO_CADASTRO or coluna.name in _CAMPOS_DO_ADM:
+            continue
+        if db.execute(select(func.count()).select_from(tabela).where(coluna == usuario.id)).scalar():
+            achados.add(_NOMES_HISTORICO.get(tabela.name, tabela.name))
+
+    ids_freelancer = [f.id for f in db.query(Freelancer).filter(Freelancer.usuario_id == usuario.id).all()]
+    if ids_freelancer:
+        for tabela, coluna in _fks_para("freelancers"):
+            if tabela.name in _FILHOS_DO_FREELANCER:
+                continue
+            if db.execute(select(func.count()).select_from(tabela).where(coluna.in_(ids_freelancer))).scalar():
+                achados.add(_NOMES_HISTORICO.get(tabela.name, tabela.name))
+    return sorted(achados)
+
+
+def _apagar_dados_do_cadastro(db: Session, usuario: Usuario):
+    ids_freelancer = [f.id for f in db.query(Freelancer).filter(Freelancer.usuario_id == usuario.id).all()]
+    if ids_freelancer:
+        for tabela, coluna in _fks_para("freelancers"):
+            if tabela.name in _FILHOS_DO_FREELANCER:
+                db.execute(tabela.delete().where(coluna.in_(ids_freelancer)))
+    # freelancers por último, depois dos filhos
+    for tabela, coluna in sorted(_fks_para("usuarios"), key=lambda tc: tc[0].name == "freelancers"):
+        if (tabela.name, coluna.name) in _DADOS_DO_CADASTRO:
+            db.execute(tabela.delete().where(coluna == usuario.id))
+    db.flush()
 
 @router.get("/api/buscar")
 def buscar_usuario(
