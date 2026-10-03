@@ -194,9 +194,10 @@ export default function PainelBarberMovePremium({ token: tokenProp, logout: logo
     const fim = chamado.data_hora_fim ? parseDataServidorUTC(chamado.data_hora_fim) : NaN;
     if (!Number.isFinite(fim)) return null;
 
+    // data_hora_fim já inclui as pausas encerradas (o backend empurra ao retomar).
     const pausaAtualMs = isPaused && pausadoEmMs ? (agoraMs - pausadoEmMs) : 0;
-    return fim - agoraMs + pausaAcumuladaMs + pausaAtualMs;
-  }, [agoraMs, isPaused, pausadoEmMs, pausaAcumuladaMs, parseDataServidorUTC]);
+    return fim - agoraMs + pausaAtualMs;
+  }, [agoraMs, isPaused, pausadoEmMs, parseDataServidorUTC]);
 
   const carregarPerfil = useCallback(async () => {
     if (!token) return;
@@ -879,6 +880,30 @@ export default function PainelBarberMovePremium({ token: tokenProp, logout: logo
       const confirmado = await res.json().catch(() => ({}));
       const pausadoEmMsServidor = confirmado?.pausado_em ? parseDataServidorUTC(confirmado.pausado_em) : null;
       const acumuladoMsServidor = Math.round((Number(confirmado?.pausa_acumulada_segundos) || 0) * 1000);
+
+      // Ao retomar, o backend empurra data_hora_fim (deste e dos próximos serviços do
+      // grupo) pelo tempo pausado. Aplica o mesmo deslocamento aqui, no mesmo render
+      // em que a pausa sai, pra o cronômetro continuar EXATAMENTE do ponto da pausa
+      // (sem esperar o próximo polling e sem salto).
+      if (!pausarAgora && confirmado?.data_hora_fim) {
+        const idAtivo = chamadoAtivo.id;
+        const grupoAtivo = chamadoAtivo.grupo_id;
+        const deltaMs = parseDataServidorUTC(confirmado.data_hora_fim) - parseDataServidorUTC(chamadoAtivo.data_hora_fim);
+        const deslocar = (valor) => {
+          const ms = parseDataServidorUTC(valor);
+          return Number.isFinite(ms) ? new Date(ms + deltaMs).toISOString() : valor;
+        };
+        const ajustar = (c) => {
+          if (c.id === idAtivo) return { ...c, data_hora_fim: confirmado.data_hora_fim };
+          const naoIniciado = ['pendente', 'confirmado'].includes(String(c.status || '').toLowerCase());
+          if (grupoAtivo && c.grupo_id === grupoAtivo && naoIniciado && Number.isFinite(deltaMs) && deltaMs > 0) {
+            return { ...c, data_hora_inicio: deslocar(c.data_hora_inicio), data_hora_fim: deslocar(c.data_hora_fim) };
+          }
+          return c;
+        };
+        setChamados((prev) => prev.map(ajustar));
+        setChamadoAtivo((prev) => (prev && prev.id === idAtivo ? { ...prev, data_hora_fim: confirmado.data_hora_fim } : prev));
+      }
 
       setIsPaused(Boolean(confirmado?.pausado));
       setPausadoEmMs(Number.isFinite(pausadoEmMsServidor) ? pausadoEmMsServidor : null);

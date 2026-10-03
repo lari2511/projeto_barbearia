@@ -30,7 +30,6 @@ export default function CronometroAtendimento({
   chamadoAtivoId = null,
   isPausado = false,
   pausadoEmMs = null,
-  pausaAcumuladaMs = 0,
   agoraMs,
   compacto = false,
   variante = 'lista',
@@ -65,9 +64,12 @@ export default function CronometroAtendimento({
     : null;
 
   const isChamadoAtivo = Number(chamadoAtivoId) === Number(chamado.id);
+  // Pausa = congelar. Enquanto pausado, o tempo da pausa atual compensa o relógio
+  // (fim - agora cai, pausaAtual sobe na mesma velocidade). Ao retomar, o backend já
+  // empurra data_hora_fim pelo tempo pausado; por isso as pausas já encerradas
+  // (pausa_acumulada_segundos) NÃO entram aqui -- somá-las de novo contava a pausa 2x.
   const pausaAtualMs = isChamadoAtivo && isPausado && pausadoEmMs ? (agoraMs - pausadoEmMs) : 0;
-  const acumuladoMs = isChamadoAtivo ? pausaAcumuladaMs : 0;
-  const restanteMs = fim - agoraMs + acumuladoMs + pausaAtualMs;
+  const restanteMs = fim - agoraMs + pausaAtualMs;
   const restanteSegundos = Math.ceil(Math.max(0, restanteMs) / 1000);
   const dentroJanelaProximo = restanteSegundos <= (10 * 60);
   const pausadoAgora = isChamadoAtivo && isPausado;

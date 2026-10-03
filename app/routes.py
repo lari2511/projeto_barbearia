@@ -2975,11 +2975,14 @@ def pausar_atendimento_chamado(id: int, pausar: bool, token: str = Depends(oauth
             chamado.pausado_em = agora
     else:
         if chamado.pausado_em:
-            delta_segundos = max(0, int((agora - chamado.pausado_em).total_seconds()))
-            chamado.pausa_acumulada_segundos = (chamado.pausa_acumulada_segundos or 0) + delta_segundos
+            # Duração EXATA da pausa (com fração de segundo): o cronômetro retoma do mesmo
+            # ponto em que congelou. Truncar pra int fazia perder até 1s a cada retomada.
+            pausa = max(timedelta(0), agora - chamado.pausado_em)
+            delta_segundos = pausa.total_seconds()
+            chamado.pausa_acumulada_segundos = (chamado.pausa_acumulada_segundos or 0) + int(delta_segundos)
             chamado.pausado_em = None
             if chamado.data_hora_fim:
-                chamado.data_hora_fim = chamado.data_hora_fim + timedelta(seconds=delta_segundos)
+                chamado.data_hora_fim = chamado.data_hora_fim + pausa
 
             # Se esse chamado faz parte de uma selecao de multiplos servicos (grupo_id),
             # empurra tambem os proximos da fila (ainda nao iniciados) pelo mesmo tempo
