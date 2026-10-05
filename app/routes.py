@@ -3015,12 +3015,25 @@ def pausar_atendimento_chamado(id: int, pausar: bool, token: str = Depends(oauth
     db.commit()
     db.refresh(chamado)
 
+    # Horarios ABSOLUTOS do grupo apos a pausa/retomada: o app aplica esses valores
+    # direto (idempotente). Deslocar no front por um delta relativo somava a pausa 2x
+    # quando o polling ja tinha trazido o grupo empurrado.
+    grupo = []
+    if chamado.grupo_id:
+        membros = db.query(models.Chamado).filter(models.Chamado.grupo_id == chamado.grupo_id).all()
+        grupo = [{
+            "id": m.id,
+            "data_hora_inicio": m.data_hora_inicio.isoformat() if m.data_hora_inicio else None,
+            "data_hora_fim": m.data_hora_fim.isoformat() if m.data_hora_fim else None,
+        } for m in membros]
+
     return {
         "chamado_id": chamado.id,
         "pausado": bool(chamado.pausado_em),
         "pausado_em": chamado.pausado_em.isoformat() if chamado.pausado_em else None,
         "pausa_acumulada_segundos": chamado.pausa_acumulada_segundos or 0,
         "data_hora_fim": chamado.data_hora_fim.isoformat() if chamado.data_hora_fim else None,
+        "grupo": grupo,
     }
 
 

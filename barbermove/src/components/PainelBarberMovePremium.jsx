@@ -114,6 +114,8 @@ export default function PainelBarberMovePremium({ token: tokenProp, logout: logo
   const scrollRef = useRef(null);
   const ultimaSyncGpsRef = useRef(0);
   const barbeariaPresenteRef = useRef(null); // ultima barbearia onde o freelancer esteve presente
+  // Muda a cada pausar/retomar: polling que saiu antes disso traz horarios velhos e é descartado.
+  const pausaSeqRef = useRef(0);
 
   // Uma avaliacao de barbearia por dia (backend valida de verdade; isto e so
   // pra esconder a opcao na hora, com a data local do aparelho como chave).
@@ -402,6 +404,7 @@ export default function PainelBarberMovePremium({ token: tokenProp, logout: logo
 
   const carregarChamados = useCallback(async () => {
     if (!token) return;
+    const seqInicio = pausaSeqRef.current;
     try {
       let res = await fetch(`${API_URL}/api/v1/barbeiro/agendamentos/meus`, {
         headers: { Authorization: `Bearer ${token}` },
@@ -421,6 +424,9 @@ export default function PainelBarberMovePremium({ token: tokenProp, logout: logo
       }
 
       const data = await res.json();
+      // Um pausar/retomar aconteceu durante esta requisição: os horários podem ser de
+      // antes dele. Descarta; o próximo polling (8s) já vem certo.
+      if (pausaSeqRef.current !== seqInicio) return;
       const lista = Array.isArray(data) ? data : [];
       setChamados(lista);
       const prioridadeStatus = { em_atendimento: 3, confirmado: 2, aceito: 2, pendente: 1 };
@@ -867,6 +873,10 @@ export default function PainelBarberMovePremium({ token: tokenProp, logout: logo
     try {
       setAlternandoPausa(true);
       const pausarAgora = !isPaused;
+      // Instante do toque no relógio DESTE aparelho: o cronômetro congela exatamente no
+      // valor que estava na tela (o horário do servidor pode diferir do relógio do celular).
+      const tocadoEmMs = Date.now();
+      pausaSeqRef.current += 1;
       const res = await fetch(`${API_URL}/api/v1/chamados/${chamadoAtivo.id}/pausar-atendimento?pausar=${pausarAgora ? 'true' : 'false'}`, {
         method: 'PATCH',
         headers: { Authorization: `Bearer ${token}` },
@@ -878,35 +888,34 @@ export default function PainelBarberMovePremium({ token: tokenProp, logout: logo
       }
 
       const confirmado = await res.json().catch(() => ({}));
+      pausaSeqRef.current += 1;
       const pausadoEmMsServidor = confirmado?.pausado_em ? parseDataServidorUTC(confirmado.pausado_em) : null;
       const acumuladoMsServidor = Math.round((Number(confirmado?.pausa_acumulada_segundos) || 0) * 1000);
 
       // Ao retomar, o backend empurra data_hora_fim (deste e dos próximos serviços do
-      // grupo) pelo tempo pausado. Aplica o mesmo deslocamento aqui, no mesmo render
-      // em que a pausa sai, pra o cronômetro continuar EXATAMENTE do ponto da pausa
-      // (sem esperar o próximo polling e sem salto).
+      // grupo) pelo tempo pausado. Aplica os horários ABSOLUTOS que ele devolveu, no mesmo
+      // render em que a pausa sai, pra o cronômetro continuar EXATAMENTE do ponto da pausa.
+      // (Valor absoluto, não delta: se o polling já trouxe o grupo empurrado, não soma 2x.)
       if (!pausarAgora && confirmado?.data_hora_fim) {
         const idAtivo = chamadoAtivo.id;
-        const grupoAtivo = chamadoAtivo.grupo_id;
-        const deltaMs = parseDataServidorUTC(confirmado.data_hora_fim) - parseDataServidorUTC(chamadoAtivo.data_hora_fim);
-        const deslocar = (valor) => {
-          const ms = parseDataServidorUTC(valor);
-          return Number.isFinite(ms) ? new Date(ms + deltaMs).toISOString() : valor;
-        };
+        const novos = new Map((Array.isArray(confirmado.grupo) ? confirmado.grupo : []).map((m) => [m.id, m]));
+        novos.set(idAtivo, { ...(novos.get(idAtivo) || {}), data_hora_fim: confirmado.data_hora_fim });
         const ajustar = (c) => {
-          if (c.id === idAtivo) return { ...c, data_hora_fim: confirmado.data_hora_fim };
-          const naoIniciado = ['pendente', 'confirmado'].includes(String(c.status || '').toLowerCase());
-          if (grupoAtivo && c.grupo_id === grupoAtivo && naoIniciado && Number.isFinite(deltaMs) && deltaMs > 0) {
-            return { ...c, data_hora_inicio: deslocar(c.data_hora_inicio), data_hora_fim: deslocar(c.data_hora_fim) };
-          }
-          return c;
+          const novo = novos.get(c.id);
+          if (!novo) return c;
+          return {
+            ...c,
+            ...(novo.data_hora_inicio ? { data_hora_inicio: novo.data_hora_inicio } : {}),
+            ...(novo.data_hora_fim ? { data_hora_fim: novo.data_hora_fim } : {}),
+          };
         };
         setChamados((prev) => prev.map(ajustar));
-        setChamadoAtivo((prev) => (prev && prev.id === idAtivo ? { ...prev, data_hora_fim: confirmado.data_hora_fim } : prev));
+        setChamadoAtivo((prev) => (prev && prev.id === idAtivo ? ajustar(prev) : prev));
       }
 
-      setIsPaused(Boolean(confirmado?.pausado));
-      setPausadoEmMs(Number.isFinite(pausadoEmMsServidor) ? pausadoEmMsServidor : null);
+      const pausado = Boolean(confirmado?.pausado);
+      setIsPaused(pausado);
+      setPausadoEmMs(pausado ? tocadoEmMs : (Number.isFinite(pausadoEmMsServidor) ? pausadoEmMsServidor : null));
       setPausaAcumuladaMs(acumuladoMsServidor);
       notify(pausarAgora ? 'Temporizador pausado.' : 'Temporizador retomado.', pausarAgora ? 'warning' : 'success');
     } catch (err) {
