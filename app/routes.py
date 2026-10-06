@@ -816,13 +816,13 @@ def cadastrar_cliente(
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db)
 ):
-    # Cadastrar novo cliente; envia e-mail de verificação automaticamente.
+    # Cadastrar novo cliente; já devolve o token (entra direto, sem confirmar e-mail).
     email_normalizado = normalize_email(cliente.email)
     usuario_existente = db.query(models.Usuario).filter(
         func.lower(models.Usuario.email) == email_normalizado
     ).first()
     if usuario_existente:
-        raise HTTPException(status_code=400, detail="Email já cadastrado")
+        raise HTTPException(status_code=400, detail="Este e-mail já está cadastrado.")
     
     # Verificar se CPF já está em uso
     cpf_existente = db.query(models.Usuario).filter(models.Usuario.cpf == cliente.cpf).first()
@@ -835,9 +835,6 @@ def cadastrar_cliente(
         if telefone_existente:
             raise HTTPException(status_code=400, detail="Telefone já cadastrado")
     
-    # Gerar token de verificação JWT
-    token_verificacao = create_email_verification_token(email_normalizado)
-    
     novo_usuario = models.Usuario(
         email=email_normalizado,
         nome=cliente.nome,
@@ -845,21 +842,13 @@ def cadastrar_cliente(
         telefone=cliente.telefone,
         cpf=cliente.cpf,
         tipo="cliente",
-        token_verificacao=token_verificacao,
-        email_verificado=False,  # Inicia como não verificado
+        # Sem confirmação de e-mail por link: entra direto após o cadastro.
+        email_verificado=True,
         perfil_aprovado=True,  # Clientes não precisam de validação - aprovacao automática
     )
     db.add(novo_usuario)
     db.commit()
     db.refresh(novo_usuario)
-    
-    # Enviar e-mail de verificação em background (não bloqueia a resposta)
-    background_tasks.add_task(
-        send_verification_email, 
-        novo_usuario.email, 
-        token_verificacao,
-        novo_usuario.nome
-    )
     
     # Gerar token de acesso
     access_token = create_access_token(data={"sub": str(novo_usuario.id), "tipo": novo_usuario.tipo})
@@ -878,13 +867,13 @@ def cadastrar_barbeiro(
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db)
 ):
-    # Cadastrar novo barbeiro; envia e-mail de verificação automaticamente.
+    # Cadastrar novo barbeiro; já devolve o token (entra direto, sem confirmar e-mail).
     email_normalizado = normalize_email(barbeiro.email)
     usuario_existente = db.query(models.Usuario).filter(
         func.lower(models.Usuario.email) == email_normalizado
     ).first()
     if usuario_existente:
-        raise HTTPException(status_code=400, detail="Email já cadastrado")
+        raise HTTPException(status_code=400, detail="Este e-mail já está cadastrado.")
     
     # Verificar se CPF já está em uso
     cpf_existente = db.query(models.Usuario).filter(models.Usuario.cpf == barbeiro.cpf).first()
@@ -897,9 +886,6 @@ def cadastrar_barbeiro(
         if telefone_existente:
             raise HTTPException(status_code=400, detail="Telefone já cadastrado")
     
-    # Gerar token de verificação JWT
-    token_verificacao = create_email_verification_token(email_normalizado)
-    
     novo_usuario = models.Usuario(
         email=email_normalizado,
         nome=barbeiro.nome,
@@ -908,7 +894,6 @@ def cadastrar_barbeiro(
         cpf=barbeiro.cpf,
         tipo="barbeiro",
         tempo_experiencia=barbeiro.tempo_experiencia,
-        token_verificacao=token_verificacao,
         # Login liberado logo apos o cadastro: a mesma senha (email + senha)
         # tem que funcionar depois que o usuario sai e volta ao app.
         email_verificado=True,
@@ -919,14 +904,6 @@ def cadastrar_barbeiro(
     db.add(novo_usuario)
     db.commit()
     db.refresh(novo_usuario)
-    
-    # Enviar e-mail de verificação em background (não bloqueia a resposta)
-    background_tasks.add_task(
-        send_verification_email, 
-        novo_usuario.email, 
-        token_verificacao,
-        novo_usuario.nome
-    )
     
     # Enviar email de avaliação pendente em background
     # from .email import send_perfil_awaiting_approval_email
@@ -960,7 +937,7 @@ def cadastrar_barbearia(
         func.lower(models.Usuario.email) == email_normalizado
     ).first()
     if usuario_existente:
-        raise HTTPException(status_code=400, detail="Email já cadastrado")
+        raise HTTPException(status_code=400, detail="Este e-mail já está cadastrado.")
     
     # Verificar se CPF já está em uso (dono pode optar por CNPJ e não informar CPF)
     if barbearia.cpf:
@@ -980,9 +957,6 @@ def cadastrar_barbearia(
         if cnpj_existente:
             raise HTTPException(status_code=400, detail="CNPJ já cadastrado")
 
-    # Gerar token de verificação JWT
-    token_verificacao = create_email_verification_token(email_normalizado)
-    
     novo_usuario = models.Usuario(
         email=email_normalizado,
         nome=barbearia.nome,
@@ -992,7 +966,6 @@ def cadastrar_barbearia(
         cnpj=barbearia.cnpj,
         senha_hash=get_password_hash(barbearia.senha),
         tipo="barbearia",
-        token_verificacao=token_verificacao,
         # Login liberado logo apos o cadastro: a mesma senha (email + senha)
         # tem que funcionar depois que o usuario sai e volta ao app.
         email_verificado=True,
@@ -1014,14 +987,6 @@ def cadastrar_barbearia(
     db.commit()
     db.refresh(nova_barbearia)
 
-    # Enviar e-mail de verificação em background (não bloqueia a resposta)
-    background_tasks.add_task(
-        send_verification_email, 
-        novo_usuario.email, 
-        token_verificacao,
-        novo_usuario.nome
-    )
-    
     # Enviar email de avaliação pendente em background
     # from .email import send_perfil_awaiting_approval_email
     # Temporariamente comentado para testes
@@ -1130,12 +1095,8 @@ def login_cliente(form_data: OAuth2PasswordRequestForm = Depends(), db: Session 
     if not usuario or not verify_password(senha, usuario.senha_hash):
         raise HTTPException(status_code=401, detail="Email ou senha incorretos")
 
-    email_nao_verificado = REQUIRE_EMAIL_VERIFIED and not usuario.email_verificado
-    if email_nao_verificado and not DEBUG_ALLOW_UNVERIFIED_EMAIL:
-        raise HTTPException(
-            status_code=403,
-            detail="Email não verificado. Verifique sua caixa de entrada ou reenvie o link.",
-        )
+    # Sem trava de verificacao de email: quem se cadastrou com email + senha
+    # entra direto (inclusive contas antigas ainda marcadas como nao verificadas).
     
     access_token = create_access_token(data={"sub": str(usuario.id), "tipo": usuario.tipo})
     return {
@@ -1144,7 +1105,7 @@ def login_cliente(form_data: OAuth2PasswordRequestForm = Depends(), db: Session 
         "user_id": usuario.id,
         "email": usuario.email,
         "email_verificado": usuario.email_verificado,
-        "aviso_email_nao_verificado": email_nao_verificado,
+        "aviso_email_nao_verificado": False,
         "tipo": usuario.tipo,
         "mensagem": f"Bem-vindo, {usuario.nome}!"
     }

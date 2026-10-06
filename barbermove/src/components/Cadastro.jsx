@@ -56,6 +56,7 @@ const emptyForm = {
   nomeBarbearia: '', // nome público do estabelecimento — só usado no cadastro de barbearia
   email: '',
   senha: '',
+  confirmarSenha: '',
   telefone: '',
   cpf: '',
   endereco: '',
@@ -64,6 +65,8 @@ const emptyForm = {
   tipoDocumento: '', // 'cpf' | 'cnpj' — só usado no cadastro de barbearia
   tempoExperiencia: '', // só usado no cadastro de freelancer
 }
+
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
 const temposExperiencia = [
   'Menos de 1 ano', '1 ano', '2 anos', '3 anos', '4 anos', '5 anos', '6 anos ou mais',
@@ -115,6 +118,8 @@ export default function Cadastro({ initialType = 'cliente', onBack, onSuccess })
   const [photos, setPhotos] = useState(emptyPhotos)
   const [localError, setLocalError] = useState('')
   const [loadingCep, setLoadingCep] = useState(false)
+
+  const senhasDiferentes = Boolean(form.confirmarSenha) && form.senha !== form.confirmarSenha
 
   const selectedConfig = useMemo(
     () => userTypes.find((item) => item.type === selectedType) || userTypes[0],
@@ -309,10 +314,20 @@ export default function Cadastro({ initialType = 'cliente', onBack, onSuccess })
       // Barbearia usa o seletor de tipo de documento (CPF OU CNPJ) em vez do
       // campo de CPF genérico usado por cliente/freelancer.
       const exigeCpfGenerico = selectedType !== 'barbearia'
-      if (!form.nome.trim() || !form.email.trim() || !form.senha || !form.telefone.trim() || (exigeCpfGenerico && !form.cpf.trim())) {
+      if (!form.nome.trim() || !form.email.trim() || !form.senha || !form.confirmarSenha || !form.telefone.trim() || (exigeCpfGenerico && !form.cpf.trim())) {
         console.log('[Cadastro] falhou validacao de campos obrigatorios', form)
         void enviarDiagnosticoCadastro(API_URL, 'submit:validacao-falhou', 'Campos obrigatórios faltando', { selectedType })
         setLocalError('Preencha todos os campos obrigatórios')
+        return
+      }
+
+      if (!EMAIL_REGEX.test(form.email.trim())) {
+        setLocalError('Informe um e-mail válido.')
+        return
+      }
+
+      if (form.senha !== form.confirmarSenha) {
+        setLocalError('As senhas não coincidem.')
         return
       }
 
@@ -503,6 +518,19 @@ export default function Cadastro({ initialType = 'cliente', onBack, onSuccess })
             placeholder="••••••"
             required
           />
+
+          <Input
+            label="Confirmar senha"
+            type="password"
+            icon={Lock}
+            value={form.confirmarSenha}
+            onChange={handleChange('confirmarSenha')}
+            placeholder="••••••"
+            required
+          />
+          {senhasDiferentes && (
+            <p className="-mt-1 mb-1 text-xs font-semibold text-red-400">As senhas não coincidem.</p>
+          )}
 
           <Input
             label="Telefone"
@@ -702,7 +730,7 @@ export default function Cadastro({ initialType = 'cliente', onBack, onSuccess })
 
           <div className="rounded-2xl border border-zinc-800 bg-black/30 p-3 text-xs text-zinc-400">
             {selectedType === 'cliente' && 'Clientes são aprovados automaticamente e recebem token logo após o cadastro.'}
-            {selectedType === 'barbeiro' && 'Freelancers recebem token e seguem o fluxo de verificação de email.'}
+            {selectedType === 'barbeiro' && 'Freelancers entram direto no app; o perfil fica em análise até o ADM aprovar.'}
             {selectedType === 'barbearia' && 'Barbearias são vinculadas ao cadastro da empresa e podem entrar no painel após o registro.'}
           </div>
 
@@ -712,7 +740,7 @@ export default function Cadastro({ initialType = 'cliente', onBack, onSuccess })
             </div>
           )}
 
-          <Button type="submit" fullWidth disabled={loading} className="mt-2">
+          <Button type="submit" fullWidth disabled={loading || senhasDiferentes} className="mt-2">
             {loading ? 'Criando conta...' : 'Criar conta'}
           </Button>
         </form>
