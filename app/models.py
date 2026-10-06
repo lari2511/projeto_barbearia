@@ -1241,3 +1241,46 @@ class AlteracaoServicoAtendimento(Base):
     status = Column(String, default="pendente", nullable=False, index=True)
     criado_em = Column(DateTime, default=datetime.utcnow)
     respondido_em = Column(DateTime, nullable=True)
+
+
+class Cobranca(Base):
+    """
+    Cobrança enviada a um provedor de pagamento (hoje: Mercado Pago, só Pix).
+
+    Criar a cobrança NÃO libera nada: o efeito (cadeiras, mensalidade, taxa do
+    freelancer) só é aplicado quando o provedor confirma a aprovação, uma única
+    vez (`liberado_em`). Regras em app/cobrancas/.
+    """
+    __tablename__ = "cobrancas"
+
+    id = Column(Integer, primary_key=True, index=True)
+    # Identificador único nosso: vai como external_reference e X-Idempotency-Key no provedor.
+    identificador = Column(String(64), unique=True, nullable=False, index=True)
+    usuario_id = Column(Integer, ForeignKey("usuarios.id"), nullable=False, index=True)
+    # ASSINATURA_CADEIRAS | MENSALIDADE_BARBEARIA | TAXA_FREELANCER
+    finalidade = Column(String(40), nullable=False, index=True)
+    # O que a cobrança libera, em JSON (ex.: {"cadeiras_ativas": 3}).
+    referencia = Column(String, nullable=True)
+    # Chave de deduplicação: mesma finalidade + mesma referência = mesma cobrança em aberto.
+    chave_referencia = Column(String(200), nullable=False, index=True)
+    descricao = Column(String(200), nullable=True)
+    valor = Column(Float, nullable=False)
+    metodo = Column(String(20), nullable=False, default="PIX")
+    provedor = Column(String(30), nullable=False, default="mercadopago")
+    # AGUARDANDO_PAGAMENTO | PAGO | CANCELADO | EXPIRADO | REJEITADO | ESTORNADO
+    status = Column(String(30), nullable=False, default="AGUARDANDO_PAGAMENTO", index=True)
+    status_provedor = Column(String(40), nullable=True)
+    status_detalhe_provedor = Column(String(80), nullable=True)
+    provedor_pagamento_id = Column(String(64), unique=True, nullable=True, index=True)
+    pix_copia_cola = Column(String, nullable=True)
+    qr_code_base64 = Column(String, nullable=True)
+    ticket_url = Column(String, nullable=True)
+    expira_em = Column(DateTime, nullable=True)  # UTC
+    pago_em = Column(DateTime, nullable=True)  # UTC
+    liberado_em = Column(DateTime, nullable=True)  # UTC; efeito aplicado (só uma vez)
+    observacao = Column(String, nullable=True)
+    ultima_consulta_em = Column(DateTime, nullable=True)
+    criado_em = Column(DateTime, default=datetime.utcnow, nullable=False)
+    atualizado_em = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    usuario = relationship("Usuario", foreign_keys=[usuario_id])

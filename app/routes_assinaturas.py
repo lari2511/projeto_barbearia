@@ -301,6 +301,124 @@ def calcular_valor_assinatura(num_cadeiras: int):
     }
 
 
+def aplicar_contratacao_cadeiras(
+    db: Session,
+    barbearia: models.Barbearia,
+    quantidade: int,
+    metodo_pagamento: str,
+    agora: Optional[datetime] = None,
+) -> models.AssinaturaBarbearia:
+    """Ajusta a assinatura para `quantidade` cadeiras ativas. Não faz commit.
+
+    Usado pelo endpoint /contratar e pela liberação após pagamento Pix confirmado.
+    """
+    # Verificar se já tem assinatura
+    assinatura = db.query(models.AssinaturaBarbearia).filter(
+        models.AssinaturaBarbearia.barbearia_id == barbearia.id
+    ).first()
+
+    agora = agora or datetime.now()
+
+    if assinatura:
+        cadeiras_ativas = _resumo_ativo_cadeiras(db, assinatura.id)
+        quantidade_atual = len(cadeiras_ativas)
+
+        if quantidade_atual == 0 and (assinatura.quantidade_cadeiras or 0) > 0:
+            # Migração compatível: assinaturas antigas sem histórico de cadeira.
+            precos_legado = calcular_precos_cadeiras_adicionais(assinatura.quantidade_cadeiras)
+            _registrar_cadeiras(
+                db=db,
+                assinatura=assinatura,
+                quantidade=assinatura.quantidade_cadeiras,
+                origem=models.OrigemContratacaoCadeira.ADICIONAL.value,
+                precos=precos_legado,
+                data_contratacao=assinatura.criado_em or agora,
+            )
+            db.flush()
+            cadeiras_ativas = _resumo_ativo_cadeiras(db, assinatura.id)
+            quantidade_atual = len(cadeiras_ativas)
+
+        if quantidade > quantidade_atual:
+            quantidade_novas = quantidade - quantidade_atual
+            precos_novas = calcular_precos_cadeiras_adicionais(quantidade_novas)
+            _registrar_cadeiras(
+                db=db,
+                assinatura=assinatura,
+                quantidade=quantidade_novas,
+                origem=models.OrigemContratacaoCadeira.ADICIONAL.value,
+                precos=precos_novas,
+                data_contratacao=agora,
+            )
+            db.flush()
+
+        if quantidade < quantidade_atual:
+            quantidade_retirar = quantidade_atual - quantidade
+            cadeiras_para_desativar = db.query(models.CadeiraContratada).filter(
+                models.CadeiraContratada.assinatura_id == assinatura.id,
+                models.CadeiraContratada.ativa.is_(True),
+            ).order_by(models.CadeiraContratada.numero_referencia.desc()).limit(quantidade_retirar).all()
+
+            for cadeira in cadeiras_para_desativar:
+                cadeira.ativa = False
+                cadeira.cancelada_em = agora
+
+            db.flush()
+
+        cadeiras_ativas = _resumo_ativo_cadeiras(db, assinatura.id)
+        _sincronizar_totais_assinatura(assinatura, cadeiras_ativas, agora)
+        assinatura.metodo_pagamento_preferido = metodo_pagamento
+
+        # Se estava suspensa/cancelada, reativar
+        if assinatura.status in ["suspensa", "cancelada", "inadimplente"]:
+            assinatura.status = "ativa"
+            assinatura.motivo_suspensao = None
+
+        db.flush()
+        return assinatura
+    else:
+        primeira_compra = not _barbearia_tem_historico_contratacao(db, barbearia.id)
+        precos = (
+            calcular_precos_compra_inicial(quantidade)
+            if primeira_compra else
+            calcular_precos_cadeiras_adicionais(quantidade)
+        )
+
+        nova_assinatura = models.AssinaturaBarbearia(
+            barbearia_id=barbearia.id,
+            quantidade_cadeiras=0,
+            valor_mensalidade=0,
+            valor_por_cadeira=json.dumps([]),
+            economia_mensal=0,
+            metodo_pagamento_preferido=metodo_pagamento,
+            dia_vencimento=agora.day,
+            proximo_vencimento=calcular_proxima_cobranca_individual(agora),
+            status="ativa"
+        )
+
+        db.add(nova_assinatura)
+        db.flush()
+
+        _registrar_cadeiras(
+            db=db,
+            assinatura=nova_assinatura,
+            quantidade=quantidade,
+            origem=(
+                models.OrigemContratacaoCadeira.COMPRA_INICIAL.value
+                if primeira_compra
+                else models.OrigemContratacaoCadeira.ADICIONAL.value
+            ),
+            precos=precos,
+            data_contratacao=agora,
+        )
+        db.flush()
+
+        cadeiras_ativas = _resumo_ativo_cadeiras(db, nova_assinatura.id)
+        _sincronizar_totais_assinatura(nova_assinatura, cadeiras_ativas, agora)
+
+        db.flush()
+        return nova_assinatura
+
+
 @router.get("/minha", response_model=AssinaturaResponse)
 def obter_minha_assinatura(
     db: Session = Depends(get_db),
@@ -374,115 +492,10 @@ def contratar_ou_atualizar_assinatura(
             detail="Barbearia não encontrada"
         )
     
-    # Verificar se já tem assinatura
-    assinatura = db.query(models.AssinaturaBarbearia).filter(
-        models.AssinaturaBarbearia.barbearia_id == barbearia.id
-    ).first()
-
-    agora = datetime.now()
-
-    if assinatura:
-        cadeiras_ativas = _resumo_ativo_cadeiras(db, assinatura.id)
-        quantidade_atual = len(cadeiras_ativas)
-
-        if quantidade_atual == 0 and (assinatura.quantidade_cadeiras or 0) > 0:
-            # Migração compatível: assinaturas antigas sem histórico de cadeira.
-            precos_legado = calcular_precos_cadeiras_adicionais(assinatura.quantidade_cadeiras)
-            _registrar_cadeiras(
-                db=db,
-                assinatura=assinatura,
-                quantidade=assinatura.quantidade_cadeiras,
-                origem=models.OrigemContratacaoCadeira.ADICIONAL.value,
-                precos=precos_legado,
-                data_contratacao=assinatura.criado_em or agora,
-            )
-            db.flush()
-            cadeiras_ativas = _resumo_ativo_cadeiras(db, assinatura.id)
-            quantidade_atual = len(cadeiras_ativas)
-
-        if dados.cadeiras_ativas > quantidade_atual:
-            quantidade_novas = dados.cadeiras_ativas - quantidade_atual
-            precos_novas = calcular_precos_cadeiras_adicionais(quantidade_novas)
-            _registrar_cadeiras(
-                db=db,
-                assinatura=assinatura,
-                quantidade=quantidade_novas,
-                origem=models.OrigemContratacaoCadeira.ADICIONAL.value,
-                precos=precos_novas,
-                data_contratacao=agora,
-            )
-            db.flush()
-
-        if dados.cadeiras_ativas < quantidade_atual:
-            quantidade_retirar = quantidade_atual - dados.cadeiras_ativas
-            cadeiras_para_desativar = db.query(models.CadeiraContratada).filter(
-                models.CadeiraContratada.assinatura_id == assinatura.id,
-                models.CadeiraContratada.ativa.is_(True),
-            ).order_by(models.CadeiraContratada.numero_referencia.desc()).limit(quantidade_retirar).all()
-
-            for cadeira in cadeiras_para_desativar:
-                cadeira.ativa = False
-                cadeira.cancelada_em = agora
-
-            db.flush()
-
-        cadeiras_ativas = _resumo_ativo_cadeiras(db, assinatura.id)
-        _sincronizar_totais_assinatura(assinatura, cadeiras_ativas, agora)
-        assinatura.metodo_pagamento_preferido = metodo_pagamento
-
-        # Se estava suspensa/cancelada, reativar
-        if assinatura.status in ["suspensa", "cancelada", "inadimplente"]:
-            assinatura.status = "ativa"
-            assinatura.motivo_suspensao = None
-
-        db.commit()
-        db.refresh(assinatura)
-
-        return serializar_assinatura(assinatura)
-    else:
-        primeira_compra = not _barbearia_tem_historico_contratacao(db, barbearia.id)
-        precos = (
-            calcular_precos_compra_inicial(dados.cadeiras_ativas)
-            if primeira_compra else
-            calcular_precos_cadeiras_adicionais(dados.cadeiras_ativas)
-        )
-
-        nova_assinatura = models.AssinaturaBarbearia(
-            barbearia_id=barbearia.id,
-            quantidade_cadeiras=0,
-            valor_mensalidade=0,
-            valor_por_cadeira=json.dumps([]),
-            economia_mensal=0,
-            metodo_pagamento_preferido=metodo_pagamento,
-            dia_vencimento=agora.day,
-            proximo_vencimento=calcular_proxima_cobranca_individual(agora),
-            status="ativa"
-        )
-
-        db.add(nova_assinatura)
-        db.flush()
-
-        _registrar_cadeiras(
-            db=db,
-            assinatura=nova_assinatura,
-            quantidade=dados.cadeiras_ativas,
-            origem=(
-                models.OrigemContratacaoCadeira.COMPRA_INICIAL.value
-                if primeira_compra
-                else models.OrigemContratacaoCadeira.ADICIONAL.value
-            ),
-            precos=precos,
-            data_contratacao=agora,
-        )
-        db.flush()
-
-        cadeiras_ativas = _resumo_ativo_cadeiras(db, nova_assinatura.id)
-        _sincronizar_totais_assinatura(nova_assinatura, cadeiras_ativas, agora)
-
-        db.commit()
-        db.refresh(nova_assinatura)
-
-        return serializar_assinatura(nova_assinatura)
+    assinatura = aplicar_contratacao_cadeiras(db, barbearia, dados.cadeiras_ativas, metodo_pagamento)
+    db.commit()
+    db.refresh(assinatura)
+    return serializar_assinatura(assinatura)
 
 
 @router.get("/minha-assinatura", response_model=AssinaturaResponse)
@@ -798,6 +811,65 @@ def verificar_limite_cadeiras(
     }
 
 
+def aplicar_pagamento_mensalidade(
+    db: Session,
+    barbearia: models.Barbearia,
+    assinatura: models.AssinaturaBarbearia,
+    metodo_pagamento: str,
+) -> datetime:
+    """Registra a mensalidade paga: avança o ciclo, reativa, desbloqueia e cria a fatura. Não faz commit.
+
+    Usado pelo endpoint /pagar-mensalidade e pela liberação após pagamento Pix confirmado.
+    """
+    hoje = datetime.now()
+
+    # Auto-correção para casos legados de vencimento adiantado em excesso.
+    _normalizar_vencimento_adiantado(assinatura, hoje)
+
+    vencimento_referencia = assinatura.proximo_vencimento or datetime.now()
+    cadeiras_ativas = _resumo_ativo_cadeiras(db, assinatura.id)
+
+    # Avança somente cadeiras vencidas para respeitar ciclos individuais.
+    atualizadas = _avancar_ciclo_cobranca_cadeiras(cadeiras_ativas, hoje, apenas_vencidas=True)
+    if atualizadas == 0 and cadeiras_ativas:
+        # Segurança operacional: se nenhuma venceu, ainda assim permite antecipar 1 ciclo.
+        _avancar_ciclo_cobranca_cadeiras(cadeiras_ativas, hoje, apenas_vencidas=False)
+
+    _sincronizar_totais_assinatura(assinatura, cadeiras_ativas, hoje)
+    novo_vencimento = assinatura.proximo_vencimento
+
+    # Atualizar assinatura
+    assinatura.status = "ativa"
+    assinatura.motivo_suspensao = None
+    assinatura.ultima_atualizacao = hoje
+
+    assinatura.metodo_pagamento_preferido = metodo_pagamento
+
+    # DESBLOQUEAR BARBEARIA AUTOMATICAMENTE
+    if barbearia.bloqueada:
+        barbearia.bloqueada = False
+        barbearia.motivo_bloqueio = None
+        barbearia.bloqueada_em = None
+
+    # Criar registro de fatura paga
+    fatura = models.FaturaAssinatura(
+        assinatura_id=assinatura.id,
+        mes_referencia=hoje.strftime("%Y-%m"),
+        data_inicio_periodo=vencimento_referencia,
+        data_fim_periodo=novo_vencimento,
+        valor_fatura=assinatura.valor_mensalidade,
+        quantidade_cadeiras=assinatura.quantidade_cadeiras,
+        descricao_cobrada=f"Mensalidade {assinatura.quantidade_cadeiras} cadeira(s)",
+        status="pago",
+        data_vencimento=vencimento_referencia,
+        data_pagamento=hoje,
+        metodo_pagamento=assinatura.metodo_pagamento_preferido or "pix"
+    )
+    db.add(fatura)
+    db.flush()
+    return novo_vencimento
+
+
 @router.post("/pagar-mensalidade")
 def pagar_mensalidade(
     dados: AssinaturaRenovar,
@@ -842,13 +914,6 @@ def pagar_mensalidade(
         )
 
     metodo_pagamento = normalizar_metodo_pagamento(dados.metodo_pagamento)
-    hoje = datetime.now()
-
-    # Auto-correção para casos legados de vencimento adiantado em excesso.
-    _normalizar_vencimento_adiantado(assinatura, hoje)
-
-    vencimento_referencia = assinatura.proximo_vencimento or datetime.now()
-    cadeiras_ativas = _resumo_ativo_cadeiras(db, assinatura.id)
 
     # Exigir confirmacao explicita do PIX para evitar pagamento "automatico" sem etapa de QR
     if metodo_pagamento == "pix" and not dados.confirmar_pix:
@@ -878,43 +943,7 @@ def pagar_mensalidade(
                 detail="CVV invalido"
             )
 
-    # Avança somente cadeiras vencidas para respeitar ciclos individuais.
-    atualizadas = _avancar_ciclo_cobranca_cadeiras(cadeiras_ativas, hoje, apenas_vencidas=True)
-    if atualizadas == 0 and cadeiras_ativas:
-        # Segurança operacional: se nenhuma venceu, ainda assim permite antecipar 1 ciclo.
-        _avancar_ciclo_cobranca_cadeiras(cadeiras_ativas, hoje, apenas_vencidas=False)
-
-    _sincronizar_totais_assinatura(assinatura, cadeiras_ativas, hoje)
-    novo_vencimento = assinatura.proximo_vencimento
-
-    # Atualizar assinatura
-    assinatura.status = "ativa"
-    assinatura.motivo_suspensao = None
-    assinatura.ultima_atualizacao = hoje
-
-    assinatura.metodo_pagamento_preferido = metodo_pagamento
-
-    # DESBLOQUEAR BARBEARIA AUTOMATICAMENTE
-    if barbearia.bloqueada:
-        barbearia.bloqueada = False
-        barbearia.motivo_bloqueio = None
-        barbearia.bloqueada_em = None
-
-    # Criar registro de fatura paga
-    fatura = models.FaturaAssinatura(
-        assinatura_id=assinatura.id,
-        mes_referencia=hoje.strftime("%Y-%m"),
-        data_inicio_periodo=vencimento_referencia,
-        data_fim_periodo=novo_vencimento,
-        valor_fatura=assinatura.valor_mensalidade,
-        quantidade_cadeiras=assinatura.quantidade_cadeiras,
-        descricao_cobrada=f"Mensalidade {assinatura.quantidade_cadeiras} cadeira(s)",
-        status="pago",
-        data_vencimento=vencimento_referencia,
-        data_pagamento=hoje,
-        metodo_pagamento=assinatura.metodo_pagamento_preferido or "pix"
-    )
-    db.add(fatura)
+    novo_vencimento = aplicar_pagamento_mensalidade(db, barbearia, assinatura, metodo_pagamento)
 
     db.commit()
     db.refresh(assinatura)
