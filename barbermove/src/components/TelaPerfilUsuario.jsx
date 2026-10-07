@@ -361,6 +361,7 @@ export function TelaPerfilUsuario({
 
   const [barbeariaId, setBarbeariaId] = useState(null);
   const [nomeBarbearia, setNomeBarbearia] = useState('');
+  const [horarioFuncionamento, setHorarioFuncionamento] = useState('');
   // Perfil da barbearia: abre em modo visualizacao (limpo); o formulario so
   // aparece ao tocar "Editar perfil".
   const [editMode, setEditMode] = useState(false);
@@ -489,6 +490,9 @@ export function TelaPerfilUsuario({
 
         if (perfilTipo === 'barbearia' && data?.nome_barbearia) {
           setNomeBarbearia(data.nome_barbearia);
+        }
+        if (perfilTipo === 'barbearia') {
+          setHorarioFuncionamento(data?.horario_funcionamento || '');
         }
 
         if (perfilTipo === 'barbeiro') {
@@ -1165,7 +1169,10 @@ export function TelaPerfilUsuario({
           email: String(email || '').trim(),
           telefone: String(telefone || '').trim(),
           ...(perfilTipo === 'barbearia'
-            ? { nome_barbearia: String(nomeBarbearia || '').trim() }
+            ? {
+                nome_barbearia: String(nomeBarbearia || '').trim(),
+                horario_funcionamento: String(horarioFuncionamento || '').trim(),
+              }
             : {}),
         }),
       });
@@ -1543,6 +1550,9 @@ export function TelaPerfilUsuario({
             )}
             {perfilTipo === 'barbearia' && !editMode && formatarEndereco(enderecoBarbearia) && (
               <p className="text-xs text-zinc-400 mt-1">📍 {formatarEndereco(enderecoBarbearia)}</p>
+            )}
+            {perfilTipo === 'barbearia' && !editMode && String(horarioFuncionamento || '').trim() && (
+              <p className="text-xs text-zinc-400 mt-1">🕒 {String(horarioFuncionamento).trim()}</p>
             )}
             {permitirEdicaoFoto && (perfilTipo !== 'barbearia' || editMode) && (
               <label className={styles.fileBtn}>
@@ -1926,6 +1936,19 @@ export function TelaPerfilUsuario({
               <label className={styles.label}>Nome da Barbearia</label>
               <input type="text" value={nomeBarbearia} onChange={(e) => setNomeBarbearia(e.target.value)} className={styles.input + ' mt-2'} placeholder="Ex: Barbearia Guilhermina" />
               <p className="mt-1 text-[11px] text-zinc-500">Nome público que clientes e freelancers veem.</p>
+            </div>
+
+            <div>
+              <label className={styles.label}>Horário de funcionamento</label>
+              <input
+                type="text"
+                value={horarioFuncionamento}
+                onChange={(e) => setHorarioFuncionamento(e.target.value)}
+                maxLength={200}
+                className={styles.input + ' mt-2'}
+                placeholder="Ex: Segunda a sábado, das 08:00 às 20:00"
+              />
+              <p className="mt-1 text-[11px] text-zinc-500">Aparece no perfil da barbearia para clientes e freelancers.</p>
             </div>
 
             {/* E-mail nao e mais exibido no perfil (continua existindo no cadastro/login). */}

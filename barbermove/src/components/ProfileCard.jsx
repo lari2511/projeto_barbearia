@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useContext } from 'react';
-import { Star, MapPin, Phone, Award, TrendingUp, MessageCircle, Navigation, Scissors } from 'lucide-react';
+import { Star, MapPin, Phone, Award, TrendingUp, MessageCircle, Navigation, Scissors, Clock } from 'lucide-react';
 import ChatRoom from './ChatRoom';
 import ListaAvaliacoes from './ListaAvaliacoes';
 import { AppContext } from '../contexts/AppContext';
@@ -488,6 +488,18 @@ export default function ProfileCard({ usuarioId, userType, token, isOwnProfile: 
           </div>
         )}
 
+        {profile.horario_funcionamento && (
+          <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-4">
+            <div className="flex items-start gap-3">
+              <Clock size={18} className="text-orange-400 shrink-0 mt-0.5" />
+              <div>
+                <p className="text-xs text-zinc-400">Horário de funcionamento</p>
+                <p className="text-sm text-white">{profile.horario_funcionamento}</p>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* 4. COMO CHEGAR (Waze) */}
         {wazeUrl && (
           <a
@@ -915,6 +927,16 @@ export default function ProfileCard({ usuarioId, userType, token, isOwnProfile: 
                 <div>
                   <p className="text-xs text-zinc-400">Localização</p>
                   <p className="text-sm text-white">{enderecoPerfilFormatado}</p>
+                </div>
+              </div>
+            )}
+
+            {profile.horario_funcionamento && (
+              <div className="flex items-start gap-3">
+                <Clock size={18} className="text-orange-400 shrink-0 mt-1" />
+                <div>
+                  <p className="text-xs text-zinc-400">Horário de funcionamento</p>
+                  <p className="text-sm text-white">{profile.horario_funcionamento}</p>
                 </div>
               </div>
             )}

@@ -816,6 +816,10 @@ def obter_usuario_publico(usuario_id: int, db: Session = Depends(get_db)):
         "barbearia_atual_endereco": barbearia_atual_endereco,
         "barbearia_atual_latitude": barbearia_atual_latitude,
         "barbearia_atual_longitude": barbearia_atual_longitude,
+        "horario_funcionamento": (
+            barbearia_vinculada.horario_funcionamento
+            if usuario.tipo == 'barbearia' and barbearia_vinculada else None
+        ),
         "portfolio_fotos": [f.url for f in fotos if f.url]
     }
 

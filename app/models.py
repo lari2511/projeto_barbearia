@@ -143,6 +143,9 @@ class Barbearia(Base):
     endereco = Column(String)
     telefone = Column(String, nullable=True)
     cep = Column(String, nullable=True)
+    # Texto livre informado pelo dono (ex.: "Segunda a sábado, das 08:00 às 20:00").
+    # Só exibição no perfil: não abre/fecha nada automaticamente.
+    horario_funcionamento = Column(String, nullable=True)
     latitude = Column(Float, nullable=True)
     longitude = Column(Float, nullable=True)
     cadeira_livre = Column(Boolean, default=True)  # LEGADO - manter compatibilidade

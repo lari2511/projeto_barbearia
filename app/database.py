@@ -101,6 +101,14 @@ def init_db():
                 if nome_coluna not in colunas_existentes:
                     connection.execute(text(f"ALTER TABLE chamados ADD COLUMN {nome_coluna} {definicao}"))
 
+    if "barbearias" in inspector.get_table_names():
+        colunas_existentes = {coluna["name"] for coluna in inspector.get_columns("barbearias")}
+        # Horário de funcionamento (texto livre, só exibição no perfil)
+        if "horario_funcionamento" not in colunas_existentes:
+            with engine.begin() as connection:
+                connection.execute(text("ALTER TABLE barbearias ADD COLUMN horario_funcionamento VARCHAR(200)"))
+                print("[migracao] Coluna horario_funcionamento criada")
+
     if "radar_freelancer" in inspector.get_table_names():
         colunas_existentes = {coluna["name"] for coluna in inspector.get_columns("radar_freelancer")}
         colunas_esperadas = {

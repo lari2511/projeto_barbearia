@@ -107,18 +107,21 @@ def get_perfil_completo(db: Session = Depends(get_db), usuario = Depends(get_cur
 
     # Nome público do estabelecimento do próprio dono (entidade separada do nome pessoal).
     nome_barbearia = None
+    horario_funcionamento = None
     if usuario.tipo == "barbearia":
         minha_barbearia = db.query(models.Barbearia).filter(
             models.Barbearia.usuario_id == usuario.id
         ).first()
         if minha_barbearia:
             nome_barbearia = minha_barbearia.nome
+            horario_funcionamento = minha_barbearia.horario_funcionamento
 
     return {
         "id": usuario.id,
         "email": usuario.email,
         "nome": usuario.nome,
         "nome_barbearia": nome_barbearia,
+        "horario_funcionamento": horario_funcionamento,
         "tipo": usuario.tipo,
         "telefone": usuario.telefone,
         "endereco": usuario.endereco,
@@ -229,12 +232,24 @@ def atualizar_perfil_usuario(
             barbearia.nome = novo_nome_barbearia
             nome_barbearia = novo_nome_barbearia
 
+    # Horário de funcionamento: texto livre do dono, só exibido no perfil.
+    horario_funcionamento = None
+    if u.tipo == "barbearia" and "horario_funcionamento" in payload:
+        texto_horario = str(payload.get("horario_funcionamento") or "").strip()
+        if len(texto_horario) > 200:
+            raise HTTPException(status_code=400, detail="Horário de funcionamento pode ter no máximo 200 caracteres")
+        barbearia = db.query(models.Barbearia).filter(models.Barbearia.usuario_id == u.id).first()
+        if barbearia:
+            barbearia.horario_funcionamento = texto_horario or None
+            horario_funcionamento = barbearia.horario_funcionamento
+
     db.commit()
     db.refresh(u)
     return {
         "message": "Perfil atualizado",
         "nome": u.nome,
         "nome_barbearia": nome_barbearia,
+        "horario_funcionamento": horario_funcionamento,
         "email": u.email,
         "telefone": u.telefone,
         "endereco": u.endereco,
