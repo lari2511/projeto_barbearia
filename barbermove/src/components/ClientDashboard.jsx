@@ -1705,16 +1705,7 @@ export default function ClientDashboard({ token, logout, API_URL: apiUrlProp, no
                         )}
                     </div>
 
-                    <CronometroAtendimento
-                        chamado={activeChamado}
-                        chamadosGrupo={myOrders}
-                        chamadoAtivoId={activeChamado.id}
-                        isPausado={Boolean(activeChamado.pausado)}
-                        pausadoEmMs={activeChamado.pausado_em ? parseDataServidorUTC(activeChamado.pausado_em) : null}
-                        pausaAcumuladaMs={Math.round((Number(activeChamado.pausa_acumulada_segundos) || 0) * 1000)}
-                        agoraMs={agoraMsCronometro}
-                        variante="circular"
-                    />
+                    {/* Cliente em atendimento não vê o cronômetro (freelancer, proprietário e cliente na fila continuam vendo). */}
 
                     <div>
                         <p className="text-[10px] uppercase tracking-[0.15em] text-zinc-500 font-semibold mb-2">💬 Conversa</p>
