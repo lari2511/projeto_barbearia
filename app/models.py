@@ -93,6 +93,8 @@ class Usuario(Base):
     documento_verificado_em = Column(DateTime, nullable=True)
     documento_rejeitado_motivo = Column(String, nullable=True)
     email_verificado = Column(Boolean, default=False)
+    # Cadastro rápido (só e-mail + senha): True até completar o perfil dentro do app
+    cadastro_pendente = Column(Boolean, default=False)
     token_verificacao = Column(String, nullable=True)
     twofa_ativo = Column(Boolean, default=False)
     twofa_secret = Column(String, nullable=True)

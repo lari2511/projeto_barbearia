@@ -354,21 +354,15 @@ export const AppProvider = ({ children }) => {
   const register = async (tipo, payload) => {
     setLoading(true);
     try {
-      const endpoints = {
-        cliente: '/api/v1/clientes/',
-        barbeiro: '/api/v1/barbeiros/',
-        barbearia: '/api/v1/barbearias/',
-      };
-
-      const endpoint = endpoints[tipo];
-      if (!endpoint) {
+      if (!['cliente', 'barbeiro', 'barbearia'].includes(tipo)) {
         throw new Error('Tipo de cadastro inválido');
       }
 
-      const response = await fetch(`${API_URL}${endpoint}`, {
+      // Cadastro rápido (e-mail + senha); o restante do perfil é completado dentro do app.
+      const response = await fetch(`${API_URL}/api/v1/cadastro-rapido/`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
+        body: JSON.stringify({ ...payload, tipo }),
       });
 
       if (!response.ok) {

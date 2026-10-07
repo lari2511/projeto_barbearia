@@ -833,3 +833,130 @@ class AtualizarStatusFreelancer(BaseModel):
                 "barbearia_id": 1
             }
         }
+
+# ==================== CADASTRO RÁPIDO + COMPLETAR PERFIL ====================
+
+def _validar_cpf_texto(v: str) -> str:
+    cpf_limpo = (v or "").replace(".", "").replace("-", "")
+    if len(cpf_limpo) != 11 or not cpf_limpo.isdigit():
+        raise ValueError("CPF deve ter 11 dígitos")
+    if cpf_limpo == cpf_limpo[0] * 11:
+        raise ValueError("CPF inválido")
+    soma = sum(int(cpf_limpo[i]) * (10 - i) for i in range(9))
+    if (soma * 10 % 11) % 10 != int(cpf_limpo[9]):
+        raise ValueError("CPF inválido")
+    soma = sum(int(cpf_limpo[i]) * (11 - i) for i in range(10))
+    if (soma * 10 % 11) % 10 != int(cpf_limpo[10]):
+        raise ValueError("CPF inválido")
+    return v
+
+
+class CadastroRapido(BaseModel):
+    """Cadastro só com e-mail + senha. O resto do perfil é completado dentro do app."""
+    email: EmailStr
+    senha: str
+    tipo: str
+
+    @field_validator("senha")
+    @classmethod
+    def validate_senha(cls, v: str) -> str:
+        if len(v) < 6:
+            raise ValueError("Senha precisa ter 6 caracteres ou mais")
+        return v
+
+    @field_validator("tipo")
+    @classmethod
+    def validate_tipo(cls, v: str) -> str:
+        if v not in ("cliente", "barbeiro", "barbearia"):
+            raise ValueError("Tipo de cadastro inválido")
+        return v
+
+
+class _CompletarBase(BaseModel):
+    nome: str
+    telefone: str
+
+    @field_validator("nome")
+    @classmethod
+    def validate_nome(cls, v: str) -> str:
+        if len((v or "").strip()) < 3:
+            raise ValueError("Nome precisa de pelo menos 3 caracteres")
+        return v.strip()
+
+    @field_validator("telefone")
+    @classmethod
+    def validate_telefone(cls, v: str) -> str:
+        if len((v or "").strip()) < 8:
+            raise ValueError("Telefone deve ter DDD e número")
+        return v.strip()
+
+
+class CompletarCliente(_CompletarBase):
+    pass
+
+
+class CompletarFreelancer(_CompletarBase):
+    cpf: str
+    tempo_experiencia: str
+
+    @field_validator("cpf")
+    @classmethod
+    def validate_cpf(cls, v: str) -> str:
+        return _validar_cpf_texto(v)
+
+    @field_validator("tempo_experiencia")
+    @classmethod
+    def validate_tempo_experiencia(cls, v: str) -> str:
+        if v not in TEMPOS_EXPERIENCIA:
+            raise ValueError("Informe o tempo de experiência")
+        return v
+
+
+class CompletarBarbearia(_CompletarBase):
+    nome_barbearia: str
+    cep: str
+    endereco: str
+    cpf: Optional[str] = None
+    cnpj: Optional[str] = None
+
+    @field_validator("nome_barbearia")
+    @classmethod
+    def validate_nome_barbearia(cls, v: str) -> str:
+        if len((v or "").strip()) < 2:
+            raise ValueError("Nome da barbearia precisa de pelo menos 2 caracteres")
+        return v.strip()
+
+    @field_validator("cep")
+    @classmethod
+    def validate_cep(cls, v: str) -> str:
+        if len("".join(c for c in (v or "") if c.isdigit())) != 8:
+            raise ValueError("CEP deve ter 8 dígitos")
+        return v.strip()
+
+    @field_validator("endereco")
+    @classmethod
+    def validate_endereco(cls, v: str) -> str:
+        if not (v or "").strip():
+            raise ValueError("Endereço é obrigatório")
+        return v.strip()
+
+    @field_validator("cpf")
+    @classmethod
+    def validate_cpf(cls, v: Optional[str]) -> Optional[str]:
+        return _validar_cpf_texto(v) if v else None
+
+    @field_validator("cnpj")
+    @classmethod
+    def validate_cnpj(cls, v: Optional[str]) -> Optional[str]:
+        if not v:
+            return None
+        cnpj_limpo = v.replace(".", "").replace("/", "").replace("-", "")
+        if len(cnpj_limpo) != 14 or not cnpj_limpo.isdigit():
+            raise ValueError("CNPJ deve ter 14 dígitos")
+        return v
+
+    @model_validator(mode="after")
+    def validate_documento(self):
+        if not self.cpf and not self.cnpj:
+            raise ValueError("Informe CPF ou CNPJ")
+        return self

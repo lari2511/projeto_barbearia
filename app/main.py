@@ -55,6 +55,7 @@ from .routes_visibilidade import router as router_visibilidade  # 👁️ Camada
 from .routes_interesse import router as router_interesse  # 👀 Interesse de clientes (perfil de barbearia sem cadeira disponivel)
 from .routes_alteracao_servico import router as router_alteracao_servico  # ✂️ Alteração de serviço pelo freelancer (confirmada pelo cliente)
 from .routes_cobrancas import router as router_cobrancas  # 💠 Cobranças Pix (Mercado Pago)
+from .routes_cadastro import router as router_cadastro  # 📝 Cadastro rápido (e-mail + senha) e completar perfil
 from .realtime import realtime_manager
 from .pagamento_diario import loop_pagamento_diario
 import asyncio
@@ -149,6 +150,7 @@ app.include_router(router_pagamento_perfis)  # 💳 Configurações de pagamento
 app.include_router(router_senha)  # 🔑 Reset de senha
 app.include_router(router_visibilidade)  # 👁️ Visibilidade do ecossistema local (freelancer vê barbearias / dono vê freelancers)
 app.include_router(router_cobrancas)  # 💠 Cobranças Pix (Mercado Pago)
+app.include_router(router_cadastro)  # 📝 Cadastro rápido e completar perfil
 app.include_router(router_interesse)  # 👀 Interesse de clientes em atendimento (agregado, via sino de notificações)
 app.include_router(router_alteracao_servico)  # ✂️ Alteração de serviço (freelancer pede, cliente confirma)
 # Rotas legais (Termos e Privacidade)

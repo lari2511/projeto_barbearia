@@ -75,6 +75,12 @@ def init_db():
                 connection.execute(text("ALTER TABLE usuarios ADD COLUMN tempo_experiencia VARCHAR(30)"))
                 print("[migracao] Coluna tempo_experiencia criada")
 
+        # Cadastro rápido (só e-mail + senha): dados do perfil completados depois, dentro do app
+        if "cadastro_pendente" not in colunas_existentes:
+            with engine.begin() as connection:
+                connection.execute(text("ALTER TABLE usuarios ADD COLUMN cadastro_pendente BOOLEAN DEFAULT FALSE"))
+                print("[migracao] Coluna cadastro_pendente criada")
+
     if "chamados" in inspector.get_table_names():
         colunas_existentes = {coluna["name"] for coluna in inspector.get_columns("chamados")}
         colunas_esperadas = {

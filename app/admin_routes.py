@@ -97,7 +97,9 @@ def listar_pendentes(
     """Lista usuários pendentes de aprovação"""
     pendentes = db.query(Usuario).filter(
         Usuario.perfil_aprovado == False,
-        Usuario.tipo.in_(['barbeiro', 'cliente', 'barbearia'])
+        Usuario.tipo.in_(['barbeiro', 'cliente', 'barbearia']),
+        # cadastro rápido ainda sem fotos/documentos: não está pronto para análise
+        or_(Usuario.cadastro_pendente == False, Usuario.cadastro_pendente.is_(None)),  # noqa: E712
     ).order_by(Usuario.criado_em).all()
     
     return [{
@@ -459,6 +461,8 @@ def listar_por_tipo(
     query = db.query(Usuario).filter(Usuario.tipo == tipo)
     if situacao == "pendente":
         query = query.filter(or_(Usuario.perfil_aprovado == False, Usuario.perfil_aprovado.is_(None)))  # noqa: E712
+        # cadastro rápido ainda sem fotos/documentos: não está pronto para análise
+        query = query.filter(or_(Usuario.cadastro_pendente == False, Usuario.cadastro_pendente.is_(None)))  # noqa: E712
     elif situacao == "aprovado":
         query = query.filter(Usuario.perfil_aprovado == True)  # noqa: E712
 
@@ -484,6 +488,7 @@ def listar_por_tipo(
             "telefone": u.telefone,
             "tipo": u.tipo,
             "aprovado": bool(u.perfil_aprovado),
+            "cadastro_incompleto": bool(u.cadastro_pendente),
             "criado_em": _iso(u.criado_em),
         }
         if tipo == "barbeiro":
