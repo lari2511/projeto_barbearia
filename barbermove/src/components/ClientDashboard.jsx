@@ -1759,6 +1759,7 @@ export default function ClientDashboard({ token, logout, API_URL: apiUrlProp, no
                                     pausaAcumuladaMs={Math.round((Number(activeChamado.barbeiro_atendimento_atual_pausa_acumulada_segundos) || 0) * 1000)}
                                     agoraMs={agoraMsCronometro}
                                     compacto
+                                    mostrarAguardando
                                 />
                             </div>
                         )}

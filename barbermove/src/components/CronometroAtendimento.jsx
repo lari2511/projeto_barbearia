@@ -35,6 +35,8 @@ export default function CronometroAtendimento({
   variante = 'lista',
   onTogglePausa = null,
   alternandoPausa = false,
+  // "Aguardando 10 min" só aparece no painel do cliente; freelancer e proprietário não veem.
+  mostrarAguardando = false,
 }) {
   if (!chamado) return null;
 
@@ -141,9 +143,11 @@ export default function CronometroAtendimento({
         <p className={`font-bold uppercase tracking-wide text-zinc-400 ${compacto ? 'text-[10px]' : 'text-[11px]'}`}>
           {pausadoAgora ? '⏸ Atendimento pausado' : 'Cronometro'}
         </p>
-        <span className={`text-[10px] font-bold px-2 py-1 rounded-full ${dentroJanelaProximo ? 'bg-emerald-500/20 text-emerald-300' : 'bg-amber-500/20 text-amber-300'}`}>
-          {dentroJanelaProximo ? 'Liberado em 10 min' : 'Aguardando 10 min'}
-        </span>
+        {(dentroJanelaProximo || mostrarAguardando) && (
+          <span className={`text-[10px] font-bold px-2 py-1 rounded-full ${dentroJanelaProximo ? 'bg-emerald-500/20 text-emerald-300' : 'bg-amber-500/20 text-amber-300'}`}>
+            {dentroJanelaProximo ? 'Liberado em 10 min' : 'Aguardando 10 min'}
+          </span>
+        )}
       </div>
       {nomeCombinado && (
         <p className="text-[10px] text-zinc-400 truncate">{nomeCombinado}</p>
