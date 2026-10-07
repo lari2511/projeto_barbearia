@@ -2,6 +2,8 @@ import React, { useMemo, useState } from 'react'
 import { ArrowLeft, Mail, Scissors, Store, User, Lock } from 'lucide-react'
 import { useApp } from '../contexts/AppContext'
 import { Button, Input } from './Common'
+import CamposFreelancer from './CamposFreelancer'
+import { enviarCadastroFreelancer } from '../utils/cadastroFreelancer'
 
 // Envia breadcrumbs do fluxo de cadastro pro servidor (visivel via `railway logs`),
 // já que console.log local nunca chega até quem está depurando remotamente.
@@ -52,13 +54,19 @@ const userTypes = [
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
-// Cadastro rápido: só e-mail + senha. Nome, telefone, documentos, fotos e dados da
+// Cadastro rápido: só e-mail + senha. Nome, telefone, documentos e dados da
 // barbearia são pedidos depois, já dentro do app (CompletarCadastro).
+// Freelancer: nome, e-mail, senha, tempo de profissão e fotos dos trabalhos já aqui;
+// ao concluir fica EM ANÁLISE do ADM.
 export default function Cadastro({ initialType = 'cliente', onBack, onSuccess }) {
   const { register, loading, API_URL } = useApp()
   const [selectedType, setSelectedType] = useState(initialType || 'cliente')
   const [form, setForm] = useState({ email: '', senha: '', confirmarSenha: '' })
   const [localError, setLocalError] = useState('')
+  const [nome, setNome] = useState('')
+  const [tempoProfissao, setTempoProfissao] = useState('')
+  const [fotosTrabalhos, setFotosTrabalhos] = useState([])
+  const ehFreelancer = selectedType === 'barbeiro'
 
   const senhasDiferentes = Boolean(form.confirmarSenha) && form.senha !== form.confirmarSenha
 
@@ -77,6 +85,10 @@ export default function Cadastro({ initialType = 'cliente', onBack, onSuccess })
     void enviarDiagnosticoCadastro(API_URL, 'submit:start', 'handleSubmit disparado', { selectedType })
 
     const email = form.email.trim().toLowerCase()
+    if (ehFreelancer && nome.trim().length < 3) {
+      setLocalError('Informe seu nome')
+      return
+    }
     if (!email || !form.senha || !form.confirmarSenha) {
       setLocalError('Preencha e-mail, senha e confirmação de senha')
       return
@@ -93,10 +105,29 @@ export default function Cadastro({ initialType = 'cliente', onBack, onSuccess })
       setLocalError('As senhas não coincidem.')
       return
     }
+    if (ehFreelancer && !tempoProfissao) {
+      setLocalError('Informe quanto tempo de profissão você tem')
+      return
+    }
+    if (ehFreelancer && fotosTrabalhos.length === 0) {
+      setLocalError('Adicione pelo menos 1 foto dos seus trabalhos')
+      return
+    }
 
     setLocalError('')
     try {
-      const result = await register(selectedType, { email, senha: form.senha })
+      const opcoes = ehFreelancer
+        ? {
+            antesDeEntrar: (token) => enviarCadastroFreelancer({
+              API_URL,
+              token,
+              nome,
+              tempoExperiencia: tempoProfissao,
+              fotos: fotosTrabalhos.map((foto) => foto.file),
+            }),
+          }
+        : undefined
+      const result = await register(selectedType, { email, senha: form.senha }, opcoes)
       void enviarDiagnosticoCadastro(API_URL, 'submit:resultado', result ? 'register() retornou sucesso' : 'register() retornou false/falha', { sucesso: Boolean(result) })
       if (!result) {
         setLocalError('O servidor recusou o cadastro. Veja o aviso no topo da tela para o motivo.')
@@ -148,6 +179,17 @@ export default function Cadastro({ initialType = 'cliente', onBack, onSuccess })
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-1">
+          {ehFreelancer && (
+            <Input
+              label="Nome"
+              icon={User}
+              value={nome}
+              onChange={(event) => setNome(event.target.value)}
+              placeholder="Seu nome"
+              required
+            />
+          )}
+
           <Input
             label="E-mail"
             type="email"
@@ -179,6 +221,16 @@ export default function Cadastro({ initialType = 'cliente', onBack, onSuccess })
           />
           {senhasDiferentes && (
             <p className="-mt-1 mb-1 text-xs font-semibold text-red-400">As senhas não coincidem.</p>
+          )}
+
+          {ehFreelancer && (
+            <CamposFreelancer
+              tempo={tempoProfissao}
+              onTempoChange={setTempoProfissao}
+              fotos={fotosTrabalhos}
+              onFotosChange={setFotosTrabalhos}
+              onErro={setLocalError}
+            />
           )}
 
           {localError && (

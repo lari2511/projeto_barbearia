@@ -1176,10 +1176,11 @@ _DASHBOARD_HTML = r"""
                     : '<p class="status-pendente">🟠 Pendente de análise</p>';
 
                 if (u.tipo === 'barbeiro') {
-                    const exp = u.tempo_experiencia ? `🕒 ${esc(u.tempo_experiencia)} de experiência` : '🕒 Experiência não informada';
+                    const exp = u.tempo_experiencia ? `🕒 ${esc(u.tempo_experiencia)} de profissão` : '🕒 Tempo de profissão não informado';
                     const fotos = u.aprovado ? '' : `<p>📷 ${u.qtd_fotos} foto${u.qtd_fotos === 1 ? '' : 's'} dos trabalhos</p>`;
                     const cadastro = u.aprovado ? '' : `<p>📅 Cadastro: ${dataBR(u.criado_em)}</p>`;
-                    return `<div class="item"><h3>${esc(u.nome)}</h3><p>${exp}</p>${fotos}${cadastro}${status}${verPerfil}</div>`;
+                    const statusFreelancer = u.aprovado ? status : '<p class="status-pendente">🟠 EM ANÁLISE</p>';
+                    return `<div class="item"><h3>${esc(u.nome)}</h3><p>📧 ${esc(u.email)}</p><p>${exp}</p>${fotos}${cadastro}${statusFreelancer}${verPerfil}</div>`;
                 }
                 if (u.tipo === 'barbearia') {
                     const b = u.barbearia;
@@ -1292,13 +1293,13 @@ _DASHBOARD_HTML = r"""
 
                 if (u.tipo === 'barbeiro') {
                     const status = pendente
-                        ? '<span class="status-pendente">🟠 PENDENTE DE ANÁLISE</span>'
+                        ? '<span class="status-pendente">🟠 EM ANÁLISE</span>'
                         : '<span class="status-ok">🟢 FREELANCER CADASTRADO</span>';
                     const fotos = (u.portfolio || []).filter(f => f && f.url);
                     corpo = `
                         <div class="ficha">
                             ${campo('NOME', esc(u.nome))}
-                            ${campo('EXPERIÊNCIA', u.tempo_experiencia ? '🕒 ' + esc(u.tempo_experiencia) : 'Não informada')}
+                            ${campo('TEMPO DE PROFISSÃO', u.tempo_experiencia ? '🕒 ' + esc(u.tempo_experiencia) : 'Não informado')}
                             ${campo('STATUS', status)}
                             ${contato}
                             ${campo('CADASTRO', dataBR(u.criado_em))}

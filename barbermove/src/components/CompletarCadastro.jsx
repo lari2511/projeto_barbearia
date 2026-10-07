@@ -1,15 +1,14 @@
 import React, { useState } from 'react'
-import { Building2, Camera, Hash, LogOut, MapPin, Phone, Store, Upload, User, X } from 'lucide-react'
+import { Building2, Hash, LogOut, MapPin, Phone, Store, User } from 'lucide-react'
 import { Button, Input } from './Common'
 import { isValidCNPJ, isValidCPF, maskCNPJ, maskCPF } from '../utils/documentValidation'
+import CamposFreelancer from './CamposFreelancer'
+import { enviarCadastroFreelancer } from '../utils/cadastroFreelancer'
 
 // Dados do perfil pedidos DEPOIS do cadastro rápido (e-mail + senha), já dentro do app.
-// Cliente: nome e telefone (pode pular). Freelancer: dados + fotos + documento para
-// a análise do ADM. Proprietário: dados da barbearia para aparecer na busca.
-
-const temposExperiencia = [
-  'Menos de 1 ano', '1 ano', '2 anos', '3 anos', '4 anos', '5 anos', '6 anos ou mais',
-]
+// Cliente: nome e telefone (pode pular). Freelancer: nome, tempo de profissão e fotos
+// para a análise do ADM (normalmente já enviados na tela de cadastro).
+// Proprietário: dados da barbearia para aparecer na busca.
 
 const TEXTOS = {
   cliente: {
@@ -18,7 +17,7 @@ const TEXTOS = {
   },
   barbeiro: {
     titulo: 'Complete seu perfil profissional',
-    subtitulo: 'Envie seus dados, fotos e documento. Depois disso seu perfil vai para análise do ADM.',
+    subtitulo: 'Informe seu nome, tempo de profissão e fotos dos trabalhos. Depois disso seu perfil fica em análise do ADM.',
   },
   barbearia: {
     titulo: 'Complete os dados da barbearia',
@@ -41,7 +40,6 @@ const formVazio = {
 export default function CompletarCadastro({ tipo, token, API_URL, notify, onConcluido, onSair, onPular }) {
   const [form, setForm] = useState(formVazio)
   const [portfolio, setPortfolio] = useState([])
-  const [documento, setDocumento] = useState(null)
   const [fotosEnviadas, setFotosEnviadas] = useState(false)
   const [erro, setErro] = useState('')
   const [salvando, setSalvando] = useState(false)
@@ -95,70 +93,16 @@ export default function CompletarCadastro({ tipo, token, API_URL, notify, onConc
     }
   }
 
-  const adicionarPortfolio = (event) => {
-    const files = Array.from(event.target.files || [])
-    if (portfolio.length + files.length > 5) {
-      setErro('Máximo de 5 fotos de portfólio')
-      return
-    }
-    setPortfolio((atual) => [...atual, ...files.map((file) => ({ file, preview: URL.createObjectURL(file) }))])
-  }
-
-  const removerPortfolio = (index) => {
-    setPortfolio((atual) => atual.filter((_, i) => i !== index))
-  }
-
-  const escolherDocumento = (event) => {
-    const file = event.target.files?.[0]
-    if (file) setDocumento({ file, preview: URL.createObjectURL(file) })
-  }
-
-  // Mesmos endpoints que o cadastro antigo e a tela de perfil usam.
-  const enviarFotosFreelancer = async () => {
-    const uploadArquivo = async (file, pasta) => {
-      const formData = new FormData()
-      formData.append('file', file)
-      const res = await fetch(`${API_URL}/api/v1/upload/imagem?pasta=${encodeURIComponent(pasta)}`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${token}` },
-        body: formData,
-      })
-      if (!res.ok) throw new Error('Falha no upload da imagem')
-      const data = await res.json()
-      const url = String(data?.path || data?.url || '').trim()
-      if (!url) throw new Error('Upload sem URL')
-      return url
-    }
-
-    for (const foto of portfolio) {
-      const url = await uploadArquivo(foto.file, 'portfolio')
-      const res = await fetch(`${API_URL}/api/v1/barbeiro/portfolio`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url_imagem: url, tipo_servico: 'corte', descricao: 'Portfólio inicial' }),
-      })
-      if (!res.ok) throw new Error('Falha ao salvar foto de portfólio')
-    }
-
-    const urlDoc = await uploadArquivo(documento.file, 'perfil')
-    const res = await fetch(`${API_URL}/api/v1/documentos/upload`, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ rg: form.cpf.trim(), documento_frente_url: urlDoc }),
-    })
-    if (!res.ok) throw new Error('Falha ao salvar o documento')
-  }
-
   const validar = () => {
     if (form.nome.trim().length < 3) return 'Informe seu nome completo'
-    if (form.telefone.trim().length < 8) return 'Informe um telefone com DDD'
 
     if (tipo === 'barbeiro') {
-      if (!isValidCPF(form.cpf)) return 'CPF inválido'
-      if (!form.tempoExperiencia) return 'Informe quanto tempo de experiência você tem como barbeiro'
-      if (!fotosEnviadas && portfolio.length < 3) return 'Envie no mínimo 3 fotos de portfólio'
-      if (!fotosEnviadas && !documento) return 'Envie a foto do RG/CPF para validação'
+      if (!form.tempoExperiencia) return 'Informe quanto tempo de profissão você tem'
+      if (!fotosEnviadas && portfolio.length === 0) return 'Adicione pelo menos 1 foto dos seus trabalhos'
+      return ''
     }
+
+    if (form.telefone.trim().length < 8) return 'Informe um telefone com DDD'
 
     if (tipo === 'barbearia') {
       if (form.nomeBarbearia.trim().length < 2) return 'Nome da barbearia é obrigatório'
@@ -172,9 +116,6 @@ export default function CompletarCadastro({ tipo, token, API_URL, notify, onConc
 
   const payload = () => {
     const base = { nome: form.nome.trim(), telefone: form.telefone.trim() }
-    if (tipo === 'barbeiro') {
-      return { ...base, cpf: form.cpf.trim(), tempo_experiencia: form.tempoExperiencia }
-    }
     if (tipo === 'barbearia') {
       return {
         ...base,
@@ -199,10 +140,20 @@ export default function CompletarCadastro({ tipo, token, API_URL, notify, onConc
     setSalvando(true)
     setErro('')
     try {
-      // Fotos sobem uma vez só: se o envio dos dados falhar, tentar de novo não duplica.
-      if (tipo === 'barbeiro' && !fotosEnviadas) {
-        await enviarFotosFreelancer()
-        setFotosEnviadas(true)
+      if (tipo === 'barbeiro') {
+        // Fotos sobem uma vez só: se o envio dos dados falhar, tentar de novo não duplica.
+        await enviarCadastroFreelancer({
+          API_URL,
+          token,
+          nome: form.nome,
+          tempoExperiencia: form.tempoExperiencia,
+          fotos: portfolio.map((foto) => foto.file),
+          fotosJaEnviadas: fotosEnviadas,
+          onFotosEnviadas: () => setFotosEnviadas(true),
+        })
+        notify?.('Perfil enviado para análise do ADM', 'success')
+        onConcluido?.()
+        return
       }
 
       const res = await fetch(`${API_URL}/api/v1/cadastro/completar`, {
@@ -252,28 +203,19 @@ export default function CompletarCadastro({ tipo, token, API_URL, notify, onConc
             />
           )}
 
-          <Input label="Telefone" icon={Phone} value={form.telefone} onChange={handleChange('telefone')} placeholder="(11) 99999-9999" required />
+          {tipo !== 'barbeiro' && (
+            <Input label="Telefone" icon={Phone} value={form.telefone} onChange={handleChange('telefone')} placeholder="(11) 99999-9999" required />
+          )}
 
           {tipo === 'barbeiro' && (
-            <>
-              <Input label="CPF" icon={Hash} value={form.cpf} onChange={handleDocumentoChange('cpf')} placeholder="000.000.000-00" required />
-              <div className="mb-4">
-                <label className="mb-1 block text-sm font-medium text-zinc-300">
-                  Quanto tempo de experiência você tem como barbeiro?
-                </label>
-                <select
-                  value={form.tempoExperiencia}
-                  onChange={handleChange('tempoExperiencia')}
-                  required
-                  className="w-full rounded-xl border border-zinc-700 bg-black/30 px-3 py-3 text-sm text-white"
-                >
-                  <option value="">Selecione</option>
-                  {temposExperiencia.map((opcao) => (
-                    <option key={opcao} value={opcao}>{opcao}</option>
-                  ))}
-                </select>
-              </div>
-            </>
+            <CamposFreelancer
+              tempo={form.tempoExperiencia}
+              onTempoChange={(valor) => setForm((atual) => ({ ...atual, tempoExperiencia: valor }))}
+              fotos={portfolio}
+              onFotosChange={setPortfolio}
+              onErro={setErro}
+              mostrarFotos={!fotosEnviadas}
+            />
           )}
 
           {tipo === 'barbearia' && (
@@ -316,69 +258,9 @@ export default function CompletarCadastro({ tipo, token, API_URL, notify, onConc
             </div>
           )}
 
-          {tipo === 'barbeiro' && !fotosEnviadas && (
-            <>
-              <div className="rounded-2xl border border-zinc-800 bg-black/30 p-3 space-y-3">
-                <div className="flex items-center gap-2">
-                  <Camera size={18} className="text-orange-400" />
-                  <h3 className="text-sm font-bold">Fotos de Portfólio</h3>
-                  <span className="text-xs text-zinc-400">(3-5 fotos obrigatórias)</span>
-                </div>
-                <div className="grid grid-cols-3 gap-2">
-                  {portfolio.map((foto, index) => (
-                    <div key={foto.preview} className="relative aspect-square">
-                      <img src={foto.preview} alt={`Portfolio ${index + 1}`} className="w-full h-full object-cover rounded-lg" />
-                      <button
-                        type="button"
-                        onClick={() => removerPortfolio(index)}
-                        className="absolute top-1 right-1 rounded-full bg-red-500 p-1 text-white hover:bg-red-600"
-                      >
-                        <X size={14} />
-                      </button>
-                    </div>
-                  ))}
-                  {portfolio.length < 5 && (
-                    <label className="aspect-square flex flex-col items-center justify-center rounded-lg border-2 border-dashed border-zinc-700 hover:border-orange-500 cursor-pointer transition">
-                      <Upload size={20} className="text-zinc-400 mb-1" />
-                      <span className="text-xs text-zinc-400">Adicionar</span>
-                      <input type="file" accept="image/*" multiple onChange={adicionarPortfolio} className="hidden" />
-                    </label>
-                  )}
-                </div>
-                <p className="text-xs text-zinc-500 text-center">{portfolio.length}/5 fotos</p>
-              </div>
-
-              <div className="rounded-2xl border border-zinc-800 bg-black/30 p-3 space-y-3">
-                <div className="flex items-center gap-2">
-                  <Camera size={18} className="text-orange-400" />
-                  <h3 className="text-sm font-bold">Foto do RG/CPF</h3>
-                  <span className="text-xs text-zinc-400">(obrigatório)</span>
-                </div>
-                {documento ? (
-                  <div className="relative aspect-video">
-                    <img src={documento.preview} alt="RG/CPF" className="w-full h-full object-cover rounded-lg" />
-                    <button
-                      type="button"
-                      onClick={() => setDocumento(null)}
-                      className="absolute top-2 right-2 rounded-full bg-red-500 p-2 text-white hover:bg-red-600"
-                    >
-                      <X size={16} />
-                    </button>
-                  </div>
-                ) : (
-                  <label className="aspect-video flex flex-col items-center justify-center rounded-lg border-2 border-dashed border-zinc-700 hover:border-orange-500 cursor-pointer transition">
-                    <Upload size={24} className="text-zinc-400 mb-2" />
-                    <span className="text-sm text-zinc-400">Enviar foto do RG/CPF</span>
-                    <input type="file" accept="image/*" onChange={escolherDocumento} className="hidden" />
-                  </label>
-                )}
-              </div>
-            </>
-          )}
-
           {tipo === 'barbeiro' && fotosEnviadas && (
             <p className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-200">
-              ✓ Fotos e documento já enviados.
+              ✓ Fotos dos trabalhos já enviadas.
             </p>
           )}
 

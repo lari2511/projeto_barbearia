@@ -351,7 +351,10 @@ export const AppProvider = ({ children }) => {
     }
   };
 
-  const register = async (tipo, payload) => {
+  // opcoes.antesDeEntrar(token): roda com a conta já criada e antes de abrir o app
+  // (freelancer envia nome, tempo de profissão e fotos). Se falhar, entra mesmo assim
+  // e a tela de completar perfil pede de novo.
+  const register = async (tipo, payload, opcoes = {}) => {
     setLoading(true);
     try {
       if (!['cliente', 'barbeiro', 'barbearia'].includes(tipo)) {
@@ -396,6 +399,14 @@ export const AppProvider = ({ children }) => {
         setUserType(null);
         setUser(null);
         throw new Error('Perfil admin foi removido do app. Use o painel web administrativo.');
+      }
+
+      if (typeof opcoes.antesDeEntrar === 'function') {
+        try {
+          await opcoes.antesDeEntrar(dataJson.access_token);
+        } catch (erroEtapa) {
+          notify(`⚠️ Conta criada, mas ${erroEtapa?.message || 'não foi possível enviar seus dados'}. Tente novamente.`, 'error');
+        }
       }
 
       storage.set('token', dataJson.access_token);

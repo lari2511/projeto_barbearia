@@ -24,7 +24,7 @@ from app.routes import create_access_token, get_current_user, get_password_hash,
 router = APIRouter(prefix="/api/v1", tags=["Cadastro"])
 
 EMAIL_JA_CADASTRADO = "Este e-mail já está cadastrado."
-MIN_FOTOS_PORTFOLIO = 3
+MIN_FOTOS_PORTFOLIO = 1
 
 
 @router.post("/cadastro-rapido/", response_model=schemas.RegistroResponse)
@@ -97,7 +97,8 @@ def completar_cadastro(
     else:
         raise HTTPException(status_code=403, detail="Tipo de usuário sem cadastro a completar")
 
-    _exigir_unico(db, u.id, models.Usuario.telefone, dados.telefone, "Telefone já cadastrado")
+    telefone = getattr(dados, "telefone", None)
+    _exigir_unico(db, u.id, models.Usuario.telefone, telefone, "Telefone já cadastrado")
     cpf = getattr(dados, "cpf", None)
     cnpj = getattr(dados, "cnpj", None)
     _exigir_unico(db, u.id, models.Usuario.cpf, cpf, "CPF já cadastrado")
@@ -107,14 +108,13 @@ def completar_cadastro(
         from app.admin_routes import _qtd_fotos
 
         if _qtd_fotos(db, u) < MIN_FOTOS_PORTFOLIO:
-            raise HTTPException(status_code=400, detail="Envie no mínimo 3 fotos de portfólio")
-        if not u.documento_frente_url:
-            raise HTTPException(status_code=400, detail="Envie a foto do RG/CPF para validação")
+            raise HTTPException(status_code=400, detail="Adicione pelo menos 1 foto dos seus trabalhos")
 
     u.nome = dados.nome
-    u.telefone = dados.telefone
+    if telefone:
+        u.telefone = telefone
     if u.tipo == "barbeiro":
-        u.cpf = cpf
+        # Fica EM ANÁLISE (perfil_aprovado=False) até o ADM aprovar.
         u.tempo_experiencia = dados.tempo_experiencia
     elif u.tipo == "barbearia":
         u.cpf = cpf

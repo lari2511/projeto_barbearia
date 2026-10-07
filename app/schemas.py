@@ -91,7 +91,9 @@ class ClienteCreate(UsuarioBase):
 
 
 TEMPOS_EXPERIENCIA = [
-    "Menos de 1 ano", "1 ano", "2 anos", "3 anos", "4 anos", "5 anos", "6 anos ou mais",
+    "Menos de 1 ano", "1 ano", "2 anos", "3 anos", "4 anos", "5 anos ou mais",
+    # opções antigas, mantidas válidas para quem já se cadastrou com elas
+    "5 anos", "6 anos ou mais",
 ]
 
 
@@ -895,20 +897,23 @@ class CompletarCliente(_CompletarBase):
     pass
 
 
-class CompletarFreelancer(_CompletarBase):
-    cpf: str
+class CompletarFreelancer(BaseModel):
+    """Freelancer: só nome, tempo de profissão e fotos dos trabalhos (sem CPF/telefone)."""
+    nome: str
     tempo_experiencia: str
 
-    @field_validator("cpf")
+    @field_validator("nome")
     @classmethod
-    def validate_cpf(cls, v: str) -> str:
-        return _validar_cpf_texto(v)
+    def validate_nome(cls, v: str) -> str:
+        if len((v or "").strip()) < 3:
+            raise ValueError("Nome precisa de pelo menos 3 caracteres")
+        return v.strip()
 
     @field_validator("tempo_experiencia")
     @classmethod
     def validate_tempo_experiencia(cls, v: str) -> str:
         if v not in TEMPOS_EXPERIENCIA:
-            raise ValueError("Informe o tempo de experiência")
+            raise ValueError("Informe quanto tempo de profissão você tem")
         return v
 
 
