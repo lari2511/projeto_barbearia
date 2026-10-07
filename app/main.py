@@ -172,6 +172,20 @@ uploads_dir = pathlib.Path("uploads")
 uploads_dir.mkdir(parents=True, exist_ok=True)
 app.mount("/uploads", StaticFiles(directory=str(uploads_dir)), name="uploads")
 
+def _identificar_socket(websocket: WebSocket, msg: str) -> None:
+    """{tipo:'auth', token} -> associa o socket ao usuario, para nao alerta-lo das proprias acoes."""
+    try:
+        dados = json.loads(msg)
+        if not isinstance(dados, dict) or dados.get("tipo") != "auth" or not dados.get("token"):
+            return
+        from jose import jwt
+        from .routes import SECRET_KEY, ALGORITHM
+        payload = jwt.decode(dados["token"], SECRET_KEY, algorithms=[ALGORITHM])
+        realtime_manager.identificar(websocket, int(payload.get("sub")))
+    except Exception:
+        return
+
+
 # WebSocket simples para notificacoes (evita 403 quando o front conecta)
 # Aceita também o caminho proxied usado pelo Vite/ngrok (`/proxy/ws/notificacoes`).
 @app.websocket("/proxy/ws/notificacoes")
@@ -183,6 +197,8 @@ async def websocket_notificacoes(websocket: WebSocket):
             msg = await websocket.receive_text()
             if msg == "ping":
                 await websocket.send_text("pong")
+            else:
+                _identificar_socket(websocket, msg)
     except WebSocketDisconnect:
         realtime_manager.disconnect(websocket)
     except Exception:

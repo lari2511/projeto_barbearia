@@ -486,7 +486,7 @@ async def aceitar_agendamento(agendamento_id: int, db: Session = Depends(get_db)
     db.refresh(chamado)
 
     # Notificar front-ends conectados via WebSocket
-    await broadcast_event('chamado_aceito', chamado_id=chamado.id, status=chamado.status)
+    await broadcast_event('chamado_aceito', chamado_id=chamado.id, status=chamado.status, autor_id=usuario_id)
 
     return {"status": "Serviço aceito com sucesso", "chamado_id": chamado.id, "novo_status": chamado.status}
 
@@ -1167,15 +1167,7 @@ def agendar_chamado_futuro(agendamento: schemas.AgendamentoFuturo, token: str = 
         observacao=f"Agendado para {data_agendamento.strftime('%d/%m/%Y %H:%M')}"
     )
     db.add(historico)
-    
-    # Criar notificação
-    notificacao = models.Notificacao(
-        usuario_id=user.id,
-        titulo="Agendamento Confirmado",
-        mensagem=f"Seu agendamento para {data_agendamento.strftime('%d/%m/%Y às %H:%M')} foi confirmado!",
-        tipo="chamado"
-    )
-    db.add(notificacao)
+    # Quem agendou nao e notificado da propria acao.
     
     db.commit()
     db.refresh(novo_chamado)

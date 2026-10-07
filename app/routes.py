@@ -1534,15 +1534,8 @@ def criar_chamado(chamado: schemas.ChamadoCreate, token: str = Depends(oauth2_sc
     )
     db.add(historico)
     
-    # Criar notificação
-    notificacao = models.Notificacao(
-        usuario_id=user.id,
-        titulo="Chamado Criado",
-        mensagem=f"Seu chamado para {servico.nome} foi criado!",
-        tipo="chamado",
-        referencia_id=novo_chamado.id
-    )
-    db.add(notificacao)
+    # Quem criou o chamado (o cliente) nao e notificado da propria acao;
+    # so o barbeiro recebe, logo abaixo.
     db.commit()
 
     # Enviar push via Firebase para o barbeiro (se aplicável) e registrar notificação
@@ -2347,6 +2340,7 @@ async def recusar_chamado(id: int, token: str = Depends(oauth2_scheme), db: Sess
     try:
         await broadcast_event(
             "chamado_cancelado",
+            autor_id=user.id,
             chamado_id=chamado.id,
             cliente_id=chamado.cliente_id,
             motivo="freelancer",
@@ -2476,18 +2470,21 @@ async def chegar_chamado(id: int, token: str = Depends(oauth2_scheme), db: Sessi
             observacao='Cliente e barbeiro confirmaram chegada. Atendimento iniciado.'
         ))
 
-        db.add(models.Notificacao(
-            usuario_id=chamado.cliente_id,
-            titulo="💈 O barbeiro chegou à barbearia!",
-            mensagem="✂️ Seu atendimento começou! Bom corte!",
-            tipo="chamado",
-            referencia_id=chamado.id
-        ))
-        if chamado.barbeiro_id:
+        # Quem confirmou a chegada nao recebe notificacao da propria acao;
+        # so a outra parte do atendimento.
+        if chamado.cliente_id and chamado.cliente_id != user.id:
             db.add(models.Notificacao(
-                usuario_id=chamado.barbeiro_id,
+                usuario_id=chamado.cliente_id,
                 titulo="💈 O barbeiro chegou à barbearia!",
                 mensagem="✂️ Seu atendimento começou! Bom corte!",
+                tipo="chamado",
+                referencia_id=chamado.id
+            ))
+        if chamado.barbeiro_id and chamado.barbeiro_id != user.id:
+            db.add(models.Notificacao(
+                usuario_id=chamado.barbeiro_id,
+                titulo="💈 O cliente chegou à barbearia!",
+                mensagem="✂️ O atendimento começou! Bom corte!",
                 tipo="chamado",
                 referencia_id=chamado.id
             ))
@@ -2508,6 +2505,7 @@ async def chegar_chamado(id: int, token: str = Depends(oauth2_scheme), db: Sessi
     if virou_em_atendimento:
         await broadcast_event(
             "chamado_em_atendimento",
+            autor_id=user.id,
             chamado_id=chamado.id,
             status=chamado.status,
             tracking=payload_tracking,
@@ -2515,6 +2513,7 @@ async def chegar_chamado(id: int, token: str = Depends(oauth2_scheme), db: Sessi
     else:
         await broadcast_event(
             "chamado_chegada_atualizada",
+            autor_id=user.id,
             chamado_id=chamado.id,
             status=chamado.status,
             cliente_chegou=bool(getattr(chamado, "cliente_chegou", False)),
@@ -2586,15 +2585,8 @@ def cancelar_chamado_cliente(id: int, token: str = Depends(oauth2_scheme), db: S
         observacao=f"Cancelado pelo cliente. {motivo_regra}. Taxa: R$ {valor_taxa:.2f}"
     ))
 
-    mensagem_taxa = "sem taxa" if valor_taxa == 0 else f"com taxa de R$ {valor_taxa:.2f}"
-    db.add(models.Notificacao(
-        usuario_id=user.id,
-        titulo="Chamado cancelado",
-        mensagem=f"Seu chamado foi cancelado {mensagem_taxa}. {motivo_regra}.",
-        tipo="chamado",
-        referencia_id=chamado.id
-    ))
-
+    # O cliente que cancelou nao e notificado da propria acao (taxa e motivo
+    # ja voltam na resposta); so o barbeiro recebe.
     if barbeiro:
         db.add(models.Notificacao(
             usuario_id=barbeiro.id,
@@ -2615,7 +2607,7 @@ def cancelar_chamado_cliente(id: int, token: str = Depends(oauth2_scheme), db: S
     db.commit()
     db.refresh(chamado)
 
-    # Enviar push FCM para o barbeiro e cliente sobre cancelamento
+    # Enviar push FCM para o barbeiro sobre cancelamento
     try:
         if firebase_config.FIREBASE_DISPONIVEL:
             if barbeiro and getattr(barbeiro, 'device_token', None):
@@ -2631,22 +2623,6 @@ def cancelar_chamado_cliente(id: int, token: str = Depends(oauth2_scheme), db: S
                     firebase_config.messaging.send(msg)
                 except Exception:
                     pass
-
-            # Também notificar o cliente por push (confirmação)
-            try:
-                user_token = getattr(user, 'device_token', None)
-                if user_token:
-                    msgc = firebase_config.messaging.Message(
-                        notification=firebase_config.messaging.Notification(
-                            title="Chamado Cancelado",
-                            body=f"Seu chamado {chamado.id} foi cancelado {mensagem_taxa}."
-                        ),
-                        data={"tipo": "chamado_cancelado", "chamado_id": str(chamado.id)},
-                        token=user_token
-                    )
-                    firebase_config.messaging.send(msgc)
-            except Exception:
-                pass
     except Exception:
         pass
 
@@ -2743,6 +2719,7 @@ async def cancelar_chamado_barbeiro(id: int, token: str = Depends(oauth2_scheme)
     try:
         await broadcast_event(
             "chamado_cancelado",
+            autor_id=user.id,
             chamado_id=chamado.id,
             cliente_id=chamado.cliente_id,
             motivo="freelancer",
@@ -3707,7 +3684,7 @@ async def atualizar_posicao_cliente_tracking(
     db.refresh(ativo)
 
     tracking = _montar_payload_tracking(db, chamado, ativo)
-    await broadcast_event("tracking_update", chamado_id=chamado.id, source="cliente", tracking=tracking)
+    await broadcast_event("tracking_update", chamado_id=chamado.id, source="cliente", tracking=tracking, autor_id=user.id)
     return {"status": "ok", "tracking": tracking}
 
 
@@ -3748,7 +3725,7 @@ async def atualizar_posicao_barbeiro_tracking(
     db.refresh(ativo)
 
     tracking = _montar_payload_tracking(db, chamado, ativo)
-    await broadcast_event("tracking_update", chamado_id=chamado.id, source="barbeiro", tracking=tracking)
+    await broadcast_event("tracking_update", chamado_id=chamado.id, source="barbeiro", tracking=tracking, autor_id=user.id)
     return {"status": "ok", "tracking": tracking}
 
 
@@ -3804,7 +3781,7 @@ async def atualizar_localizacao_compat(
         db.commit()
         db.refresh(ativo)
         tracking = _montar_payload_tracking(db, chamado, ativo)
-        await broadcast_event("tracking_update", chamado_id=chamado.id, source=user.tipo, tracking=tracking)
+        await broadcast_event("tracking_update", chamado_id=chamado.id, source=user.tipo, tracking=tracking, autor_id=user.id)
     else:
         db.commit()
 

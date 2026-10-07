@@ -921,7 +921,8 @@ async def acionar_cadeira_relampago(
             continue
 
         barbeiro = db.query(Usuario).filter(Usuario.id == radar.freelancer_id).first()
-        if not barbeiro:
+        # Quem anunciou a vaga nao e notificado do proprio anuncio.
+        if not barbeiro or barbeiro.id == current_user.id:
             continue
 
         # Fica registrada no sino de notificacoes do freelancer, alem do push
@@ -947,6 +948,7 @@ async def acionar_cadeira_relampago(
 
     await broadcast_event(
         "cadeira_acionada_aberta",
+        autor_id=current_user.id,
         vaga=_serializar_cadeira_acionada(vaga),
     )
 
@@ -1072,6 +1074,7 @@ async def cancelar_cadeira_acionada(
 
     await broadcast_event(
         "cadeira_acionada_fechada",
+        autor_id=current_user.id,
         vaga=_serializar_cadeira_acionada(vaga),
         accepted_by="barbearia",
     )
@@ -1160,6 +1163,7 @@ async def candidatar_se_cadeira_acionada(
 
         await broadcast_event(
             "cadeira_acionada_candidatura",
+            autor_id=current_user.id,
             vaga_id=vaga.id,
             barbearia_id=vaga.barbearia_id,
         )
@@ -1337,12 +1341,14 @@ async def escolher_freelancer_cadeira_acionada(
 
     await broadcast_event(
         "cadeira_acionada_fechada",
+        autor_id=current_user.id,
         vaga=_serializar_cadeira_acionada(vaga),
         accepted_by="barbearia_escolheu",
     )
     if usuario_escolhido:
         await broadcast_event(
             "freelancer_status_changed",
+            autor_id=current_user.id,
             freelancer_id=usuario_escolhido.id,
             barbearia_id=usuario_escolhido.barbearia_atual_id,
             presente_em_local=True,
@@ -1411,6 +1417,7 @@ async def aceitar_cadeira_acionada_como_cliente(
 
     await broadcast_event(
         "cadeira_acionada_fechada",
+        autor_id=current_user.id,
         vaga=_serializar_cadeira_acionada(vaga, eta_min_usuario_atual=eta_min),
         accepted_by="cliente",
     )
