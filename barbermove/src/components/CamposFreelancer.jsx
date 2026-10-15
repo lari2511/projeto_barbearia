@@ -2,7 +2,7 @@ import React from 'react'
 import { Camera, Upload, X } from 'lucide-react'
 import { MAX_FOTOS_TRABALHOS, TEMPOS_PROFISSAO } from '../utils/cadastroFreelancer'
 
-// "Quanto tempo de profissão?" + "Adicione até 5 fotos dos seus trabalhos".
+// "Há quanto tempo você trabalha como barbeiro(a)?" +"Adicione até 5 fotos dos seus trabalhos".
 // fotos = [{ file, preview }]
 export default function CamposFreelancer({ tempo, onTempoChange, fotos, onFotosChange, onErro, mostrarFotos = true }) {
   const adicionar = (event) => {
@@ -18,7 +18,7 @@ export default function CamposFreelancer({ tempo, onTempoChange, fotos, onFotosC
   return (
     <>
       <div className="mb-4">
-        <p className="mb-2 block text-sm font-medium text-zinc-300">Quanto tempo de profissão?</p>
+        <p className="mb-2 block text-sm font-medium text-zinc-300">Há quanto tempo você trabalha como barbeiro(a)?</p>
         <div className="grid grid-cols-2 gap-2">
           {TEMPOS_PROFISSAO.map((opcao) => (
             <label
