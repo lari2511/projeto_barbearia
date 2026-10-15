@@ -15,6 +15,7 @@ import { getApiBaseUrl, getWsBaseUrl, resolveMediaUrl } from '../utils/api';
 import { useBackHandler } from '../utils/useBackHandler';
 import BotaoVoltar from './BotaoVoltar';
 import AlteracaoServicoCliente from './AlteracaoServicoCliente';
+import AlterarServicoCliente from './AlterarServicoCliente';
 const getShopImage = (id) => `https://images.unsplash.com/photo-${id % 2 === 0 ? '1521590832874-552721032d00' : '1503951914290-d20607416905'}?auto=format&fit=crop&w=800&q=80`;
 const BARBEIROS_CACHE_KEY = 'barbermove.client.barbeiros_cache';
 const GPS_PREFERENCE_KEY = 'barbermove.client.gps_preference';
@@ -655,7 +656,9 @@ export default function ClientDashboard({ token, logout, API_URL: apiUrlProp, no
             .then(data => {
                 const pedidos = Array.isArray(data) ? data : [];
                 setMyOrders(pedidos);
-                const pedidoAtivo = pedidos.find((pedido) => !['concluido', 'concluído', 'cancelado'].includes((pedido.status || '').toLowerCase()));
+                // Varios servicos (mesmo grupo): o que esta em atendimento e o ativo, nao o proximo da fila.
+                const pedidoAtivo = pedidos.find((pedido) => (pedido.status || '').toLowerCase() === 'em_atendimento')
+                    || pedidos.find((pedido) => !['concluido', 'concluído', 'cancelado'].includes((pedido.status || '').toLowerCase()));
                 setActiveChamado(pedidoAtivo || null);
             })
             .catch(() => {
@@ -1251,6 +1254,16 @@ export default function ClientDashboard({ token, logout, API_URL: apiUrlProp, no
         return [...new Set(nomes)];
     }, [activeChamado, myOrders]);
 
+    // Valor total do atendimento atual (soma dos servicos do grupo, sem os cancelados).
+    const valorDoAtendimento = useMemo(() => {
+        if (!activeChamado) return 0;
+        const base = Array.isArray(myOrders) ? myOrders : [];
+        const membros = activeChamado.grupo_id
+            ? base.filter((o) => o.grupo_id === activeChamado.grupo_id && String(o.status || '').toLowerCase() !== 'cancelado')
+            : [activeChamado];
+        return membros.reduce((acc, m) => acc + (Number(m?.valor) || 0), 0);
+    }, [activeChamado, myOrders]);
+
     // Atendimento concluido mais recente que ainda tem alguma acao pendente
     // (avaliacao do freelancer/barbearia pendente) -> card de destaque na Home.
     // Fase 1 do BarberMove nao cobra o cliente, entao so avaliacao pendente
@@ -1703,7 +1716,18 @@ export default function ClientDashboard({ token, logout, API_URL: apiUrlProp, no
                                 {activeChamado.servico_nome || activeChamado.descricao || 'Serviço'}
                             </p>
                         )}
+                        {valorDoAtendimento > 0 && (
+                            <p className="mt-1 text-xs text-zinc-400">Total: <span className="font-bold text-white">R$ {valorDoAtendimento.toFixed(2)}</span></p>
+                        )}
                     </div>
+
+                    <AlterarServicoCliente
+                        chamadoId={activeChamado.id}
+                        token={token}
+                        API_URL={API_URL}
+                        notify={notifySafe}
+                        onAlterado={carregarMeusPedidos}
+                    />
 
                     {/* Cliente em atendimento não vê o cronômetro (freelancer, proprietário e cliente na fila continuam vendo). */}
 

@@ -69,12 +69,14 @@ def _tem_mais_de_um_servico(db: Session, membros: List[models.Chamado]) -> bool:
     return False
 
 
-def _planejar(membros: List[models.Chamado], novos_ids: List[int]):
+def _planejar(membros: List[models.Chamado], novos_ids: List[int], permitir_adicionar: bool = False):
     """
     Decide o que acontece com cada chamado ativo para chegar em `novos_ids`.
     Retorna (plano, erro): plano = [(chamado, novo_servico_id | None=cancelar)].
     Serviços já concluídos precisam continuar na lista (já foram realizados).
     O chamado em atendimento nunca é cancelado: é trocado se o serviço dele saiu.
+    Com `permitir_adicionar` (alteração feita pelo cliente), serviços além dos já
+    agendados entram no plano como (None, servico_id) = novo serviço no mesmo grupo.
     """
     restantes = list(novos_ids)
     for m in membros:
@@ -87,7 +89,7 @@ def _planejar(membros: List[models.Chamado], novos_ids: List[int]):
     ativos.sort(key=lambda m: (0 if str(m.status or "").lower() == EM_ATENDIMENTO else 1, m.id))
     if not ativos:
         return None, "Este atendimento já foi finalizado."
-    if len(restantes) > len(ativos):
+    if len(restantes) > len(ativos) and not permitir_adicionar:
         return None, "Não é possível adicionar serviços ao atendimento, apenas alterar os já agendados."
     if not restantes and any(str(m.status or "").lower() == EM_ATENDIMENTO for m in ativos):
         return None, "Selecione o serviço que está sendo realizado."
@@ -102,7 +104,106 @@ def _planejar(membros: List[models.Chamado], novos_ids: List[int]):
             continue
         decisao[m.id] = restantes.pop(0) if restantes else None
 
-    return [(m, decisao[m.id]) for m in ativos], None
+    # O chamado em atendimento não pode ficar sem serviço: se o dele saiu e os que
+    # sobraram ficaram com os pendentes, ele assume o serviço do último pendente
+    # (que é cancelado no lugar dele).
+    em_atend = next((m for m in ativos if str(m.status or "").lower() == EM_ATENDIMENTO), None)
+    if em_atend and decisao[em_atend.id] is None:
+        doador = next((m for m in reversed(ativos) if m is not em_atend and decisao[m.id] is not None), None)
+        if doador:
+            decisao[em_atend.id] = decisao[doador.id]
+            decisao[doador.id] = None
+
+    plano = [(m, decisao[m.id]) for m in ativos]
+    plano += [(None, sid) for sid in restantes]
+    return plano, None
+
+
+def _aplicar_plano(db: Session, plano, agora: datetime, motivo_cancelamento: str) -> None:
+    """Aplica o plano no atendimento real (sem commit): cancela, troca, adiciona e reescalona."""
+    em_atendimento = None
+    for membro, novo_servico_id in plano:
+        if membro is None:
+            continue
+        if novo_servico_id is None:
+            membro.status = CANCELADO
+            membro.cancelado_em = agora
+            membro.motivo_cancelamento = motivo_cancelamento
+            continue
+        if novo_servico_id != membro.servico_id:
+            dur_antiga = _duracao_servico_min(db, membro.servico_id)
+            servico = db.query(models.Servico).filter(models.Servico.id == novo_servico_id).first()
+            split = calcular_split_pagamento(servico.valor)
+            membro.servico_id = novo_servico_id
+            membro.valor_total = split["valor_total"]
+            membro.comissao_plataforma = split["comissao_plataforma"]
+            membro.valor_freelancer = split["valor_freelancer"]
+            membro.valor_dono = split["valor_dono"]
+            membro.valor_final = servico.valor
+            if str(membro.status or "").lower() == EM_ATENDIMENTO and membro.data_hora_fim:
+                # mantém pausas já aplicadas: só ajusta pela diferença de duração
+                membro.data_hora_fim = membro.data_hora_fim + timedelta(
+                    minutes=_duracao_servico_min(db, novo_servico_id) - dur_antiga
+                )
+        if str(membro.status or "").lower() == EM_ATENDIMENTO:
+            em_atendimento = membro
+
+    # Serviço adicionado pelo cliente: entra no MESMO atendimento (mesmo grupo_id),
+    # já confirmado, logo depois dos serviços que já estão agendados.
+    adicionados = [sid for m, sid in plano if m is None]
+    if adicionados:
+        base = em_atendimento or next(m for m, sid in plano if m is not None and sid is not None)
+        if not base.grupo_id:
+            base.grupo_id = base.id
+        irmaos = db.query(models.Chamado).filter(models.Chamado.grupo_id == base.grupo_id).all()
+        # criado_em do grupo: a fila do freelancer é por criado_em, então o serviço novo
+        # continua na frente de outros clientes que chegaram depois deste atendimento.
+        criado_em_grupo = max((m.criado_em for m in irmaos if m.criado_em), default=agora)
+        for sid in adicionados:
+            servico = db.query(models.Servico).filter(models.Servico.id == sid).first()
+            split = calcular_split_pagamento(servico.valor)
+            novo = models.Chamado(
+                cliente_id=base.cliente_id,
+                barbeiro_id=base.barbeiro_id,
+                servico_id=sid,
+                barbearia_id=base.barbearia_id,
+                cadeira_id=base.cadeira_id,
+                grupo_id=base.grupo_id,
+                status=models.StatusAgendamento.CONFIRMADO.value,
+                aprovado_barbeiro=True,
+                aprovado_barbeiro_em=agora,
+                horario_match=base.horario_match,
+                cliente_chegou=base.cliente_chegou,
+                barbeiro_chegou=base.barbeiro_chegou,
+                valor_total=split["valor_total"],
+                comissao_plataforma=split["comissao_plataforma"],
+                valor_freelancer=split["valor_freelancer"],
+                valor_dono=split["valor_dono"],
+                valor_original=servico.valor,
+                valor_final=servico.valor,
+                criado_em=criado_em_grupo,
+            )
+            db.add(novo)
+            plano.append((novo, sid))
+        db.flush()
+
+    # Reescalona os que ainda vão acontecer (sequenciais, como no grupo original).
+    pendentes = [m for m, sid in plano if m is not None and sid is not None and str(m.status or "").lower() != EM_ATENDIMENTO]
+    if pendentes:
+        pendentes.sort(key=lambda x: x.id)
+        cursor = em_atendimento.data_hora_fim if em_atendimento and em_atendimento.data_hora_fim else pendentes[0].data_hora_inicio
+        if cursor:
+            for m in pendentes:
+                dur = _duracao_servico_min(db, m.servico_id)
+                m.data_hora_inicio = cursor
+                m.data_hora_fim = cursor + timedelta(minutes=dur)
+                cursor = m.data_hora_fim
+
+    db.flush()
+    if em_atendimento:
+        barbeiro = db.query(models.Usuario).filter(models.Usuario.id == em_atendimento.barbeiro_id).first()
+        if barbeiro and barbeiro.ocupado_ate:
+            barbeiro.ocupado_ate = _calcular_fim_grupo(db, em_atendimento)
 
 
 def _serializar(db: Session, alt: models.AlteracaoServicoAtendimento) -> dict:
@@ -259,6 +360,130 @@ def listar_alteracoes_pendentes_cliente(
     return [_serializar(db, a) for a in alts]
 
 
+def _chamado_do_cliente_em_atendimento(db: Session, chamado_id: int, usuario):
+    """Chamado do cliente + membros do grupo; só vale com o atendimento EM ANDAMENTO."""
+    chamado = db.query(models.Chamado).filter(models.Chamado.id == chamado_id).first()
+    if not chamado:
+        raise HTTPException(status_code=404, detail="Chamado não encontrado")
+    if chamado.cliente_id != usuario.id:
+        raise HTTPException(status_code=403, detail="Apenas o cliente do atendimento pode alterar o serviço")
+    membros = _membros_grupo(db, chamado)
+    em_atend = next((m for m in membros if str(m.status or "").lower() == EM_ATENDIMENTO), None)
+    if not em_atend:
+        raise HTTPException(status_code=400, detail="Só é possível alterar o serviço durante o atendimento")
+    return em_atend, membros
+
+
+def _servico_dict(s: models.Servico) -> dict:
+    return {"id": s.id, "nome": s.nome, "valor": float(s.valor or 0), "duracao_minutos": s.duracao_minutos or 30}
+
+
+@router.get("/cliente/chamados/{chamado_id}/alterar-servico")
+def obter_alterar_servico_cliente(
+    chamado_id: int,
+    db: Session = Depends(get_db),
+    usuario=Depends(get_current_user),
+):
+    """Serviços atuais do atendimento em andamento + serviços disponíveis da barbearia."""
+    em_atend, membros = _chamado_do_cliente_em_atendimento(db, chamado_id, usuario)
+    servicos = db.query(models.Servico).filter(
+        models.Servico.barbearia_id == em_atend.barbearia_id,
+        models.Servico.ativo == True,
+    ).order_by(models.Servico.nome.asc()).all()
+    por_id = {s.id: s for s in servicos}
+    # Serviço já agendado que saiu do catálogo continua aparecendo para poder ser mantido.
+    for m in membros:
+        if m.servico_id not in por_id:
+            s = db.query(models.Servico).filter(models.Servico.id == m.servico_id).first()
+            if s:
+                por_id[s.id] = s
+    return {
+        "chamado_id": em_atend.id,
+        "servicos_atuais_ids": [m.servico_id for m in membros],
+        "servicos_concluidos_ids": [m.servico_id for m in membros if str(m.status or "").lower() == CONCLUIDO],
+        "servico_em_atendimento_id": em_atend.servico_id,
+        "opcoes": [_servico_dict(s) for s in sorted(por_id.values(), key=lambda s: (s.nome or "").lower())],
+    }
+
+
+@router.post("/cliente/chamados/{chamado_id}/alterar-servico")
+def alterar_servico_cliente(
+    chamado_id: int,
+    dados: SolicitarAlteracaoRequest,
+    db: Session = Depends(get_db),
+    usuario=Depends(get_current_user),
+):
+    """
+    Cliente altera os serviços do atendimento EM ANDAMENTO (remove/adiciona/troca).
+    Aplica na hora no atendimento real: mesmo grupo, sem novo atendimento; o
+    cronômetro e o valor passam a refletir a nova seleção.
+    """
+    em_atend, membros = _chamado_do_cliente_em_atendimento(db, chamado_id, usuario)
+
+    novos_ids = [int(i) for i in dict.fromkeys(dados.servico_ids or [])]
+    if not novos_ids:
+        raise HTTPException(status_code=400, detail="Selecione ao menos um serviço")
+    atuais_ids = [m.servico_id for m in membros]
+    validos = {
+        s.id for s in db.query(models.Servico).filter(
+            models.Servico.id.in_(novos_ids),
+            models.Servico.barbearia_id == em_atend.barbearia_id,
+        ).all()
+        if s.ativo or s.id in atuais_ids
+    }
+    if len(validos) != len(novos_ids):
+        raise HTTPException(status_code=400, detail="Serviço inválido para esta barbearia")
+    if sorted(dict.fromkeys(atuais_ids)) == sorted(novos_ids):
+        raise HTTPException(status_code=400, detail="Nenhuma alteração nos serviços")
+
+    plano, erro = _planejar(membros, novos_ids, permitir_adicionar=True)
+    if erro:
+        raise HTTPException(status_code=400, detail=erro)
+
+    agora = datetime.utcnow()
+    originais = _descricao(db, atuais_ids)
+    novos = _descricao(db, novos_ids)
+    _aplicar_plano(db, plano, agora, f"Serviço removido pelo cliente durante o atendimento ({originais} -> {novos})")
+
+    def _valor(ids):
+        return round(sum(float(db.query(models.Servico).get(i).valor or 0) for i in ids), 2)
+
+    # Pedido do freelancer ainda sem resposta perde o sentido: o cliente já definiu os serviços.
+    anterior = _pendente_do_atendimento(db, em_atend)
+    if anterior:
+        anterior.status = "expirada"
+        anterior.respondido_em = agora
+
+    # Registro da alteração (histórico de quem mudou o quê).
+    db.add(models.AlteracaoServicoAtendimento(
+        chamado_id=em_atend.id,
+        grupo_id=em_atend.grupo_id,
+        cliente_id=usuario.id,
+        barbeiro_id=em_atend.barbeiro_id,
+        servicos_originais=originais,
+        servicos_novos=novos,
+        servicos_novos_ids=",".join(str(i) for i in novos_ids),
+        valor_original=_valor(atuais_ids),
+        valor_novo=_valor(novos_ids),
+        status="confirmada",
+        respondido_em=agora,
+    ))
+    if em_atend.barbeiro_id:
+        db.add(models.Notificacao(
+            usuario_id=em_atend.barbeiro_id,
+            titulo="Cliente alterou o serviço",
+            mensagem=f"O cliente alterou o atendimento de {originais} para {novos}.",
+            tipo="alteracao_servico_cliente",
+            referencia_id=em_atend.id,
+        ))
+    db.commit()
+    return {
+        "message": "Serviços atualizados",
+        "servicos": novos,
+        "valor_total": _valor(novos_ids),
+    }
+
+
 @router.post("/alteracoes-servico/{alteracao_id}/responder")
 def responder_alteracao_servico(
     alteracao_id: int,
@@ -303,49 +528,10 @@ def responder_alteracao_servico(
         raise HTTPException(status_code=409, detail=f"Não foi possível aplicar a alteração: {erro}")
 
     # Aplica oficialmente.
-    em_atendimento = None
-    for membro, novo_servico_id in plano:
-        if novo_servico_id is None:
-            membro.status = CANCELADO
-            membro.cancelado_em = agora
-            membro.motivo_cancelamento = (
-                f"Serviço removido na alteração confirmada pelo cliente ({alt.servicos_originais} -> {alt.servicos_novos})"
-            )
-            continue
-        if novo_servico_id != membro.servico_id:
-            dur_antiga = _duracao_servico_min(db, membro.servico_id)
-            servico = db.query(models.Servico).filter(models.Servico.id == novo_servico_id).first()
-            split = calcular_split_pagamento(servico.valor)
-            membro.servico_id = novo_servico_id
-            membro.valor_total = split["valor_total"]
-            membro.comissao_plataforma = split["comissao_plataforma"]
-            membro.valor_freelancer = split["valor_freelancer"]
-            membro.valor_dono = split["valor_dono"]
-            membro.valor_final = servico.valor
-            if str(membro.status or "").lower() == EM_ATENDIMENTO and membro.data_hora_fim:
-                # mantém pausas já aplicadas: só ajusta pela diferença de duração
-                membro.data_hora_fim = membro.data_hora_fim + timedelta(
-                    minutes=_duracao_servico_min(db, novo_servico_id) - dur_antiga
-                )
-        if str(membro.status or "").lower() == EM_ATENDIMENTO:
-            em_atendimento = membro
-
-    # Reescalona os que ainda vão acontecer (sequenciais, como no grupo original).
-    pendentes = [m for m, sid in plano if sid is not None and str(m.status or "").lower() != EM_ATENDIMENTO]
-    if pendentes:
-        cursor = em_atendimento.data_hora_fim if em_atendimento and em_atendimento.data_hora_fim else pendentes[0].data_hora_inicio
-        if cursor:
-            for m in sorted(pendentes, key=lambda x: x.id):
-                dur = _duracao_servico_min(db, m.servico_id)
-                m.data_hora_inicio = cursor
-                m.data_hora_fim = cursor + timedelta(minutes=dur)
-                cursor = m.data_hora_fim
-
-    db.flush()
-    if em_atendimento:
-        barbeiro = db.query(models.Usuario).filter(models.Usuario.id == em_atendimento.barbeiro_id).first()
-        if barbeiro and barbeiro.ocupado_ate:
-            barbeiro.ocupado_ate = _calcular_fim_grupo(db, em_atendimento)
+    _aplicar_plano(
+        db, plano, agora,
+        f"Serviço removido na alteração confirmada pelo cliente ({alt.servicos_originais} -> {alt.servicos_novos})",
+    )
 
     alt.status = "confirmada"
     alt.respondido_em = agora
