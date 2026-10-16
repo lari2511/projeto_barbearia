@@ -1,7 +1,8 @@
 """
 Pagamento diário do freelancer (horário oficial: America/Sao_Paulo).
 
-- 21:00  fechamento do dia: registra quanto cada freelancer deve (saldo devedor da carteira).
+- 21:00  fechamento do dia: registra quanto cada freelancer deve (saldo devedor da carteira)
+         e notifica o freelancer do valor a pagar.
 - 21:00-22:00  prazo para pagar via Pix; o freelancer trabalha normalmente.
 - 22:00  se o pagamento do dia não foi confirmado pelo ADM, o freelancer é colocado
          OFFLINE e fica travado (não consegue ficar online/presente nem assumir atividades).
@@ -18,6 +19,7 @@ from datetime import date, datetime, time, timedelta, timezone
 from typing import List, Optional
 
 from fastapi import HTTPException
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app import models
@@ -110,8 +112,10 @@ def exigir_freelancer_liberado(db: Session, freelancer_id: int) -> None:
 
 def gerar_fechamentos_do_dia(db: Session, data_ref: date) -> int:
     """
-    Registra o valor devido do dia para cada freelancer com saldo devedor na carteira.
-    Idempotente (1 fechamento por freelancer/dia). Não mexe na carteira.
+    Registra o valor devido do dia para cada freelancer com saldo devedor na carteira
+    e avisa o freelancer do valor a pagar.
+    Idempotente (1 fechamento por freelancer/dia, garantido pela uq_fechamento_freelancer_data;
+    a notificação vai no mesmo commit, então também sai uma só). Não mexe na carteira.
     O que já está em fechamentos anteriores ainda abertos não é cobrado de novo.
     """
     criados = 0
@@ -129,16 +133,31 @@ def gerar_fechamentos_do_dia(db: Session, data_ref: date) -> int:
         if valor <= 0:
             continue
 
-        db.add(models.FechamentoDiarioFreelancer(
+        fechamento = models.FechamentoDiarioFreelancer(
             freelancer_id=carteira.barbeiro_id,
             data_referencia=data_ref,
             valor_devido=valor,
             status="pendente",
-        ))
+        )
+        db.add(fechamento)
+        try:
+            db.flush()
+            db.add(models.Notificacao(
+                usuario_id=carteira.barbeiro_id,
+                titulo="💰 Taxa BarberMove do dia",
+                mensagem=(f"Valor a pagar referente a {data_ref.strftime('%d/%m')}: R$ {valor:.2f}. "
+                          f"Pague via Pix até as {HORA_LIMITE_PAGAMENTO.strftime('%H:%M')} para continuar "
+                          "podendo ficar online/presente."),
+                tipo="pagamento_diario",
+                referencia_id=fechamento.id,
+            ))
+            db.commit()
+        except IntegrityError:
+            # Outra instância (ex.: durante um deploy) criou o fechamento deste dia primeiro.
+            db.rollback()
+            continue
         criados += 1
 
-    if criados:
-        db.commit()
     return criados
 
 
