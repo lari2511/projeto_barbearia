@@ -189,6 +189,17 @@ def pix_disponivel() -> bool:
         return False
 
 
+def bloquear_fluxo_antigo_se_pix_real(detalhe: str) -> None:
+    """
+    Fluxos antigos que liberavam plano/cadeiras/taxa sem pagamento real (Pix com chave
+    fixa, "confirmar_pix", cartão só validado). Continuam funcionando enquanto o Pix do
+    Mercado Pago não está configurado; com o Pix ativo, só vale /api/v1/cobrancas.
+    """
+    if pix_disponivel():
+        from fastapi import HTTPException
+        raise HTTPException(status_code=410, detail=detalhe)
+
+
 def validar_assinatura_webhook(*, x_signature: Optional[str], x_request_id: Optional[str],
                                data_id: Optional[str]) -> bool:
     """

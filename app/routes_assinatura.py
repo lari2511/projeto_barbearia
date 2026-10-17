@@ -12,6 +12,7 @@ from pydantic import BaseModel
 from .database import get_db
 from .models import Barbearia, Usuario, Assinatura
 from .routes import get_current_user
+from .cobrancas.provedores import bloquear_fluxo_antigo_se_pix_real
 
 router = APIRouter(prefix="/api/v1/assinatura", tags=["Assinatura"])
 
@@ -257,10 +258,16 @@ def ativar_assinatura_barbearia(
     
     # Calcular valor mensal
     valor_mensal = calcular_mensalidade_progressiva(quantidade_cadeiras)
-    
+
     # Buscar ou criar assinatura
     assinatura = db.query(Assinatura).filter(Assinatura.barbearia_id == barbearia_id).first()
-    
+
+    # Legado: aumentar aqui liberava cadeira sem pagar. Com o Pix ativo, só reduzir.
+    if usuario_atual.tipo != "admin" and quantidade_cadeiras > int((assinatura.quantidade_cadeiras if assinatura else 0) or 0):
+        bloquear_fluxo_antigo_se_pix_real(
+            "Cadeiras novas são liberadas após o pagamento via Pix (/api/v1/cobrancas/pix/assinatura-cadeiras)."
+        )
+
     if assinatura:
         # Atualizar existente
         assinatura.quantidade_cadeiras = quantidade_cadeiras

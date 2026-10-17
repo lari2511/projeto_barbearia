@@ -9,6 +9,8 @@ import { formatarEndereco } from '../utils/address';
 import { useBackHandler } from '../utils/useBackHandler';
 import BotaoVoltar from './BotaoVoltar';
 import { gerarQrDataUrl, salvarMetodoPreferidoCliente, validarCartaoBasico } from './checkout/core';
+import PagamentoPix, { usePixDisponivel } from './PagamentoPix';
+import { criarPixAssinaturaCadeiras } from '../utils/cobrancasPix';
 
 const PERFIL_META = {
   cliente: { badge: 'Cliente Premium', titulo: 'Meu Perfil' },
@@ -386,6 +388,28 @@ export function TelaPerfilUsuario({
   const [pixPlanoQrFallback, setPixPlanoQrFallback] = useState('');
   const [pixPlanoImagemInvalida, setPixPlanoImagemInvalida] = useState(false);
   const [copiouPixPlano, setCopiouPixPlano] = useState(false);
+  // Pix real (Mercado Pago): a cadeira nova só entra depois da aprovação, e a contagem
+  // vem da assinatura nova (/assinaturas/minha-assinatura), que é a que limita as cadeiras.
+  const pixReal = usePixDisponivel(apiBase, token);
+  const pixRealRef = useRef(pixReal);
+  pixRealRef.current = pixReal;
+  const [cobrancaPlano, setCobrancaPlano] = useState(null);
+  const carregarCadeirasAssinaturaNova = useCallback(async () => {
+    try {
+      const res = await fetch(`${apiBase}/api/v1/assinaturas/minha-assinatura`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) return;
+      const assinatura = await res.json().catch(() => ({}));
+      const qtd = Number(assinatura?.cadeiras_ativas);
+      if (Number.isFinite(qtd) && qtd >= 1) {
+        setCadeirasPlano(Math.min(50, qtd));
+        setCadeirasPlanoSalvas(Math.min(50, qtd));
+      }
+    } catch (_e) {
+      // mantém a contagem atual
+    }
+  }, [apiBase, token]);
 
   const [barberStatus, setBarberStatus] = useState('offline');
   // Etapa 7: freelancer presente pediu para sair mas ainda tem atendimentos pendentes.
@@ -584,6 +608,7 @@ export function TelaPerfilUsuario({
               setCadeirasPlano(Math.max(1, Math.min(50, qtd)));
               setCadeirasPlanoSalvas(Math.max(1, Math.min(50, qtd)));
             }
+            if (pixRealRef.current) await carregarCadeirasAssinaturaNova();
 
             const limiteRes = await fetch(`${apiBase}/api/v1/assinaturas/verificar-limite-cadeiras`, {
               headers: { Authorization: `Bearer ${token}` },
@@ -636,7 +661,14 @@ export function TelaPerfilUsuario({
         setPortfolioFotos([]);
       }
     }
-  }, [apiBase, token, perfilTipo]);
+  }, [apiBase, token, perfilTipo, carregarCadeirasAssinaturaNova]);
+
+  useEffect(() => {
+    // /config pode responder depois do carregamento do perfil.
+    if (pixReal && perfilTipo === 'barbearia') carregarCadeirasAssinaturaNova();
+    // Com o Mercado Pago ativo só existe Pix (o cartão daqui não cobrava de verdade).
+    if (pixReal) setMetodoPagamentoPlano('pix');
+  }, [pixReal, perfilTipo, carregarCadeirasAssinaturaNova]);
 
   useEffect(() => {
     let ativo = true;
@@ -1208,7 +1240,24 @@ export function TelaPerfilUsuario({
       }
 
       if (perfilTipo === 'barbearia' && barbeariaId) {
-        if (perfilBarbeariaTeste) {
+        if (pixReal && !perfilBarbeariaTeste) {
+          if (cadeirasPlano > cadeirasPlanoSalvas) {
+            // Só gera a cobrança das cadeiras novas; elas entram quando o Pix for aprovado.
+            const nova = await criarPixAssinaturaCadeiras(apiBase, token, cadeirasPlano);
+            setCobrancaPlano({ ...nova, cadeirasAlvo: cadeirasPlano });
+          } else if (cadeirasPlano < cadeirasPlanoSalvas) {
+            const reduzirRes = await fetch(`${apiBase}/api/v1/assinaturas/criar`, {
+              method: 'POST',
+              headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+              body: JSON.stringify({ cadeiras_ativas: cadeirasPlano, metodo_pagamento: 'pix' }),
+            });
+            const reduzirData = await reduzirRes.json().catch(() => ({}));
+            if (!reduzirRes.ok) {
+              throw new Error(reduzirData?.detail || 'Falha ao reduzir cadeiras');
+            }
+            setCadeirasPlanoSalvas(cadeirasPlano);
+          }
+        } else if (perfilBarbeariaTeste) {
           const criarRes = await fetch(`${apiBase}/api/v1/assinaturas/teste/definir-cadeiras`, {
             method: 'POST',
             headers: {
@@ -1320,7 +1369,8 @@ export function TelaPerfilUsuario({
 
       const payload = { nome, email, telefone, fotoPerfil, cadeirasPlano, mensalidadeTotal, userType: perfilTipo };
       if (typeof aoSalvar === 'function') aoSalvar(payload);
-      if (!(exigirPagamentoMudancaCadeiras && metodoPagamentoPlano === 'pix')) {
+      const gerouPixPlano = exigirPagamentoMudancaCadeiras && (pixReal || metodoPagamentoPlano === 'pix');
+      if (!gerouPixPlano) {
         setSaveSuccess(true);
         if (saveSuccessTimeoutRef.current) {
           clearTimeout(saveSuccessTimeoutRef.current);
@@ -1334,7 +1384,7 @@ export function TelaPerfilUsuario({
       onNotify?.(
         perfilBarbeariaTeste
           ? 'Perfil de teste atualizado. Você pode alterar cadeiras livremente.'
-          : (exigirPagamentoMudancaCadeiras && metodoPagamentoPlano === 'pix'
+          : (gerouPixPlano
             ? 'Perfil salvo e PIX gerado para liberar as novas cadeiras'
             : 'Perfil salvo com sucesso'),
         'success'
@@ -1805,6 +1855,7 @@ export function TelaPerfilUsuario({
                   <p className="mt-1 text-xs text-zinc-300">Plano atual: {moneyBRL(mensalidadeAnterior)}. Novo plano: {moneyBRL(mensalidadeTotal)}.</p>
                 </div>
 
+                {!pixReal && (
                 <div className="grid grid-cols-2 gap-2">
                   <button
                     type="button"
@@ -1827,8 +1878,9 @@ export function TelaPerfilUsuario({
                     Cartao
                   </button>
                 </div>
+                )}
 
-                {metodoPagamentoPlano === 'cartao' && (
+                {!pixReal && metodoPagamentoPlano === 'cartao' && (
                   <div className="space-y-2 rounded-lg border border-zinc-700 bg-zinc-900/60 p-3">
                     <div className="grid grid-cols-2 gap-2">
                       <button
@@ -1897,7 +1949,32 @@ export function TelaPerfilUsuario({
               </div>
             )}
 
-            {pixPlano && (
+            {pixReal && cobrancaPlano && (
+              <PagamentoPix
+                key={cobrancaPlano.identificador}
+                token={token}
+                API_URL={apiBase}
+                cobranca={cobrancaPlano}
+                titulo="PIX para liberar as novas cadeiras"
+                notify={onNotify}
+                onConfirmado={async () => {
+                  onNotify?.('Pagamento confirmado! Cadeiras liberadas.', 'success');
+                  await carregarCadeirasAssinaturaNova();
+                }}
+                onGerarNovo={async () => {
+                  try {
+                    const alvo = cobrancaPlano?.cadeirasAlvo || cadeirasPlano;
+                    const nova = await criarPixAssinaturaCadeiras(apiBase, token, alvo);
+                    setCobrancaPlano({ ...nova, cadeirasAlvo: alvo });
+                  } catch (e) {
+                    onNotify?.(e?.message || 'Nao foi possivel gerar o PIX', 'error');
+                  }
+                }}
+                onFechar={() => setCobrancaPlano(null)}
+              />
+            )}
+
+            {!pixReal && pixPlano && (
               <div className="rounded-xl border border-orange-500/40 bg-zinc-950/80 p-3 space-y-3">
                 <p className="text-sm font-bold text-white">PIX gerado para as novas cadeiras</p>
                 {pixPlanoQrSrc && !pixPlanoImagemInvalida && (

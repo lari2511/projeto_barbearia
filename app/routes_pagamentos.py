@@ -964,19 +964,33 @@ def webhook_mercadopago(
         if not payment_id:
             return {"message": "ID de pagamento não encontrado"}
         
-        # Buscar pagamento no banco usando external_reference
-        external_ref = webhook.data.get("external_reference")
-        if not external_ref:
+        # Nunca confia no corpo (qualquer um pode chamar esta URL): status, referência
+        # e valor vêm da consulta autenticada à API do Mercado Pago.
+        from app.cobrancas.provedores import obter_provedor, ProvedorNaoConfigurado, ErroProvedor
+        try:
+            pagamento_mp = obter_provedor().consultar(str(payment_id))
+        except ProvedorNaoConfigurado:
+            return {"message": "Mercado Pago não configurado; notificação ignorada"}
+        except ErroProvedor as exc:
+            # 5xx faz o Mercado Pago reenviar depois.
+            raise HTTPException(status_code=502, detail=f"Falha ao consultar o pagamento: {exc}")
+
+        external_ref = pagamento_mp.referencia_externa
+        if not external_ref or not str(external_ref).isdigit():
             return {"message": "External reference não encontrado"}
-        
+
         pagamento = db.query(Pagamento).filter(Pagamento.id == int(external_ref)).first()
         if not pagamento:
             return {"message": "Pagamento não encontrado"}
-        
-        # Atualizar status baseado na resposta do MercadoPago
-        status = webhook.data.get("status")
-        valor_recebido = webhook.data.get("transaction_amount", 0)
-        
+        if pagamento.pago_em:
+            return {"message": "Pagamento já confirmado"}
+
+        status = pagamento_mp.status
+        valor_recebido = pagamento_mp.valor
+        if status == "approved" and round(valor_recebido, 2) < round(float(pagamento.valor_total or 0.0), 2):
+            print(f"❌ Pagamento {pagamento.id}: valor aprovado R$ {valor_recebido} menor que o devido")
+            return {"message": "Valor divergente"}
+
         if status == "approved":
             # 1️⃣ Atualizar Pagamento (sistema antigo)
             pagamento.pago_em = datetime.now()
@@ -1057,7 +1071,9 @@ def webhook_mercadopago(
             # db.commit()
         
         return {"message": "Webhook processado com sucesso"}
-    
+
+    except HTTPException:
+        raise
     except Exception as e:
         print(f"❌ Erro no webhook: {str(e)}")
         import traceback

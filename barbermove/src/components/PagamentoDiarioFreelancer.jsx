@@ -1,4 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
+import PagamentoPix, { usePixDisponivel } from './PagamentoPix';
+import { criarPixTaxaFreelancer } from '../utils/cobrancasPix';
 
 // Pagamento diário do freelancer: fechamento 21:00, prazo 22:00 (horário de São Paulo).
 // Depois das 22:00 sem confirmação do ADM o status fica travado em OFFLINE (regra no backend).
@@ -26,6 +28,9 @@ export default function PagamentoDiarioFreelancer({ token, API_URL, notify, onRe
   const [resumo, setResumo] = useState(null);
   const [pix, setPix] = useState(null);
   const [processando, setProcessando] = useState(false);
+  // Pix real (Mercado Pago): a taxa fica paga sozinha após a aprovação, sem "Já paguei" nem ADM.
+  const pixReal = usePixDisponivel(API_URL, token);
+  const [cobranca, setCobranca] = useState(null);
 
   const carregar = useCallback(async () => {
     if (!token) return;
@@ -49,7 +54,22 @@ export default function PagamentoDiarioFreelancer({ token, API_URL, notify, onRe
     return () => clearInterval(t);
   }, [carregar]);
 
+  const gerarPixReal = async () => {
+    try {
+      setProcessando(true);
+      setCobranca(await criarPixTaxaFreelancer(API_URL, token));
+    } catch (err) {
+      notify?.(err?.message || 'Falha ao gerar PIX', 'error');
+    } finally {
+      setProcessando(false);
+    }
+  };
+
   const gerarPix = async () => {
+    if (pixReal) {
+      await gerarPixReal();
+      return;
+    }
     try {
       setProcessando(true);
       const res = await fetch(`${API_URL}/api/v1/freelancer/carteira/quitacao/pix-gerar`, {
@@ -96,6 +116,20 @@ export default function PagamentoDiarioFreelancer({ token, API_URL, notify, onRe
   };
 
   const abertos = resumo?.fechamentos_abertos || [];
+  if (cobranca && (!resumo || abertos.length === 0)) {
+    // Taxa quitada: mostra a confirmação até o freelancer fechar.
+    return (
+      <PagamentoPix
+        key={cobranca.identificador}
+        token={token}
+        API_URL={API_URL}
+        cobranca={cobranca}
+        titulo="Taxa BarberMove"
+        notify={notify}
+        onFechar={() => setCobranca(null)}
+      />
+    );
+  }
   if (!resumo || abertos.length === 0) return null;
 
   const bloqueado = Boolean(resumo.bloqueado);
@@ -139,7 +173,35 @@ export default function PagamentoDiarioFreelancer({ token, API_URL, notify, onRe
         <p className="text-xs text-red-300">❌ O ADM não confirmou o pagamento. Verifique e envie novamente.</p>
       )}
 
-      {resumo.pode_pagar && (
+      {pixReal && cobranca && (
+        <PagamentoPix
+          key={cobranca.identificador}
+          token={token}
+          API_URL={API_URL}
+          cobranca={cobranca}
+          titulo="Taxa BarberMove"
+          notify={notify}
+          onConfirmado={() => {
+            notify?.('Pagamento confirmado! Status liberado.', 'success');
+            carregar();
+          }}
+          onGerarNovo={gerarPixReal}
+          onFechar={() => setCobranca(null)}
+        />
+      )}
+
+      {pixReal && !cobranca && abertos.length > 0 && (
+        <button
+          type="button"
+          onClick={gerarPixReal}
+          disabled={processando}
+          className="w-full rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:opacity-60 px-3 py-2 text-xs font-bold text-white"
+        >
+          {processando ? 'Gerando...' : `Pagar ${brl(resumo.valor_em_aberto)} via Pix`}
+        </button>
+      )}
+
+      {!pixReal && resumo.pode_pagar && (
         <div className="space-y-2">
           <p className="text-xs text-zinc-300">Total a pagar: <span className="font-bold">{brl(resumo.valor_em_aberto)}</span></p>
           {!pix ? (

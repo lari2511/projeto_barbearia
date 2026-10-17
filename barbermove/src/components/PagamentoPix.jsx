@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { consultarCobranca } from '../utils/cobrancasPix';
+import { consultarCobranca, obterConfigPagamentos } from '../utils/cobrancasPix';
 
 // Pagamento Pix reutilizável (plano/cadeiras do proprietário, mensalidade, taxa do freelancer).
 // O app só exibe e acompanha a cobrança: quem decide se está PAGO é o backend,
@@ -50,6 +50,23 @@ const VISUAL_STATUS = {
   REJEITADO: { rotulo: 'Pagamento recusado', cor: 'text-red-300', borda: 'border-red-500/40 bg-red-500/10' },
   ESTORNADO: { rotulo: 'Pagamento estornado', cor: 'text-red-300', borda: 'border-red-500/40 bg-red-500/10' },
 };
+
+// null enquanto carrega; true quando o backend tem o Mercado Pago configurado.
+// Sem ele as telas continuam no fluxo antigo (o backend só bloqueia o antigo com o Pix ativo).
+export function usePixDisponivel(API_URL, token) {
+  const [disponivel, setDisponivel] = useState(null);
+  useEffect(() => {
+    if (!API_URL || !token) return undefined;
+    let ativo = true;
+    obterConfigPagamentos(API_URL, token)
+      .then((cfg) => ativo && setDisponivel(Boolean(cfg?.pix_disponivel)))
+      .catch(() => ativo && setDisponivel(false));
+    return () => {
+      ativo = false;
+    };
+  }, [API_URL, token]);
+  return disponivel;
+}
 
 /**
  * Props:

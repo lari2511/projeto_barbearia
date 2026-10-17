@@ -6,6 +6,8 @@ import React, { useState, useEffect } from 'react';
 import { Plus, Minus, TrendingUp, AlertCircle, Check, Loader } from 'lucide-react';
 import { gerarQrDataUrl, validarCartaoBasico, salvarMetodoPreferidoCliente } from './checkout/core';
 import { getApiBaseUrl } from '../utils/api';
+import PagamentoPix, { usePixDisponivel } from './PagamentoPix';
+import { criarPixAssinaturaCadeiras, criarPixMensalidade } from '../utils/cobrancasPix';
 
 export default function TelaMensalidadeAssinatura({ token, barbeariaId, API_URL, onNotify, onBack }) {
   const defaultHost = typeof window !== 'undefined' ? window.location.hostname : 'localhost';
@@ -32,6 +34,10 @@ export default function TelaMensalidadeAssinatura({ token, barbeariaId, API_URL,
   const [pixQrFallbackSrc, setPixQrFallbackSrc] = useState('');
   const [pixQrImagemInvalida, setPixQrImagemInvalida] = useState(false);
   const [copiado, setCopiado] = useState(false);
+  // Pix real (Mercado Pago): cadeiras/mensalidade só liberam após a aprovação no backend.
+  const pixReal = usePixDisponivel(apiBase, token);
+  const [cadeirasAtuais, setCadeirasAtuais] = useState(0);
+  const [cobranca, setCobranca] = useState(null);
 
   const pareceQrEmImagem = (valor) => {
     if (!valor || typeof valor !== 'string') return false;
@@ -305,6 +311,7 @@ export default function TelaMensalidadeAssinatura({ token, barbeariaId, API_URL,
         if (resAssinatura.ok) {
           const assinatura = await resAssinatura.json();
           const qtdAssinatura = Number(assinatura?.cadeiras_ativas ?? assinatura?.quantidade_cadeiras);
+          if (!Number.isNaN(qtdAssinatura) && qtdAssinatura >= 0) setCadeirasAtuais(qtdAssinatura);
           if (!Number.isNaN(qtdAssinatura) && qtdAssinatura >= 1 && qtdAssinatura <= 20) {
             setQuantidadeCadeiras(qtdAssinatura);
             if (typeof window !== 'undefined') {
@@ -383,7 +390,70 @@ export default function TelaMensalidadeAssinatura({ token, barbeariaId, API_URL,
     }
   };
 
+  const recarregarCadeirasAtuais = async () => {
+    try {
+      const res = await fetch(`${apiBase}/api/v1/assinaturas/minha-assinatura`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (!res.ok) return;
+      const assinatura = await res.json().catch(() => ({}));
+      const qtd = Number(assinatura?.cadeiras_ativas ?? assinatura?.quantidade_cadeiras);
+      if (!Number.isNaN(qtd) && qtd >= 0) setCadeirasAtuais(qtd);
+    } catch (_) {
+      // mantém o valor atual
+    }
+  };
+
+  // Mais cadeiras: cobra só as novas. Mesma quantidade: mensalidade. Menos: reduz sem cobrança.
+  const pagarComPixReal = async () => {
+    setLoading(true);
+    try {
+      if (quantidadeCadeiras < cadeirasAtuais) {
+        const res = await fetch(`${apiBase}/api/v1/assinaturas/criar`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+          body: JSON.stringify({ cadeiras_ativas: quantidadeCadeiras, metodo_pagamento: 'pix' })
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.detail || 'Erro ao reduzir cadeiras');
+        setCadeirasAtuais(quantidadeCadeiras);
+        if (typeof window !== 'undefined') {
+          window.localStorage.setItem(chaveQtdLocal, String(quantidadeCadeiras));
+        }
+        onNotify('Plano atualizado.', 'success');
+        return;
+      }
+      const nova = quantidadeCadeiras > cadeirasAtuais
+        ? await criarPixAssinaturaCadeiras(apiBase, token, quantidadeCadeiras)
+        : await criarPixMensalidade(apiBase, token);
+      setCobranca(nova);
+    } catch (err) {
+      onNotify('Erro: ' + err.message, 'error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const aoConfirmarPix = async () => {
+    onNotify('Pagamento confirmado! Plano liberado.', 'success');
+    if (typeof window !== 'undefined') {
+      window.localStorage.setItem(chaveQtdLocal, String(quantidadeCadeiras));
+    }
+    await recarregarCadeirasAtuais();
+  };
+
+  const novasCadeiras = Math.max(0, quantidadeCadeiras - cadeirasAtuais);
+  const rotuloBotaoPixReal = quantidadeCadeiras < cadeirasAtuais
+    ? `Reduzir para ${quantidadeCadeiras} cadeira(s)`
+    : novasCadeiras > 0
+      ? `Gerar Pix (+${novasCadeiras} cadeira${novasCadeiras > 1 ? 's' : ''})`
+      : 'Pagar mensalidade via Pix';
+
   const handleConfirmar = async () => {
+    if (pixReal) {
+      await pagarComPixReal();
+      return;
+    }
     setLoading(true);
     try {
       const metodoPlano = metodoPagamento === 'cartao' ? tipoCartao : 'pix';
@@ -499,6 +569,7 @@ export default function TelaMensalidadeAssinatura({ token, barbeariaId, API_URL,
 
   const voltarParaSelecao = () => {
     setPixData(null);
+    setCobranca(null);
     setProcessandoPagamento(false);
     setLoading(false);
     setCopiado(false);
@@ -661,6 +732,12 @@ export default function TelaMensalidadeAssinatura({ token, barbeariaId, API_URL,
       {/* BOTÃO DE CONFIRMAÇÃO */}
       <div className="bg-zinc-900/50 border border-zinc-800 rounded-lg p-2 sm:p-3 md:p-4 mb-3 sm:mb-4">
         <p className="text-xs sm:text-sm font-bold text-white mb-2">Forma de pagamento</p>
+        {pixReal ? (
+          <p className="text-xs text-zinc-300">
+            Pix — cadeiras atuais: <span className="font-bold text-white">{cadeirasAtuais}</span>.
+            {' '}A liberação é automática assim que o pagamento for aprovado.
+          </p>
+        ) : (
         <div className="grid grid-cols-2 gap-2 mb-2">
           <button
             type="button"
@@ -683,8 +760,9 @@ export default function TelaMensalidadeAssinatura({ token, barbeariaId, API_URL,
             Cartao
           </button>
         </div>
+        )}
 
-        {metodoPagamento === 'cartao' && (
+        {!pixReal && metodoPagamento === 'cartao' && (
           <div className="space-y-2 bg-zinc-800/40 border border-zinc-700 rounded p-2 sm:p-3">
             <div className="grid grid-cols-2 gap-2">
               <button
@@ -745,13 +823,15 @@ export default function TelaMensalidadeAssinatura({ token, barbeariaId, API_URL,
         {loading ? (
           <>
             <div className="w-3 h-3 sm:w-4 sm:h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-            <span>{metodoPagamento === 'pix' ? 'Gerando PIX...' : 'Processando cartao...'}</span>
+            <span>{pixReal || metodoPagamento === 'pix' ? 'Gerando PIX...' : 'Processando cartao...'}</span>
           </>
         ) : (
           <>
             <Check className="w-3 h-3 sm:w-4 sm:h-4" />
             <span>
-              {metodoPagamento === 'pix'
+              {pixReal
+                ? rotuloBotaoPixReal
+                : metodoPagamento === 'pix'
                 ? `Gerar PIX (${quantidadeCadeiras})`
                 : `Pagar com ${tipoCartao === 'cartao_debito' ? 'Debito' : 'Credito'} (${quantidadeCadeiras})`}
             </span>
@@ -759,7 +839,23 @@ export default function TelaMensalidadeAssinatura({ token, barbeariaId, API_URL,
         )}
       </button>
 
-      {pixData && (
+      {pixReal && cobranca && (
+        <div className="mb-2 sm:mb-3">
+          <PagamentoPix
+            key={cobranca.identificador}
+            token={token}
+            API_URL={apiBase}
+            cobranca={cobranca}
+            titulo="Pagamento do plano"
+            notify={onNotify}
+            onConfirmado={aoConfirmarPix}
+            onGerarNovo={pagarComPixReal}
+            onFechar={() => setCobranca(null)}
+          />
+        </div>
+      )}
+
+      {!pixReal && pixData && (
         <div className="bg-zinc-800 border border-zinc-700 rounded p-2 sm:p-3 space-y-2 sm:space-y-3 ring-1 ring-orange-500/60 mb-2 sm:mb-3 overflow-hidden">
           <p className="text-xs sm:text-sm font-bold text-white">PIX Gerado</p>
           

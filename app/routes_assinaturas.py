@@ -17,6 +17,7 @@ from app.database import get_db
 from app import models
 from app.routes import get_current_user, oauth2_scheme
 from app.plan_policy import merge_with_free_test_limit, is_test_barbershop_profile
+from app.cobrancas.provedores import bloquear_fluxo_antigo_se_pix_real
 
 router = APIRouter(prefix="/assinaturas", tags=["Assinaturas"])
 
@@ -491,7 +492,15 @@ def contratar_ou_atualizar_assinatura(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Barbearia não encontrada"
         )
-    
+
+    # Reduzir continua livre; cadeira nova só é liberada pelo Pix confirmado.
+    from app.cobrancas.efeitos import _cadeiras_ativas_atuais
+    _, cadeiras_atuais = _cadeiras_ativas_atuais(db, barbearia.id)
+    if dados.cadeiras_ativas > cadeiras_atuais:
+        bloquear_fluxo_antigo_se_pix_real(
+            "Cadeiras novas são liberadas após o pagamento via Pix (/api/v1/cobrancas/pix/assinatura-cadeiras)."
+        )
+
     assinatura = aplicar_contratacao_cadeiras(db, barbearia, dados.cadeiras_ativas, metodo_pagamento)
     db.commit()
     db.refresh(assinatura)
@@ -647,6 +656,9 @@ def renovar_assinatura(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Apenas donos de barbearia podem renovar assinaturas"
         )
+    bloquear_fluxo_antigo_se_pix_real(
+        "A renovação acontece pelo pagamento da mensalidade via Pix (/api/v1/cobrancas/pix/mensalidade)."
+    )
 
     barbearia = db.query(models.Barbearia).filter(
         models.Barbearia.usuario_id == usuario_atual.id
@@ -890,6 +902,10 @@ def pagar_mensalidade(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Apenas donos de barbearia podem pagar mensalidades"
         )
+    # confirmar_pix=true e o "cartão" daqui liberavam sem cobrança real.
+    bloquear_fluxo_antigo_se_pix_real(
+        "Pague a mensalidade via Pix (/api/v1/cobrancas/pix/mensalidade). A liberação é automática após a aprovação."
+    )
 
     # Buscar barbearia
     barbearia = db.query(models.Barbearia).filter(
@@ -969,6 +985,9 @@ def gerar_pix_mensalidade(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Apenas donos de barbearia podem gerar PIX da mensalidade"
         )
+    bloquear_fluxo_antigo_se_pix_real(
+        "Pague a mensalidade via Pix (/api/v1/cobrancas/pix/mensalidade)."
+    )
 
     barbearia = db.query(models.Barbearia).filter(
         models.Barbearia.usuario_id == usuario_atual.id

@@ -688,6 +688,11 @@ def gerar_pix_quitacao_carteira(
     db: Session = Depends(get_db),
     usuario_atual = Depends(get_current_user)
 ):
+    # Este Pix usa chave fixa (PIX_CHAVE) e não confirma nada; com o Mercado Pago ativo
+    # a taxa é paga em /api/v1/cobrancas/pix/taxa-freelancer.
+    from app.cobrancas.provedores import bloquear_fluxo_antigo_se_pix_real
+    bloquear_fluxo_antigo_se_pix_real("Pague a taxa via Pix em /api/v1/cobrancas/pix/taxa-freelancer.")
+
     carteira = _obter_ou_criar_carteira(db, usuario_atual.id)
     saldo = float(carteira.saldo or 0.0)
 
