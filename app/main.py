@@ -79,7 +79,6 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="BarberMove API", 
     lifespan=lifespan,
-    timeout=300.0  # Aumenta timeout para 5 minutos
 )
 
 # Configuração CORS - Lê do .env
