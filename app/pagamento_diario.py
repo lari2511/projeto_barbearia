@@ -301,6 +301,38 @@ def resumo_pagamento_diario(db: Session, freelancer_id: int) -> dict:
     }
 
 
+def informar_pagamento_antecipado(db: Session, freelancer_id: int) -> models.FechamentoDiarioFreelancer:
+    """
+    Freelancer informa pagamento do saldo devedor antes do fechamento das 21:00.
+    Nada é creditado: vira o fechamento do dia já 'aguardando_confirmacao' para o ADM
+    (o job das 21:00 não cria outro). Sem commit.
+    """
+    carteira = db.query(models.CarteiraBarbeiro).filter(models.CarteiraBarbeiro.barbeiro_id == freelancer_id).first()
+    valor = round(-float(carteira.saldo or 0.0), 2) if carteira else 0.0
+    if valor <= 0:
+        raise HTTPException(status_code=400, detail="Não há saldo devedor para pagar")
+
+    hoje = agora_sp().date()
+    ja_fechado = db.query(models.FechamentoDiarioFreelancer.id).filter(
+        models.FechamentoDiarioFreelancer.freelancer_id == freelancer_id,
+        models.FechamentoDiarioFreelancer.data_referencia == hoje,
+    ).first()
+    if ja_fechado:
+        raise HTTPException(status_code=400, detail=(
+            f"O pagamento de hoje já foi registrado. O saldo restante (R$ {valor:.2f}) entra no "
+            f"fechamento de amanhã às {HORA_FECHAMENTO.strftime('%H:%M')}."))
+
+    fechamento = models.FechamentoDiarioFreelancer(
+        freelancer_id=freelancer_id,
+        data_referencia=hoje,
+        valor_devido=valor,
+        status="aguardando_confirmacao",
+        pagamento_informado_em=datetime.utcnow(),
+    )
+    db.add(fechamento)
+    return fechamento
+
+
 def informar_pagamento(db: Session, freelancer_id: int) -> List[models.FechamentoDiarioFreelancer]:
     """Freelancer informa que pagou via Pix: fechamentos em aberto vão para o ADM confirmar. Sem commit."""
     pagaveis = [f for f in fechamentos_abertos(db, freelancer_id) if f.status in ("pendente", "recusado")]

@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from typing import List
 from datetime import datetime, timedelta
 from sqlalchemy import func
+from sqlalchemy.exc import IntegrityError
 from pydantic import BaseModel
 import qrcode
 import io
@@ -755,26 +756,17 @@ def confirmar_quitacao_carteira(
     if pagamento_diario.fechamentos_abertos(db, usuario_atual.id):
         raise HTTPException(status_code=400, detail="Pagamento já informado. Aguardando confirmação do ADM.")
 
-    valor = round(float(dados.valor or 0.0), 2)
-    if valor <= 0:
-        raise HTTPException(status_code=400, detail="Valor inválido para quitação")
-
-    _registrar_movimentacao(
-        db,
-        carteira=carteira,
-        tipo="quitacao_debito_pix",
-        descricao="Pagamento de saldo devedor para liberar o app",
-        valor=valor,
-        chamado_id=None,
-    )
-    db.commit()
-
-    saldo = float(carteira.saldo or 0.0)
-    limite_negativo = float(carteira.limite_negativo if carteira.limite_negativo is not None else LIMITE_NEGATIVO_PADRAO)
+    # Antes do fechamento das 21:00 também não credita sozinho: vai para o ADM confirmar.
+    try:
+        pagamento_diario.informar_pagamento_antecipado(db, usuario_atual.id)
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="O fechamento de hoje acabou de ser gerado. Tente novamente.")
     return {
-        "message": "Saldo devedor quitado com sucesso",
-        "saldo_atual": saldo,
-        "bloqueado_financeiro": saldo <= limite_negativo,
+        "message": "Pagamento enviado. Aguardando confirmação do ADM.",
+        "aguardando_confirmacao": True,
+        "pagamento_diario": pagamento_diario.resumo_pagamento_diario(db, usuario_atual.id),
     }
 
 
