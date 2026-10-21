@@ -2,12 +2,14 @@
 Pagamento diário do freelancer (horário oficial: America/Sao_Paulo).
 
 - 21:00  fechamento do dia: registra quanto cada freelancer deve (saldo devedor da carteira)
-         e notifica o freelancer do valor a pagar.
+         e notifica o freelancer do valor a pagar. Com o Mercado Pago ativo, o próprio job
+         gera (ou reaproveita) o Pix da taxa, que o painel do freelancer mostra direto.
 - 21:00-22:00  prazo para pagar via Pix; o freelancer trabalha normalmente.
-- 22:00  se o pagamento do dia não foi confirmado pelo ADM, o freelancer é colocado
+- 22:00  se o pagamento do dia não foi confirmado, o freelancer é colocado
          OFFLINE e fica travado (não consegue ficar online/presente nem assumir atividades).
-- ADM SIM -> registra a quitação na carteira e devolve o controle do status (não liga online).
-- ADM NÃO -> continua bloqueado; o freelancer pode informar o pagamento de novo.
+- Pix aprovado no Mercado Pago (webhook, ou a conciliação deste job) -> fechamento confirmado
+  sem ADM e o controle do status volta ao freelancer (não liga online).
+- Fluxo antigo (sem Mercado Pago): ADM SIM registra a quitação; ADM NÃO mantém bloqueado.
 
 O bloqueio é derivado de `FechamentoDiarioFreelancer` (status != confirmado e prazo vencido),
 então as travas valem mesmo que o job das 22:00 atrase.
@@ -147,7 +149,7 @@ def gerar_fechamentos_do_dia(db: Session, data_ref: date) -> int:
                 titulo="💰 Taxa BarberMove do dia",
                 mensagem=(f"Valor a pagar referente a {data_ref.strftime('%d/%m')}: R$ {valor:.2f}. "
                           f"Pague via Pix até as {HORA_LIMITE_PAGAMENTO.strftime('%H:%M')} para continuar "
-                          "podendo ficar online/presente."),
+                          "podendo ficar online/presente. O QR Code e o Pix Copia e Cola estão no seu painel."),
                 tipo="pagamento_diario",
                 referencia_id=fechamento.id,
             ))
@@ -157,6 +159,8 @@ def gerar_fechamentos_do_dia(db: Session, data_ref: date) -> int:
             db.rollback()
             continue
         criados += 1
+        logger.info("[pagamento_diario] fechamento %s criado e notificado: freelancer %s R$ %.2f",
+                    data_ref, carteira.barbeiro_id, valor)
 
     return criados
 
@@ -205,7 +209,8 @@ def aplicar_offline_por_bloqueio(db: Session, freelancer: models.Usuario) -> boo
     return alterou
 
 
-def aplicar_bloqueios_vencidos(db: Session, agora: Optional[datetime] = None) -> List[models.Usuario]:
+def aplicar_bloqueios_vencidos(db: Session, agora: Optional[datetime] = None,
+                               registrar_resumo: bool = False) -> List[models.Usuario]:
     """Garante OFFLINE para todo freelancer com pagamento vencido e não confirmado."""
     agora = agora or agora_sp()
     abertos = db.query(models.FechamentoDiarioFreelancer).filter(
@@ -213,6 +218,9 @@ def aplicar_bloqueios_vencidos(db: Session, agora: Optional[datetime] = None) ->
         models.FechamentoDiarioFreelancer.data_referencia <= agora.date(),
     ).all()
     ids = {f.freelancer_id for f in abertos if agora >= prazo_pagamento(f.data_referencia)}
+    if registrar_resumo:
+        logger.info("[pagamento_diario] rotina 22:00 (%s): %s freelancer(s) com taxa vencida e restritos: %s",
+                    agora.date(), len(ids), sorted(ids))
     if not ids:
         return []
 
@@ -228,10 +236,130 @@ def aplicar_bloqueios_vencidos(db: Session, agora: Optional[datetime] = None) ->
 
 
 # ============================================================
+# PIX DA TAXA (Mercado Pago)
+# ============================================================
+
+# Falha ao gerar o Pix de um freelancer: nova tentativa só depois deste intervalo.
+INTERVALO_RETENTATIVA_PIX = timedelta(minutes=10)
+# Fallback do webhook: cobrança em aberto é consultada no Mercado Pago com esta frequência.
+INTERVALO_CONCILIACAO = timedelta(minutes=5)
+
+_falhas_pix = {}  # freelancer_id -> datetime UTC da última falha (por processo)
+
+
+def cobranca_pix_em_aberto(db: Session, freelancer_id: int, abertos=None):
+    """Pix ainda válido que cobra exatamente os fechamentos em aberto, ou None. Só leitura."""
+    from app.cobrancas.constantes import Finalidade, StatusCobranca
+    from app.cobrancas.efeitos import chave_taxa_freelancer
+    from app.cobrancas.servico import MARGEM_REUSO
+
+    abertos = fechamentos_abertos(db, freelancer_id) if abertos is None else abertos
+    if not abertos:
+        return None
+    valor = round(sum(float(f.valor_devido or 0.0) for f in abertos), 2)
+    limite = datetime.utcnow() + MARGEM_REUSO
+    candidatas = db.query(models.Cobranca).filter(
+        models.Cobranca.usuario_id == freelancer_id,
+        models.Cobranca.finalidade == Finalidade.TAXA_FREELANCER.value,
+        models.Cobranca.status == StatusCobranca.AGUARDANDO_PAGAMENTO.value,
+        models.Cobranca.chave_referencia == chave_taxa_freelancer(f.id for f in abertos),
+    ).order_by(models.Cobranca.id.desc()).all()
+    for c in candidatas:
+        if (c.pix_copia_cola and abs(float(c.valor) - valor) < 0.005
+                and (c.expira_em is None or c.expira_em > limite)):
+            return c
+    return None
+
+
+def garantir_pix_das_taxas(db: Session) -> dict:
+    """
+    Todo freelancer com taxa em aberto fica com um Pix válido disponível no painel.
+    Reaproveita o existente (nada é chamado no Mercado Pago); só gera quando não há
+    um válido. Duas instâncias ao mesmo tempo são serializadas pelo lock do usuário
+    em criar_cobranca_pix, que reaproveita o Pix criado pela outra.
+    """
+    from app.cobrancas import servico
+    from app.cobrancas.constantes import Finalidade
+    from app.cobrancas.provedores import pix_disponivel
+
+    contagem = {"verificados": 0, "gerados": 0, "reutilizados": 0, "falhas": 0}
+    if not pix_disponivel():
+        return contagem
+
+    ids = [r[0] for r in db.query(models.FechamentoDiarioFreelancer.freelancer_id).filter(
+        models.FechamentoDiarioFreelancer.status.in_(STATUS_ABERTOS),
+    ).distinct().all()]
+    agora_utc = datetime.utcnow()
+    for freelancer_id in ids:
+        contagem["verificados"] += 1
+        if cobranca_pix_em_aberto(db, freelancer_id):
+            contagem["reutilizados"] += 1
+            continue
+        falhou_em = _falhas_pix.get(freelancer_id)
+        if falhou_em and agora_utc - falhou_em < INTERVALO_RETENTATIVA_PIX:
+            continue
+        usuario = db.query(models.Usuario).filter(models.Usuario.id == freelancer_id).first()
+        if not usuario:
+            continue
+        try:
+            c = servico.criar_cobranca_pix(db, usuario, Finalidade.TAXA_FREELANCER.value)
+        except Exception as exc:
+            db.rollback()
+            _falhas_pix[freelancer_id] = agora_utc
+            contagem["falhas"] += 1
+            logger.error("[pagamento_diario] falha ao gerar Pix da taxa do freelancer %s "
+                         "(nova tentativa em %s min): %s", freelancer_id,
+                         int(INTERVALO_RETENTATIVA_PIX.total_seconds() // 60), getattr(exc, "detail", exc))
+            continue
+        _falhas_pix.pop(freelancer_id, None)
+        contagem["gerados"] += 1
+        logger.info("[pagamento_diario] Pix da taxa disponível: freelancer %s cobranca %s mp=%s R$ %.2f",
+                    freelancer_id, c.identificador, c.provedor_pagamento_id, c.valor)
+    return contagem
+
+
+def conciliar_pix_em_aberto(db: Session) -> int:
+    """
+    Consulta no Mercado Pago os Pix de taxa ainda aguardando (caso o webhook não chegue).
+    A aprovação segue o mesmo caminho do webhook (aplicar_pagamento_do_provedor).
+    """
+    from app.cobrancas import servico
+    from app.cobrancas.constantes import Finalidade, StatusCobranca
+    from app.cobrancas.provedores import pix_disponivel
+
+    if not pix_disponivel():
+        return 0
+    limite = datetime.utcnow() - INTERVALO_CONCILIACAO
+    pendentes = db.query(models.Cobranca).filter(
+        models.Cobranca.finalidade == Finalidade.TAXA_FREELANCER.value,
+        models.Cobranca.status == StatusCobranca.AGUARDANDO_PAGAMENTO.value,
+        models.Cobranca.provedor_pagamento_id.isnot(None),
+        models.Cobranca.criado_em < limite,
+        (models.Cobranca.ultima_consulta_em.is_(None)) | (models.Cobranca.ultima_consulta_em < limite),
+    ).all()
+    pagas = 0
+    for c in pendentes:
+        try:
+            c = servico.sincronizar(db, c, forcar=True)
+        except Exception as exc:
+            db.rollback()
+            logger.warning("[pagamento_diario] conciliação da cobranca %s falhou: %s", c.identificador, exc)
+            continue
+        if c.status == StatusCobranca.PAGO.value:
+            pagas += 1
+            logger.info("[pagamento_diario] conciliação: cobranca %s aprovada no MP (freelancer %s)",
+                        c.identificador, c.usuario_id)
+    return pagas
+
+
+# ============================================================
 # JOB EM BACKGROUND
 # ============================================================
 
 INTERVALO_JOB_SEGUNDOS = 30
+
+# Datas em que o resumo de cada rotina já foi para o log (por processo).
+_resumo_logado = {"21h": None, "22h": None}
 
 
 def _ciclo_job() -> list:
@@ -240,11 +368,24 @@ def _ciclo_job() -> list:
     db = SessionLocal()
     try:
         agora = agora_sp()
+        hoje = agora.date()
         if agora.time() >= HORA_FECHAMENTO:
-            criados = gerar_fechamentos_do_dia(db, agora.date())
+            criados = gerar_fechamentos_do_dia(db, hoje)
             if criados:
-                logger.info("[pagamento_diario] fechamento %s: %s freelancer(s) com valor devido", agora.date(), criados)
-        alterados = aplicar_bloqueios_vencidos(db, agora)
+                logger.info("[pagamento_diario] fechamento %s: %s freelancer(s) com valor devido", hoje, criados)
+        pix = garantir_pix_das_taxas(db)
+        if agora.time() >= HORA_FECHAMENTO and _resumo_logado["21h"] != hoje:
+            _resumo_logado["21h"] = hoje
+            devedores = db.query(models.CarteiraBarbeiro).filter(models.CarteiraBarbeiro.saldo < 0).count()
+            logger.info("[pagamento_diario] rotina 21:00 (%s) executada: %s carteira(s) devedora(s) verificada(s), "
+                        "%s fechamento(s) criado(s); Pix: %s com taxa em aberto, %s gerado(s), %s reutilizado(s), "
+                        "%s falha(s)", hoje, devedores, criados, pix["verificados"], pix["gerados"],
+                        pix["reutilizados"], pix["falhas"])
+        conciliar_pix_em_aberto(db)
+        resumo_22h = agora.time() >= HORA_LIMITE_PAGAMENTO and _resumo_logado["22h"] != hoje
+        if resumo_22h:
+            _resumo_logado["22h"] = hoje
+        alterados = aplicar_bloqueios_vencidos(db, agora, registrar_resumo=resumo_22h)
         return [
             dict(
                 freelancer_id=u.id,
@@ -280,9 +421,12 @@ async def loop_pagamento_diario():
 
 def resumo_pagamento_diario(db: Session, freelancer_id: int) -> dict:
     """Situação do pagamento diário para a tela do freelancer."""
+    from app.cobrancas.servico import serializar as serializar_cobranca
+
     agora = agora_sp()
     abertos = fechamentos_abertos(db, freelancer_id)
     bloqueante = fechamento_bloqueante(db, freelancer_id, agora)
+    cobranca = cobranca_pix_em_aberto(db, freelancer_id, abertos)
     hoje = db.query(models.FechamentoDiarioFreelancer).filter(
         models.FechamentoDiarioFreelancer.freelancer_id == freelancer_id,
         models.FechamentoDiarioFreelancer.data_referencia == agora.date(),
@@ -298,6 +442,8 @@ def resumo_pagamento_diario(db: Session, freelancer_id: int) -> dict:
         "aguardando_confirmacao": any(f.status == "aguardando_confirmacao" for f in abertos),
         "fechamentos_abertos": [serializar_fechamento(f, agora) for f in abertos],
         "fechamento_hoje": serializar_fechamento(hoje, agora) if hoje else None,
+        # Pix gerado pelo job das 21:00 (ou pelo botão): o painel mostra sem gerar outro.
+        "cobranca_pix": serializar_cobranca(cobranca) if cobranca else None,
     }
 
 

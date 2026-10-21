@@ -153,6 +153,11 @@ def _aplicar_mensalidade(db: Session, cobranca: models.Cobranca, ref: dict) -> O
 # FREELANCER - TAXA BARBERMOVE (fechamento diário)
 # ============================================================
 
+def chave_taxa_freelancer(fechamento_ids) -> str:
+    """Chave de deduplicação da taxa: o mesmo conjunto de fechamentos em aberto = o mesmo Pix."""
+    return "taxa:" + ",".join(str(i) for i in sorted(fechamento_ids))
+
+
 def _preparar_taxa_freelancer(db: Session, usuario: models.Usuario, dados: dict) -> Preparo:
     from app import pagamento_diario
 
@@ -170,7 +175,7 @@ def _preparar_taxa_freelancer(db: Session, usuario: models.Usuario, dados: dict)
         valor=valor,
         descricao=f"BarberMove - taxa do freelancer ({dias})",
         referencia={"fechamento_ids": ids},
-        chave_referencia="taxa:" + ",".join(str(i) for i in ids),
+        chave_referencia=chave_taxa_freelancer(ids),
     )
 
 
@@ -201,6 +206,15 @@ def _aplicar_taxa_freelancer(db: Session, cobranca: models.Cobranca, ref: dict) 
         f.pagamento_informado_em = f.pagamento_informado_em or agora
         f.decidido_em = agora
         f.decidido_por_id = None  # confirmação automática pelo provedor
+    db.flush()
+    # A liberação é derivada dos fechamentos: não liga online/presente, só destrava a escolha.
+    restante = pagamento_diario.fechamento_bloqueante(db, cobranca.usuario_id)
+    if restante:
+        logger.info("[cobrancas] %s: freelancer %s segue com restrição (fechamento %s em aberto)",
+                    cobranca.identificador, cobranca.usuario_id, restante.data_referencia)
+    else:
+        logger.info("[cobrancas] %s: restrição operacional do freelancer %s removida",
+                    cobranca.identificador, cobranca.usuario_id)
     if ja_quitados:
         obs = f"Fechamento(s) {', '.join(ja_quitados)} já estavam confirmados antes do Pix; não creditados de novo"
         logger.warning("[cobrancas] %s: %s", cobranca.identificador, obs)

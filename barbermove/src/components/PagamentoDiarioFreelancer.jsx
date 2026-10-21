@@ -116,6 +116,8 @@ export default function PagamentoDiarioFreelancer({ token, API_URL, notify, onRe
   };
 
   const abertos = resumo?.fechamentos_abertos || [];
+  // Pix gerado no servidor às 21:00: aparece direto, sem o freelancer precisar gerar outro.
+  const cobrancaAtual = cobranca || (pixReal ? resumo?.cobranca_pix : null) || null;
   if (cobranca && (!resumo || abertos.length === 0)) {
     // Taxa quitada: mostra a confirmação até o freelancer fechar.
     return (
@@ -149,7 +151,9 @@ export default function PagamentoDiarioFreelancer({ token, API_URL, notify, onRe
           <p className="font-bold text-red-300">🔒 Status bloqueado (OFFLINE)</p>
           <p className="text-xs text-red-100">{resumo.mensagem_bloqueio}</p>
           <p className="text-xs text-zinc-400">
-            Você não pode ficar online, presente ou assumir novas atividades até o ADM confirmar o pagamento.
+            {pixReal
+              ? 'Você não pode ficar online, presente ou assumir novas atividades até o Pix ser aprovado. A liberação é automática.'
+              : 'Você não pode ficar online, presente ou assumir novas atividades até o ADM confirmar o pagamento.'}
             Atendimentos já em andamento continuam normalmente.
           </p>
         </>
@@ -173,24 +177,25 @@ export default function PagamentoDiarioFreelancer({ token, API_URL, notify, onRe
         <p className="text-xs text-red-300">❌ O ADM não confirmou o pagamento. Verifique e envie novamente.</p>
       )}
 
-      {pixReal && cobranca && (
+      {pixReal && cobrancaAtual && (
         <PagamentoPix
-          key={cobranca.identificador}
+          key={cobrancaAtual.identificador}
           token={token}
           API_URL={API_URL}
-          cobranca={cobranca}
+          cobranca={cobrancaAtual}
           titulo="Taxa BarberMove"
           notify={notify}
-          onConfirmado={() => {
+          onConfirmado={(c) => {
+            setCobranca(c);
             notify?.('Pagamento confirmado! Status liberado.', 'success');
             carregar();
           }}
           onGerarNovo={gerarPixReal}
-          onFechar={() => setCobranca(null)}
+          onFechar={cobranca ? () => setCobranca(null) : undefined}
         />
       )}
 
-      {pixReal && !cobranca && abertos.length > 0 && (
+      {pixReal && !cobrancaAtual && abertos.length > 0 && (
         <button
           type="button"
           onClick={gerarPixReal}

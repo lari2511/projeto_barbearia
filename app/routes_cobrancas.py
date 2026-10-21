@@ -127,6 +127,7 @@ async def webhook_mercadopago(request: Request, db: Session = Depends(get_db)):
         logger.warning("[cobrancas] webhook com assinatura inválida (data.id=%s)", data_id)
         raise HTTPException(status_code=401, detail="Assinatura inválida")
 
+    logger.info("[cobrancas] webhook recebido e validado: type=%s data.id=%s", tipo, data_id)
     if tipo != "payment" or not data_id:
         return {"ok": True, "ignorado": True}
 

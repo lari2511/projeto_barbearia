@@ -21,6 +21,7 @@ from sqlalchemy.orm import Session
 from app import models
 from app.cobrancas.constantes import (
     METODOS_HABILITADOS,
+    Finalidade,
     MetodoPagamento,
     StatusCobranca,
     status_de_mercadopago,
@@ -38,11 +39,18 @@ MARGEM_REUSO = timedelta(minutes=2)
 FOLGA_EXPIRACAO_LOCAL = timedelta(minutes=15)
 
 
-def _minutos_expiracao() -> int:
+def _minutos_expiracao(finalidade: str) -> int:
+    # Taxa do freelancer: o Pix gerado às 21:00 fica válido até o fechamento seguinte,
+    # para o app sempre mostrar a mesma cobrança em vez de gerar outra a cada abertura.
+    # 25h: o Pix das 21:00 ainda vale quando o job do dia seguinte roda (sem gerar um a mais antes).
+    if finalidade == Finalidade.TAXA_FREELANCER.value:
+        var, padrao, teto = "PIX_EXPIRACAO_TAXA_FREELANCER_MINUTOS", 25 * 60, 72 * 60
+    else:
+        var, padrao, teto = "PIX_EXPIRACAO_MINUTOS", 30, 24 * 60
     try:
-        return max(5, min(int(os.getenv("PIX_EXPIRACAO_MINUTOS", "30")), 24 * 60))
+        return max(5, min(int(os.getenv(var, str(padrao))), teto))
     except ValueError:
-        return 30
+        return padrao
 
 
 def serializar(c: models.Cobranca) -> dict:
@@ -118,7 +126,7 @@ def criar_cobranca_pix(db: Session, usuario: models.Usuario, finalidade: str, da
         metodo=MetodoPagamento.PIX.value,
         provedor=provedor.nome,
         status=AGUARDANDO,
-        expira_em=agora + timedelta(minutes=_minutos_expiracao()),
+        expira_em=agora + timedelta(minutes=_minutos_expiracao(finalidade)),
     )
     db.add(cobranca)
     db.flush()
@@ -228,5 +236,9 @@ def processar_notificacao(db: Session, provedor_pagamento_id: str) -> Optional[m
             models.Cobranca.identificador == pagamento.referencia_externa
         ).first()
     if not c:
+        logger.info("[cobrancas] notificação do pagamento %s (%s) não corresponde a nenhuma cobrança",
+                    pagamento.provedor_pagamento_id, pagamento.status)
         return None  # pagamento que não é uma cobrança deste módulo
+    logger.info("[cobrancas] notificação do pagamento %s: status no MP=%s, cobrança %s (%s, usuario=%s)",
+                pagamento.provedor_pagamento_id, pagamento.status, c.identificador, c.finalidade, c.usuario_id)
     return aplicar_pagamento_do_provedor(db, c.id, pagamento)
