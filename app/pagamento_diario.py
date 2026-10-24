@@ -90,7 +90,13 @@ def fechamento_bloqueante(db: Session, freelancer_id: int, agora: Optional[datet
 
 
 def mensagem_bloqueio(f: models.FechamentoDiarioFreelancer) -> str:
+    from app.cobrancas.provedores import pix_disponivel
+
     data_txt = f.data_referencia.strftime("%d/%m")
+    if f.status in ("aguardando_confirmacao", "recusado") and pix_disponivel():
+        return (f"Status bloqueado: o pagamento do dia {data_txt} (R$ {f.valor_devido:.2f}) "
+                "ainda não foi confirmado pelo Mercado Pago. Pague o Pix do seu painel; "
+                "a liberação é automática.")
     if f.status == "aguardando_confirmacao":
         return (f"Status bloqueado: o pagamento do dia {data_txt} (R$ {f.valor_devido:.2f}) "
                 "está aguardando confirmação do ADM.")

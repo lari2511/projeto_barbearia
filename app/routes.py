@@ -1975,6 +1975,10 @@ def atualizar_disponibilidade(
     if not usuario:
         raise HTTPException(status_code=404, detail="Usuário não encontrado")
     
+    if dados.get("disponivel"):
+        from app.pagamento_diario import exigir_freelancer_liberado
+        exigir_freelancer_liberado(db, user.id)
+
     usuario.disponivel = dados.get("disponivel", False)
     db.commit()
     

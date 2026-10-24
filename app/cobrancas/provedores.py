@@ -200,6 +200,10 @@ def bloquear_fluxo_antigo_se_pix_real(detalhe: str) -> None:
         raise HTTPException(status_code=410, detail=detalhe)
 
 
+def webhook_assinado() -> bool:
+    return bool((os.getenv("MERCADOPAGO_WEBHOOK_SECRET") or "").strip())
+
+
 def validar_assinatura_webhook(*, x_signature: Optional[str], x_request_id: Optional[str],
                                data_id: Optional[str]) -> bool:
     """

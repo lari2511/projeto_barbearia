@@ -129,6 +129,10 @@ def liberar_presenca_se_sem_pendencias(db: Session, freelancer_usuario_id: int) 
     freelancer.horario_chegada = None
     freelancer.saida_pendente = None
 
+    from app.pagamento_diario import fechamento_bloqueante
+    if destino == "online" and fechamento_bloqueante(db, freelancer_usuario_id):
+        destino = "offline"  # pagamento diário vencido: sai da presença, mas não volta online
+
     if destino == "online":
         freelancer.online_regiao = True
         freelancer.disponivel = True

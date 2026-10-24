@@ -23,6 +23,7 @@ from app.cobrancas.provedores import (
     ProvedorNaoConfigurado,
     pix_disponivel,
     validar_assinatura_webhook,
+    webhook_assinado,
 )
 from app.database import get_db
 from app.routes import get_current_user
@@ -119,8 +120,16 @@ async def webhook_mercadopago(request: Request, db: Session = Depends(get_db)):
     tipo = params.get("type") or params.get("topic") or corpo.get("type") or corpo.get("topic")
     data_id = params.get("data.id") or (corpo.get("data") or {}).get("id") or params.get("id")
 
+    x_signature = request.headers.get("x-signature")
+    if not x_signature and params.get("topic") and webhook_assinado():
+        # IPN legado (?topic=payment&id=..): o MP não assina esse formato. O mesmo evento chega
+        # também no formato Webhooks (assinado) e a conciliação consulta o MP, então aqui só
+        # responde 200 para o MP parar de reenviar (antes: 401 e reenvio por dias), sem efeito.
+        logger.info("[cobrancas] IPN legado sem assinatura ignorado: topic=%s id=%s", tipo, data_id)
+        return {"ok": True, "ignorado": True}
+
     if not validar_assinatura_webhook(
-        x_signature=request.headers.get("x-signature"),
+        x_signature=x_signature,
         x_request_id=request.headers.get("x-request-id"),
         data_id=params.get("data.id") or data_id,
     ):
