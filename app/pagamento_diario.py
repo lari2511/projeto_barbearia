@@ -66,6 +66,11 @@ def serializar_fechamento(f: models.FechamentoDiarioFreelancer, agora: Optional[
         "prazo_vencido": agora >= prazo,
         "pagamento_informado_em": f.pagamento_informado_em.isoformat() + "Z" if f.pagamento_informado_em else None,
         "decidido_em": f.decidido_em.isoformat() + "Z" if f.decidido_em else None,
+        # Atendimentos considerados no valor (débito de 10% em dinheiro / crédito de pagamentos no app)
+        "movimentacoes": [
+            {"chamado_id": m.chamado_id, "tipo": m.tipo, "descricao": m.descricao, "valor": round(float(m.valor), 2)}
+            for m in sorted(f.movimentacoes or [], key=lambda m: m.id)
+        ],
     }
 
 
@@ -105,6 +110,10 @@ def mensagem_bloqueio(f: models.FechamentoDiarioFreelancer) -> str:
                 "não foi confirmado pelo ADM.")
     return (f"Status bloqueado: pagamento do dia {data_txt} (R$ {f.valor_devido:.2f}) "
             "não realizado até as 22:00.")
+
+
+def freelancer_bloqueado(db: Session, freelancer_id: Optional[int]) -> bool:
+    return bool(freelancer_id) and fechamento_bloqueante(db, freelancer_id) is not None
 
 
 def exigir_freelancer_liberado(db: Session, freelancer_id: int) -> None:
@@ -150,6 +159,14 @@ def gerar_fechamentos_do_dia(db: Session, data_ref: date) -> int:
         db.add(fechamento)
         try:
             db.flush()
+            # Registra quais atendimentos/movimentações compõem o valor (as que ainda não
+            # entraram em nenhum fechamento). Quitações não entram: só abatem o saldo.
+            db.query(models.HistoricoMovimentacaoFinanceira).filter(
+                models.HistoricoMovimentacaoFinanceira.barbeiro_id == carteira.barbeiro_id,
+                models.HistoricoMovimentacaoFinanceira.fechamento_id.is_(None),
+                ~models.HistoricoMovimentacaoFinanceira.tipo.like("quitacao%"),
+            ).update({models.HistoricoMovimentacaoFinanceira.fechamento_id: fechamento.id},
+                     synchronize_session=False)
             db.add(models.Notificacao(
                 usuario_id=carteira.barbeiro_id,
                 titulo="💰 Taxa BarberMove do dia",

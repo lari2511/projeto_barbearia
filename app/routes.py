@@ -25,6 +25,7 @@ from .email_utils import send_email
 from .email_send import send_verification_email
 from . import firebase_config
 from .realtime import broadcast_event
+from .pagamento_diario import freelancer_bloqueado
 
 # Carrega variáveis do arquivo .env
 load_dotenv()
@@ -283,7 +284,8 @@ def _finalizar_chamado_e_avancar_fila(db: Session, chamado: models.Chamado, barb
 
     barber = db.query(models.Usuario).filter(models.Usuario.id == barbeiro.id).first()
     if barber:
-        barber.disponivel = True
+        # Freelancer com taxa diária vencida conclui o atendimento mas não volta a ficar disponível.
+        barber.disponivel = not freelancer_bloqueado(db, barber.id)
         barber.em_atendimento = False
         barber.ocupado_ate = None
 
@@ -1393,6 +1395,12 @@ def criar_chamado(chamado: schemas.ChamadoCreate, token: str = Depends(oauth2_sc
     if chamado.barbeiro_id:
         # Primeiro, verificar ocupação direta do barbeiro (ocupado_ate)
         barbeiro_check = db.query(models.Usuario).filter(models.Usuario.id == chamado.barbeiro_id).first()
+        # Freelancer com taxa diária vencida (após 22:00) não recebe chamados novos.
+        if freelancer_bloqueado(db, chamado.barbeiro_id):
+            raise HTTPException(
+                status_code=400,
+                detail="Este profissional não está disponível para novos chamados agora. Escolha outro profissional."
+            )
         agora = datetime.now()
         if barbeiro_check and getattr(barbeiro_check, 'ocupado_ate', None):
             try:
@@ -2577,7 +2585,7 @@ def cancelar_chamado_cliente(id: int, token: str = Depends(oauth2_scheme), db: S
             cadeira.liberada_em = datetime.utcnow()
 
     if barbeiro:
-        barbeiro.disponivel = True
+        barbeiro.disponivel = not freelancer_bloqueado(db, barbeiro.id)
         barbeiro.em_atendimento = False
         barbeiro.ocupado_ate = None
 
@@ -2690,7 +2698,7 @@ async def cancelar_chamado_barbeiro(id: int, token: str = Depends(oauth2_scheme)
             cadeira.liberada_em = datetime.utcnow()
 
     if barbeiro and not barbeiro_ocupado_com_outro_atendimento:
-        barbeiro.disponivel = True
+        barbeiro.disponivel = not freelancer_bloqueado(db, barbeiro.id)
         barbeiro.em_atendimento = False
         barbeiro.ocupado_ate = None
 
@@ -2997,8 +3005,8 @@ def finalizar_servico_manualmente(id: int, token: str = Depends(oauth2_scheme), 
     # Buscar barbeiro
     barbeiro = db.query(models.Usuario).filter(models.Usuario.id == user.id).first()
     
-    # ✅ LIBERAR BARBEIRO IMEDIATAMENTE
-    barbeiro.disponivel = True
+    # ✅ LIBERAR BARBEIRO IMEDIATAMENTE (exceto com taxa diária vencida)
+    barbeiro.disponivel = not freelancer_bloqueado(db, barbeiro.id)
     barbeiro.em_atendimento = False
     barbeiro.ocupado_ate = None
 

@@ -109,6 +109,14 @@ def init_db():
                 connection.execute(text("ALTER TABLE barbearias ADD COLUMN horario_funcionamento VARCHAR(200)"))
                 print("[migracao] Coluna horario_funcionamento criada")
 
+    if "historico_movimentacoes" in inspector.get_table_names():
+        colunas_existentes = {coluna["name"] for coluna in inspector.get_columns("historico_movimentacoes")}
+        # Fechamento diário (21:00) que considerou a movimentação
+        if "fechamento_id" not in colunas_existentes:
+            with engine.begin() as connection:
+                connection.execute(text("ALTER TABLE historico_movimentacoes ADD COLUMN fechamento_id INTEGER"))
+                print("[migracao] Coluna historico_movimentacoes.fechamento_id criada")
+
     if "radar_freelancer" in inspector.get_table_names():
         colunas_existentes = {coluna["name"] for coluna in inspector.get_columns("radar_freelancer")}
         colunas_esperadas = {

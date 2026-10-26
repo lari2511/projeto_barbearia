@@ -118,6 +118,9 @@ def liberar_presenca_se_sem_pendencias(db: Session, freelancer_usuario_id: int) 
         return False
 
     barbearia_id = freelancer.barbearia_atual_id
+    # A sessão não tem autoflush: sem isso, o chamado que acabou de ser concluído
+    # ainda conta como ativo e a saída pendente não é aplicada.
+    db.flush()
     if contar_atendimentos_ativos(db, freelancer_usuario_id, barbearia_id) > 0:
         return False
 

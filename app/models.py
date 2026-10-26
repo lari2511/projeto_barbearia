@@ -725,6 +725,8 @@ class HistoricoMovimentacaoFinanceira(Base):
     saldo_antes = Column(Float, nullable=False)
     saldo_depois = Column(Float, nullable=False)
     criado_em = Column(DateTime, default=datetime.utcnow, index=True)
+    # Fechamento diário (21:00) em que esta movimentação entrou no valor cobrado
+    fechamento_id = Column(Integer, ForeignKey("fechamentos_diarios_freelancer.id"), nullable=True, index=True)
 
     carteira = relationship("CarteiraBarbeiro", back_populates="movimentacoes")
     barbeiro = relationship("Usuario", foreign_keys=[barbeiro_id])
@@ -1222,6 +1224,9 @@ class FechamentoDiarioFreelancer(Base):
     decidido_por_id = Column(Integer, ForeignKey("usuarios.id"), nullable=True)
 
     freelancer = relationship("Usuario", foreign_keys=[freelancer_id])
+    # Atendimentos/movimentações da carteira considerados neste fechamento
+    movimentacoes = relationship("HistoricoMovimentacaoFinanceira",
+                                 foreign_keys="HistoricoMovimentacaoFinanceira.fechamento_id")
 
 
 class AlteracaoServicoAtendimento(Base):
