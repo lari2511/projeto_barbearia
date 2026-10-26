@@ -61,37 +61,53 @@ def _cadeiras_ativas_atuais(db: Session, barbearia_id: int):
 # PROPRIETÁRIO - CONTRATAR/AUMENTAR CADEIRAS
 # ============================================================
 
-def _preparar_assinatura_cadeiras(db: Session, usuario: models.Usuario, dados: dict) -> Preparo:
-    from app.routes_assinaturas import (
-        _barbearia_tem_historico_contratacao,
-        calcular_precos_cadeiras_adicionais,
-        calcular_precos_compra_inicial,
-    )
+def orcar_cadeiras(db: Session, usuario: models.Usuario, quantidade_desejada) -> dict:
+    """
+    Valor das cadeiras novas calculado no servidor. É o mesmo número que vai para o Pix
+    (o app só exibe; nunca envia preço). Preço pela posição no total já contratado.
+    """
+    from app.routes_assinaturas import calcular_precos_por_posicao, tabela_precos_cadeiras
 
     barbearia = _barbearia_do_dono(db, usuario)
     try:
-        quantidade = int(dados.get("cadeiras_ativas") or 0)
+        quantidade = int(quantidade_desejada or 0)
     except (TypeError, ValueError):
         quantidade = 0
     if quantidade < 1 or quantidade > 20:
         raise HTTPException(status_code=400, detail="Número de cadeiras deve estar entre 1 e 20")
 
     assinatura, atuais = _cadeiras_ativas_atuais(db, barbearia.id)
-    novas = quantidade - atuais
+    novas = max(0, quantidade - atuais)
+    precos = calcular_precos_por_posicao(atuais, novas)
+    valor = round(sum(precos), 2)
+    mensalidade_atual = round(float(assinatura.valor_mensalidade or 0.0), 2) if assinatura else 0.0
+    return {
+        "barbearia": barbearia,
+        "cadeiras_atuais": atuais,
+        "cadeiras_ativas": quantidade,
+        "cadeiras_novas": novas,
+        "itens": [{"posicao": atuais + i, "valor": v} for i, v in enumerate(precos, start=1)],
+        "valor_cobranca": valor,
+        "mensalidade_atual": mensalidade_atual,
+        "mensalidade_nova": round(mensalidade_atual + valor, 2) if novas else None,
+        "tabela": tabela_precos_cadeiras(),
+    }
+
+
+def _preparar_assinatura_cadeiras(db: Session, usuario: models.Usuario, dados: dict) -> Preparo:
+    orc = orcar_cadeiras(db, usuario, dados.get("cadeiras_ativas"))
+    barbearia, atuais, novas, quantidade = (
+        orc["barbearia"], orc["cadeiras_atuais"], orc["cadeiras_novas"], orc["cadeiras_ativas"]
+    )
     if novas <= 0:
         raise HTTPException(status_code=400, detail="Não há cadeiras novas para pagar nesta contratação")
 
-    if assinatura is None and not _barbearia_tem_historico_contratacao(db, barbearia.id):
-        precos = calcular_precos_compra_inicial(novas)
-    else:
-        precos = calcular_precos_cadeiras_adicionais(novas)
-    valor = round(sum(precos), 2)
-
     return Preparo(
-        valor=valor,
+        valor=orc["valor_cobranca"],
         descricao=f"BarberMove - {novas} cadeira(s) - {barbearia.nome or 'Barbearia'}",
         referencia={"barbearia_id": barbearia.id, "cadeiras_atuais": atuais,
-                    "cadeiras_novas": novas, "cadeiras_ativas": quantidade},
+                    "cadeiras_novas": novas, "cadeiras_ativas": quantidade,
+                    "precos": [i["valor"] for i in orc["itens"]]},
         chave_referencia=f"cadeiras:{barbearia.id}:{atuais}->{quantidade}",
     )
 

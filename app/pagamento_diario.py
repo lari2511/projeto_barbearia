@@ -326,35 +326,31 @@ def garantir_pix_das_taxas(db: Session) -> dict:
 
 def conciliar_pix_em_aberto(db: Session) -> int:
     """
-    Consulta no Mercado Pago os Pix de taxa ainda aguardando (caso o webhook não chegue).
+    Consulta no Mercado Pago os Pix ainda pagáveis (caso o webhook não chegue), de todas as
+    finalidades: taxa do freelancer, cadeiras e mensalidade da barbearia.
     A aprovação segue o mesmo caminho do webhook (aplicar_pagamento_do_provedor).
     """
     from app.cobrancas import servico
-    from app.cobrancas.constantes import Finalidade, StatusCobranca
+    from app.cobrancas.constantes import StatusCobranca
     from app.cobrancas.provedores import pix_disponivel
 
     if not pix_disponivel():
         return 0
     limite = datetime.utcnow() - INTERVALO_CONCILIACAO
-    pendentes = db.query(models.Cobranca).filter(
-        models.Cobranca.finalidade == Finalidade.TAXA_FREELANCER.value,
-        models.Cobranca.status == StatusCobranca.AGUARDANDO_PAGAMENTO.value,
-        models.Cobranca.provedor_pagamento_id.isnot(None),
-        models.Cobranca.criado_em < limite,
-        (models.Cobranca.ultima_consulta_em.is_(None)) | (models.Cobranca.ultima_consulta_em < limite),
-    ).all()
+    pendentes = [c for c in servico.cobrancas_para_conciliar(db, limite) if c.criado_em < limite]
     pagas = 0
     for c in pendentes:
+        identificador = c.identificador
         try:
-            c = servico.sincronizar(db, c, forcar=True)
+            c = servico.conciliar(db, c)
         except Exception as exc:
             db.rollback()
-            logger.warning("[pagamento_diario] conciliação da cobranca %s falhou: %s", c.identificador, exc)
+            logger.warning("[pagamento_diario] conciliação da cobranca %s falhou: %s", identificador, exc)
             continue
         if c.status == StatusCobranca.PAGO.value:
             pagas += 1
-            logger.info("[pagamento_diario] conciliação: cobranca %s aprovada no MP (freelancer %s)",
-                        c.identificador, c.usuario_id)
+            logger.info("[pagamento_diario] conciliação: cobranca %s (%s) aprovada no MP (usuario %s)",
+                        c.identificador, c.finalidade, c.usuario_id)
     return pagas
 
 

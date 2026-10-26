@@ -883,9 +883,9 @@ class AssinaturaBarbearia(Base):
     TABELA DE PREÇOS (Fixed):
     - 1ª cadeira: R$ 47,90
     - 2ª cadeira: R$ 37,90
-    - 3ª cadeira: R$ 27,90
-    - 4ª cadeira: R$ 20,90
-    - 5ª cadeira: R$ 17,90
+    - 3ª cadeira: R$ 30,90
+    - 4ª cadeira: R$ 23,90
+    - 5ª cadeira: R$ 19,90
     - 6ª em diante: R$ 17,90 (piso mínimo)
     
     Exemplos:
@@ -905,7 +905,7 @@ class AssinaturaBarbearia(Base):
     
     # --- VALORES (Calculado mediante tabela progressiva) ---
     valor_mensalidade = Column(Float, nullable=False)  # Valor total mensal (soma de todas as cadeiras)
-    valor_por_cadeira = Column(String, nullable=True)  # JSON com breakdown: [47.90, 37.90, 27.90, ...]
+    valor_por_cadeira = Column(String, nullable=True)  # JSON com breakdown: [47.90, 37.90, 30.90, ...]
     economia_mensal = Column(Float, default=0.0)  # Quanto economiza vs 1ª cadeira (incentivo)
     
     # --- VENCIMENTO ---

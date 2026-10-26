@@ -24,7 +24,10 @@ export const criarPixAssinaturaCadeiras = (API_URL, token, cadeirasAtivas) =>
     method: 'POST',
     body: JSON.stringify({ cadeiras_ativas: cadeirasAtivas }),
   });
-export const criarPixMensalidade = (API_URL, token) => chamar(API_URL, token, '/pix/mensalidade', { method: 'POST' });
+// Valor das cadeiras novas calculado pelo servidor (o mesmo que vai para o Pix).
+export const orcarCadeiras = (API_URL, token, cadeirasAtivas) =>
+  chamar(API_URL, token, `/cadeiras/orcamento?cadeiras_ativas=${encodeURIComponent(cadeirasAtivas)}`);
+export const criarPixMensalidade =(API_URL, token) => chamar(API_URL, token, '/pix/mensalidade', { method: 'POST' });
 export const criarPixTaxaFreelancer = (API_URL, token) => chamar(API_URL, token, '/pix/taxa-freelancer', { method: 'POST' });
 export const consultarCobranca = (API_URL, token, identificador) =>
   chamar(API_URL, token, `/${encodeURIComponent(identificador)}`);

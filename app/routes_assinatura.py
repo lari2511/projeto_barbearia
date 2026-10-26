@@ -20,15 +20,9 @@ router = APIRouter(prefix="/api/v1/assinatura", tags=["Assinatura"])
 # CONSTANTES PARA CÁLCULO DE MENSALIDADE PROGRESSIVA
 # =====================================================================
 
-PRECOS_CADEIRAS = [
-    47.90,  # 1ª cadeira
-    37.90,  # 2ª cadeira
-    27.90,  # 3ª cadeira
-    20.90,  # 4ª cadeira
-    17.90   # 5ª cadeira
-]
-
-VALOR_MINIMO_APOS_QUINTA = 17.90  # 6ª cadeira em diante (PISO FIXO)
+# Tabela única: app/routes_assinaturas.py (a mesma usada na cobrança Pix).
+from .routes_assinaturas import PRECOS_PROGRESSIVOS_INICIAIS as PRECOS_CADEIRAS  # 1ª a 5ª cadeira
+from .routes_assinaturas import PRECO_PROGRESSIVO_MINIMO as VALOR_MINIMO_APOS_QUINTA  # 6ª em diante (PISO FIXO)
 
 
 # =====================================================================
@@ -100,7 +94,7 @@ def gerar_breakdown_cadeiras(quantidade: int) -> List[Dict]:
         [
             {"posicao": 1, "valor_individual": 47.90, "acumulado": 47.90},
             {"posicao": 2, "valor_individual": 37.90, "acumulado": 85.80},
-            {"posicao": 3, "valor_individual": 27.90, "acumulado": 113.70}
+            {"posicao": 3, "valor_individual": 30.90, "acumulado": 116.70}
         ]
     """
     breakdown = []
@@ -181,13 +175,13 @@ def calcular_mensalidade(
     Response:
     {
         "quantidade_cadeiras": 3,
-        "valor_mensal": 113.70,
+        "valor_mensal": 116.70,
         "valor_primeira_cadeira": 47.90,
         "valor_minimo_apos_quinta": 17.90,
         "breakdown": [
             {"posicao": 1, "valor_individual": 47.90, "acumulado": 47.90},
             {"posicao": 2, "valor_individual": 37.90, "acumulado": 85.80},
-            {"posicao": 3, "valor_individual": 27.90, "acumulado": 113.70}
+            {"posicao": 3, "valor_individual": 30.90, "acumulado": 116.70}
         ]
     }
     ```

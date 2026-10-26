@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { CreditCard, Calendar, AlertTriangle, CheckCircle, Loader, TrendingUp } from 'lucide-react';
 import { getApiBaseUrl } from '../utils/api';
+import { mensalidadePorQuantidade } from '../utils/precosCadeiras';
 
 export default function TelaAssinaturaBarbearia({ token, onNotify }) {
   const defaultHost = typeof window !== 'undefined' ? window.location.hostname : 'localhost';
@@ -844,12 +845,7 @@ export default function TelaAssinaturaBarbearia({ token, onNotify }) {
         <h3 className="text-lg font-bold text-white mb-4">📊 Tabela de Preços</h3>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           {[1, 2, 3, 4, 5, 10, 15, 20].map((num) => {
-            const valores = [47.90, 37.90, 27.90, 20.90, 17.90];
-            const minimo = 17.90;
-            let total = 0;
-            for (let i = 0; i < num; i++) {
-              total += i < valores.length ? valores[i] : minimo;
-            }
+            const total = mensalidadePorQuantidade(num);
             return (
               <div key={num} className="bg-zinc-800 rounded-lg p-3 text-center">
                 <div className="text-2xl font-bold text-white">{num}</div>

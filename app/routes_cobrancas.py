@@ -23,7 +23,6 @@ from app.cobrancas.provedores import (
     ProvedorNaoConfigurado,
     pix_disponivel,
     validar_assinatura_webhook,
-    webhook_assinado,
 )
 from app.database import get_db
 from app.routes import get_current_user
@@ -55,6 +54,20 @@ def configuracao_pagamentos():
         "pix_disponivel": pix_disponivel(),
         "metodos": sorted(m.value for m in METODOS_HABILITADOS),
     }
+
+
+@router.get("/cadeiras/orcamento")
+def orcamento_cadeiras(
+    cadeiras_ativas: int,
+    db: Session = Depends(get_db),
+    usuario_atual=Depends(get_current_user),
+):
+    """Proprietário: quanto custam as cadeiras novas. É o mesmo cálculo que gera o Pix."""
+    from app.cobrancas.efeitos import orcar_cadeiras
+
+    orc = orcar_cadeiras(db, usuario_atual, cadeiras_ativas)
+    orc.pop("barbearia")
+    return orc
 
 
 @router.post("/pix/assinatura-cadeiras")
@@ -120,28 +133,25 @@ async def webhook_mercadopago(request: Request, db: Session = Depends(get_db)):
     tipo = params.get("type") or params.get("topic") or corpo.get("type") or corpo.get("topic")
     data_id = params.get("data.id") or (corpo.get("data") or {}).get("id") or params.get("id")
 
-    x_signature = request.headers.get("x-signature")
-    if not x_signature and params.get("topic") and webhook_assinado():
-        # IPN legado (?topic=payment&id=..): o MP não assina esse formato. O mesmo evento chega
-        # também no formato Webhooks (assinado) e a conciliação consulta o MP, então aqui só
-        # responde 200 para o MP parar de reenviar (antes: 401 e reenvio por dias), sem efeito.
-        logger.info("[cobrancas] IPN legado sem assinatura ignorado: topic=%s id=%s", tipo, data_id)
-        return {"ok": True, "ignorado": True}
-
-    if not validar_assinatura_webhook(
-        x_signature=x_signature,
+    assinada = validar_assinatura_webhook(
+        x_signature=request.headers.get("x-signature"),
         x_request_id=request.headers.get("x-request-id"),
         data_id=params.get("data.id") or data_id,
-    ):
-        logger.warning("[cobrancas] webhook com assinatura inválida (data.id=%s)", data_id)
-        raise HTTPException(status_code=401, detail="Assinatura inválida")
-
-    logger.info("[cobrancas] webhook recebido e validado: type=%s data.id=%s", tipo, data_id)
+    )
+    if not assinada:
+        # Em produção o MP entrega para a notification_url do Pix só o IPN (?topic=payment&id=..),
+        # com x-signature que não confere com esse formato. Antes isso dava 401 e o pagamento só
+        # era conciliado se o app estivesse com a tela aberta. Agora a notificação não assinada
+        # ainda dispara a consulta ao MP, mas só para um pagamento que já é de uma cobrança nossa.
+        logger.warning("[cobrancas] webhook sem assinatura válida: type=%s id=%s (segue só para cobrança conhecida)",
+                       tipo, data_id)
+    else:
+        logger.info("[cobrancas] webhook recebido e validado: type=%s data.id=%s", tipo, data_id)
     if tipo != "payment" or not data_id:
         return {"ok": True, "ignorado": True}
 
     try:
-        c = servico.processar_notificacao(db, str(data_id))
+        c = servico.processar_notificacao(db, str(data_id), assinada=assinada)
     except ProvedorNaoConfigurado:
         logger.error("[cobrancas] webhook recebido sem MERCADOPAGO_ACCESS_TOKEN configurado")
         raise HTTPException(status_code=503, detail="Provedor não configurado")

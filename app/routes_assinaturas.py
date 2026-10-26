@@ -22,7 +22,9 @@ from app.cobrancas.provedores import bloquear_fluxo_antigo_se_pix_real
 router = APIRouter(prefix="/assinaturas", tags=["Assinaturas"])
 
 PRECO_CADEIRA_CHEIO = 47.90
-PRECOS_PROGRESSIVOS_INICIAIS = [47.90, 37.90, 27.90, 20.90, 17.90]
+# Fonte única da tabela progressiva (1ª a 5ª; da 6ª em diante, o mínimo). O preço de uma
+# cadeira é o da sua posição no total contratado, não da quantidade comprada de uma vez.
+PRECOS_PROGRESSIVOS_INICIAIS = [47.90, 37.90, 30.90, 23.90, 19.90]
 PRECO_PROGRESSIVO_MINIMO = 17.90
 
 
@@ -105,9 +107,23 @@ def _preco_progressivo_por_posicao(posicao: int) -> float:
 
 
 def calcular_precos_compra_inicial(quantidade: int) -> List[float]:
+    return calcular_precos_por_posicao(0, quantidade)
+
+
+def calcular_precos_por_posicao(cadeiras_atuais: int, quantidade: int) -> List[float]:
+    """Preço de cada cadeira nova: posições cadeiras_atuais+1 .. cadeiras_atuais+quantidade."""
     if quantidade <= 0:
         return []
-    return [round(_preco_progressivo_por_posicao(i), 2) for i in range(1, quantidade + 1)]
+    inicio = max(0, int(cadeiras_atuais or 0)) + 1
+    return [round(_preco_progressivo_por_posicao(i), 2) for i in range(inicio, inicio + quantidade)]
+
+
+def tabela_precos_cadeiras() -> List[dict]:
+    """Tabela exibida no app: 1ª a 5ª e o valor da 6ª em diante."""
+    tabela = [{"posicao": i, "valor": v} for i, v in enumerate(PRECOS_PROGRESSIVOS_INICIAIS, start=1)]
+    tabela.append({"posicao": len(PRECOS_PROGRESSIVOS_INICIAIS) + 1, "valor": PRECO_PROGRESSIVO_MINIMO,
+                   "em_diante": True})
+    return tabela
 
 
 def calcular_precos_cadeiras_adicionais(quantidade: int) -> List[float]:
@@ -283,9 +299,9 @@ def calcular_valor_assinatura(num_cadeiras: int):
     Tabela de preços:
     - 1ª cadeira: R$ 47,90
     - 2ª cadeira: R$ 37,90
-    - 3ª cadeira: R$ 27,90
-    - 4ª cadeira: R$ 20,90
-    - 5ª cadeira: R$ 17,90
+    - 3ª cadeira: R$ 30,90
+    - 4ª cadeira: R$ 23,90
+    - 5ª cadeira: R$ 19,90
     - 6ª em diante: R$ 17,90 (piso mínimo)
     """
     breakdown = calcular_precos_compra_inicial(num_cadeiras)
@@ -341,7 +357,8 @@ def aplicar_contratacao_cadeiras(
 
         if quantidade > quantidade_atual:
             quantidade_novas = quantidade - quantidade_atual
-            precos_novas = calcular_precos_cadeiras_adicionais(quantidade_novas)
+            # Mesmo cálculo da cobrança Pix (efeitos._preparar_assinatura_cadeiras).
+            precos_novas = calcular_precos_por_posicao(quantidade_atual, quantidade_novas)
             _registrar_cadeiras(
                 db=db,
                 assinatura=assinatura,
@@ -378,11 +395,7 @@ def aplicar_contratacao_cadeiras(
         return assinatura
     else:
         primeira_compra = not _barbearia_tem_historico_contratacao(db, barbearia.id)
-        precos = (
-            calcular_precos_compra_inicial(quantidade)
-            if primeira_compra else
-            calcular_precos_cadeiras_adicionais(quantidade)
-        )
+        precos = calcular_precos_por_posicao(0, quantidade)
 
         nova_assinatura = models.AssinaturaBarbearia(
             barbearia_id=barbearia.id,

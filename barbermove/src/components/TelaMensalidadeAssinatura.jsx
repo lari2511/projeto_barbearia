@@ -7,7 +7,8 @@ import { Plus, Minus, TrendingUp, AlertCircle, Check, Loader } from 'lucide-reac
 import { gerarQrDataUrl, validarCartaoBasico, salvarMetodoPreferidoCliente } from './checkout/core';
 import { getApiBaseUrl } from '../utils/api';
 import PagamentoPix, { usePixDisponivel } from './PagamentoPix';
-import { criarPixAssinaturaCadeiras, criarPixMensalidade } from '../utils/cobrancasPix';
+import { criarPixAssinaturaCadeiras, criarPixMensalidade, orcarCadeiras } from '../utils/cobrancasPix';
+import { PRECOS_CADEIRAS, PRECO_CADEIRA_MINIMO, precoCadeiraPorPosicao } from '../utils/precosCadeiras';
 
 export default function TelaMensalidadeAssinatura({ token, barbeariaId, API_URL, onNotify, onBack }) {
   const defaultHost = typeof window !== 'undefined' ? window.location.hostname : 'localhost';
@@ -250,23 +251,8 @@ export default function TelaMensalidadeAssinatura({ token, barbeariaId, API_URL,
     }).format(valor);
   };
 
-  // Constantes da lógica de mensalidade
-  const PRECOS_FIXOS = {
-    1: 47.90,
-    2: 37.90,
-    3: 27.90,
-    4: 20.90,
-    5: 17.90,
-  };
-  const VALOR_MINIMO = 17.90;
-
-  // Função para calcular o preço de cada cadeira
-  const calcularPrecoCadeira = (numeroCadeira) => {
-    if (numeroCadeira in PRECOS_FIXOS) {
-      return PRECOS_FIXOS[numeroCadeira];
-    }
-    return VALOR_MINIMO;
-  };
+  // Preço de cada cadeira pela posição (tabela única em utils/precosCadeiras.js)
+  const calcularPrecoCadeira = precoCadeiraPorPosicao;
 
   // Função para calcular a mensalidade total
   const calcularMensalidadeTotal = (qtd) => {
@@ -443,11 +429,27 @@ export default function TelaMensalidadeAssinatura({ token, barbeariaId, API_URL,
   };
 
   const novasCadeiras = Math.max(0, quantidadeCadeiras - cadeirasAtuais);
+  // Valor das cadeiras novas vindo do servidor (o mesmo que vai para o Pix).
+  const [orcamento, setOrcamento] = useState(null);
+  useEffect(() => {
+    if (!pixReal || novasCadeiras <= 0 || !token) {
+      setOrcamento(null);
+      return undefined;
+    }
+    let ativo = true;
+    const t = setTimeout(() => {
+      orcarCadeiras(apiBase, token, quantidadeCadeiras)
+        .then((orc) => { if (ativo) setOrcamento(orc); })
+        .catch(() => { if (ativo) setOrcamento(null); });
+    }, 250);
+    return () => { ativo = false; clearTimeout(t); };
+  }, [pixReal, novasCadeiras, quantidadeCadeiras, token, apiBase]);
+  const valorOrcado = orcamento && orcamento.cadeiras_ativas === quantidadeCadeiras ? orcamento.valor_cobranca : null;
   const rotuloBotaoPixReal = quantidadeCadeiras < cadeirasAtuais
     ? `Reduzir para ${quantidadeCadeiras} cadeira(s)`
     : novasCadeiras > 0
-      ? `Gerar Pix (+${novasCadeiras} cadeira${novasCadeiras > 1 ? 's' : ''})`
-      : 'Pagar mensalidade via Pix';
+      ? `Gerar Pix (+${novasCadeiras} cadeira${novasCadeiras > 1 ? 's' : ''})${valorOrcado != null ? ` — ${formatarMoeda(valorOrcado)}` : ''}`
+      : 'Pagar mensalidade via Pix (sem cadeira nova)';
 
   const handleConfirmar = async () => {
     if (pixReal) {
@@ -703,9 +705,10 @@ export default function TelaMensalidadeAssinatura({ token, barbeariaId, API_URL,
         <div className="hidden sm:block bg-blue-900/20 border border-blue-700 rounded p-2 mb-3 text-xs">
           <p className="text-blue-400 font-bold text-xs mb-1">Estrutura:</p>
           <div className="grid grid-cols-2 gap-1 text-blue-300 text-xs">
-            <div>1ª: R$47.90 | 2ª: R$37.90</div>
-            <div>3ª: R$27.90 | 4ª: R$20.90</div>
-            <div>5ª+: R$17.90 (mín)</div>
+            {PRECOS_CADEIRAS.map((v, i) => (
+              <div key={i}>{i + 1}ª: {formatarMoeda(v)}</div>
+            ))}
+            <div>{PRECOS_CADEIRAS.length + 1}ª em diante: {formatarMoeda(PRECO_CADEIRA_MINIMO)}</div>
           </div>
         </div>
       </div>

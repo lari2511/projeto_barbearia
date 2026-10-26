@@ -26,15 +26,12 @@ class MensalidadeStatusResponse(BaseModel):
     economias_projetos: Dict  # Economia ao adicionar próximas cadeiras
 
 # ============ CONSTANTES ============
-PRECOS_FIXOS = {
-    1: 47.90,
-    2: 37.90,
-    3: 27.90,
-    4: 20.90,
-    5: 17.90
-}
+# Tabela única: app/routes_assinaturas.py (a mesma usada na cobrança Pix).
+from .routes_assinaturas import PRECOS_PROGRESSIVOS_INICIAIS, PRECO_PROGRESSIVO_MINIMO
 
-VALOR_MINIMO = 17.90
+PRECOS_FIXOS = {i: v for i, v in enumerate(PRECOS_PROGRESSIVOS_INICIAIS, start=1)}
+
+VALOR_MINIMO = PRECO_PROGRESSIVO_MINIMO
 
 # ============ FUNÇÕES DE CÁLCULO ============
 

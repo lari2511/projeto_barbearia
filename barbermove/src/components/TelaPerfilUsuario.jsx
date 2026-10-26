@@ -10,7 +10,8 @@ import { useBackHandler } from '../utils/useBackHandler';
 import BotaoVoltar from './BotaoVoltar';
 import { gerarQrDataUrl, salvarMetodoPreferidoCliente, validarCartaoBasico } from './checkout/core';
 import PagamentoPix, { usePixDisponivel } from './PagamentoPix';
-import { criarPixAssinaturaCadeiras } from '../utils/cobrancasPix';
+import { criarPixAssinaturaCadeiras, orcarCadeiras } from '../utils/cobrancasPix';
+import { precoCadeiraPorPosicao, mensalidadePorQuantidade } from '../utils/precosCadeiras';
 
 const PERFIL_META = {
   cliente: { badge: 'Cliente Premium', titulo: 'Meu Perfil' },
@@ -34,27 +35,8 @@ const ITENS_CONDICOES_ESTRUTURA = [
   { chave: 'wifi_freelancers', label: 'Wi-Fi para freelancers' },
 ];
 
-const PRECO_PRIMEIRA_CADEIRA = 47.9;
-const PRECO_SEGUNDA_CADEIRA = 37.9;
-const PRECO_TERCEIRA_CADEIRA = 27.9;
-const PRECO_QUARTA_CADEIRA = 20.9;
-const PRECO_MINIMO = 17.9;
-
-function calcularPrecoCadeira(posicao) {
-  if (posicao <= 1) return PRECO_PRIMEIRA_CADEIRA;
-  if (posicao === 2) return PRECO_SEGUNDA_CADEIRA;
-  if (posicao === 3) return PRECO_TERCEIRA_CADEIRA;
-  if (posicao === 4) return PRECO_QUARTA_CADEIRA;
-  return PRECO_MINIMO;
-}
-
-function calcularMensalidadeTotal(qtd) {
-  let total = 0;
-  for (let i = 1; i <= qtd; i += 1) {
-    total += calcularPrecoCadeira(i);
-  }
-  return Number(total.toFixed(2));
-}
+const calcularPrecoCadeira = precoCadeiraPorPosicao;
+const calcularMensalidadeTotal = mensalidadePorQuantidade;
 
 function moneyBRL(value) {
   return Number(value || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
@@ -496,6 +478,21 @@ export function TelaPerfilUsuario({
     [aumentoCadeirasPendente, perfilBarbeariaTeste]
   );
   const acrescimoMensalPlano = useMemo(() => Number(Math.max(0, mensalidadeTotal - mensalidadeAnterior).toFixed(2)), [mensalidadeTotal, mensalidadeAnterior]);
+  // Com Pix real, o valor exibido é o calculado pelo servidor (o mesmo que vai para o Pix).
+  const [orcamentoPlano, setOrcamentoPlano] = useState(null);
+  useEffect(() => {
+    if (!pixReal || !exigirPagamentoMudancaCadeiras || !token || !apiBase) {
+      setOrcamentoPlano(null);
+      return undefined;
+    }
+    let ativo = true;
+    const t = setTimeout(() => {
+      orcarCadeiras(apiBase, token, cadeirasPlano)
+        .then((orc) => { if (ativo) setOrcamentoPlano(orc); })
+        .catch(() => { if (ativo) setOrcamentoPlano(null); });
+    }, 250);
+    return () => { ativo = false; clearTimeout(t); };
+  }, [pixReal, exigirPagamentoMudancaCadeiras, cadeirasPlano, token, apiBase]);
 
   const carregarPerfil = useCallback(async () => {
     if (!token || !apiBase) return;
@@ -1849,11 +1846,30 @@ export function TelaPerfilUsuario({
                   <p className="text-xs text-zinc-300 mt-1">Voce esta saindo de {cadeirasPlanoSalvas} para {cadeirasPlano} cadeiras. Escolha como pagar essa atualizacao.</p>
                 </div>
 
+                {pixReal ? (
+                <div className="rounded-lg border border-orange-500/30 bg-orange-500/10 p-3">
+                  <p className="text-[11px] font-bold uppercase tracking-wide text-orange-300">Valor do Pix desta mudança</p>
+                  {orcamentoPlano ? (
+                    <>
+                      <p className="mt-1 text-lg font-black text-white">{moneyBRL(orcamentoPlano.valor_cobranca)}</p>
+                      <p className="mt-1 text-xs text-zinc-300">
+                        {orcamentoPlano.itens.map((i) => `${i.posicao}ª cadeira: ${moneyBRL(i.valor)}`).join(' · ')}
+                      </p>
+                      <p className="mt-1 text-xs text-zinc-400">
+                        Cadeiras pagas hoje: {orcamentoPlano.cadeiras_atuais}. Nova mensalidade: {moneyBRL(orcamentoPlano.mensalidade_nova)}.
+                      </p>
+                    </>
+                  ) : (
+                    <p className="mt-1 text-xs text-zinc-300">Calculando valor...</p>
+                  )}
+                </div>
+                ) : (
                 <div className="rounded-lg border border-orange-500/30 bg-orange-500/10 p-3">
                   <p className="text-[11px] font-bold uppercase tracking-wide text-orange-300">Acréscimo desta mudança</p>
                   <p className="mt-1 text-lg font-black text-white">{moneyBRL(acrescimoMensalPlano)}/mês</p>
                   <p className="mt-1 text-xs text-zinc-300">Plano atual: {moneyBRL(mensalidadeAnterior)}. Novo plano: {moneyBRL(mensalidadeTotal)}.</p>
                 </div>
+                )}
 
                 {!pixReal && (
                 <div className="grid grid-cols-2 gap-2">

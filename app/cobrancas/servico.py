@@ -81,6 +81,7 @@ def _cancelar_local(c: models.Cobranca, motivo: str) -> None:
     if c.provedor_pagamento_id:
         try:
             obter_provedor().cancelar(c.provedor_pagamento_id)
+            c.status_provedor = "cancelled"
         except Exception as exc:  # se o Pix antigo for pago mesmo assim, a aprovação ainda é honrada
             logger.warning("[cobrancas] não cancelou %s no provedor: %s", c.identificador, exc)
 
@@ -225,8 +226,22 @@ def sincronizar(db: Session, c: models.Cobranca, forcar: bool = False) -> models
     return aplicar_pagamento_do_provedor(db, c.id, pagamento)
 
 
-def processar_notificacao(db: Session, provedor_pagamento_id: str) -> Optional[models.Cobranca]:
-    """Notificação do provedor: só traz o id; o status vem da consulta autenticada à API."""
+def processar_notificacao(db: Session, provedor_pagamento_id: str, assinada: bool = True) -> Optional[models.Cobranca]:
+    """
+    Notificação do provedor: só traz o id; o status vem da consulta autenticada à API.
+
+    `assinada=False` (assinatura ausente/inválida, ex.: IPN ?topic=payment&id=..): só consulta
+    se o id já for de uma cobrança nossa. Não dá para forjar aprovação com isso — o status
+    continua vindo do MP — e quem não tem um id nosso não faz o backend consultar nada.
+    """
+    if not assinada:
+        conhecida = db.query(models.Cobranca.id).filter(
+            models.Cobranca.provedor_pagamento_id == str(provedor_pagamento_id)
+        ).first()
+        if not conhecida:
+            logger.info("[cobrancas] notificação sem assinatura válida do pagamento %s ignorada "
+                        "(não é de nenhuma cobrança)", provedor_pagamento_id)
+            return None
     pagamento = obter_provedor().consultar(str(provedor_pagamento_id))
     c = db.query(models.Cobranca).filter(
         models.Cobranca.provedor_pagamento_id == pagamento.provedor_pagamento_id
@@ -241,4 +256,37 @@ def processar_notificacao(db: Session, provedor_pagamento_id: str) -> Optional[m
         return None  # pagamento que não é uma cobrança deste módulo
     logger.info("[cobrancas] notificação do pagamento %s: status no MP=%s, cobrança %s (%s, usuario=%s)",
                 pagamento.provedor_pagamento_id, pagamento.status, c.identificador, c.finalidade, c.usuario_id)
+    return aplicar_pagamento_do_provedor(db, c.id, pagamento)
+
+
+# Status do MP em que o Pix ainda pode ser pago.
+STATUS_PROVEDOR_EM_ABERTO = ("pending", "in_process", "authorized")
+JANELA_CONCILIACAO_ENCERRADAS = timedelta(days=2)
+
+
+def cobrancas_para_conciliar(db: Session, limite_consulta: datetime):
+    """
+    Cobranças cuja aprovação pode ter se perdido (webhook falhou/atrasou e ninguém está com a tela aberta):
+    - aguardando pagamento, de qualquer finalidade;
+    - canceladas/expiradas localmente cujo Pix pode seguir pagável no MP (cancelamento no MP falhou).
+    """
+    agora = datetime.utcnow()
+    base = db.query(models.Cobranca).filter(
+        models.Cobranca.provedor_pagamento_id.isnot(None),
+        models.Cobranca.liberado_em.is_(None),
+        (models.Cobranca.ultima_consulta_em.is_(None)) | (models.Cobranca.ultima_consulta_em < limite_consulta),
+    )
+    return base.filter(
+        (models.Cobranca.status == AGUARDANDO)
+        | (
+            models.Cobranca.status.in_([StatusCobranca.CANCELADO.value, StatusCobranca.EXPIRADO.value])
+            & models.Cobranca.status_provedor.in_(STATUS_PROVEDOR_EM_ABERTO)
+            & (models.Cobranca.criado_em > agora - JANELA_CONCILIACAO_ENCERRADAS)
+        )
+    ).all()
+
+
+def conciliar(db: Session, c: models.Cobranca) -> models.Cobranca:
+    """Consulta o pagamento no provedor e aplica (idempotente), qualquer que seja o status local."""
+    pagamento = obter_provedor().consultar(c.provedor_pagamento_id)
     return aplicar_pagamento_do_provedor(db, c.id, pagamento)
