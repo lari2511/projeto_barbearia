@@ -58,7 +58,11 @@ def verificar_proximidade_e_checkin(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Apenas barbeiros podem fazer check-in automático"
         )
-    
+
+    # Taxa diária vencida: não pode ficar PRESENTE (mesma trava das demais rotas de status)
+    from app.pagamento_diario import exigir_freelancer_liberado
+    exigir_freelancer_liberado(db, usuario_atual.id)
+
     # 2. Buscar agendamentos CONFIRMADOS do barbeiro para hoje
     hoje = datetime.utcnow().date()
     amanha = hoje + timedelta(days=1)

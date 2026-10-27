@@ -1229,6 +1229,41 @@ class FechamentoDiarioFreelancer(Base):
                                  foreign_keys="HistoricoMovimentacaoFinanceira.fechamento_id")
 
 
+class ExecucaoPagamentoDiario(Base):
+    """
+    Registro persistente de cada rotina do pagamento diário, por dia (calendário de São Paulo):
+    'fechamento_21h' (comissões + fechamentos + Pix) e 'bloqueio_22h' (restrição de quem não pagou).
+
+    Uma linha por (data, rotina). Também serve de trava entre instâncias: só quem muda o status
+    para 'em_execucao' roda a rotina. 'parcial'/'falhou' são retomados automaticamente.
+    """
+    __tablename__ = "execucoes_pagamento_diario"
+    __table_args__ = (
+        UniqueConstraint("data_referencia", "rotina", name="uq_execucao_pagamento_diario"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    data_referencia = Column(Date, nullable=False, index=True)
+    rotina = Column(String, nullable=False)  # fechamento_21h | bloqueio_22h
+    fuso_horario = Column(String, nullable=False, default="America/Sao_Paulo")
+    # em_execucao | concluido | parcial | falhou
+    status = Column(String, nullable=False, default="em_execucao", index=True)
+    tentativas = Column(Integer, nullable=False, default=0)
+    instancia = Column(String, nullable=True)  # processo que fez a última tentativa
+    iniciado_em = Column(DateTime, nullable=True)   # UTC
+    atualizado_em = Column(DateTime, nullable=True)  # UTC (última tentativa)
+    concluido_em = Column(DateTime, nullable=True)  # UTC
+    freelancers_analisados = Column(Integer, nullable=False, default=0)
+    atendimentos_contabilizados = Column(Integer, nullable=False, default=0)
+    comissoes_calculadas = Column(Integer, nullable=False, default=0)
+    valor_comissoes = Column(Float, nullable=False, default=0.0)
+    fechamentos_criados = Column(Integer, nullable=False, default=0)
+    pix_criados = Column(Integer, nullable=False, default=0)
+    pix_reutilizados = Column(Integer, nullable=False, default=0)
+    freelancers_bloqueados = Column(Integer, nullable=False, default=0)
+    erros = Column(String, nullable=True)
+
+
 class AlteracaoServicoAtendimento(Base):
     """
     Pedido do freelancer para alterar os serviços de um atendimento com mais de um
