@@ -5,6 +5,7 @@ import BarberDashboard from './components/BarberDashboard'
 import ShopDashboard from './components/ShopDashboard'
 import Login from './components/Login'
 import GateCadastroPendente from './components/GateCadastroPendente'
+import GateTermos from './components/GateTermos'
 import AppUpdateModal from './components/AppUpdateModal'
 import { Toast } from './components/Common'
 import { useApp } from './contexts/AppContext.jsx'
@@ -570,9 +571,11 @@ export default function App() {
 
           <div className="w-full">
             {token ? (
-              <GateCadastroPendente key={token} token={token} userType={userType} API_URL={API_URL} notify={notify} logout={logout}>
-                {renderDashboard()}
-              </GateCadastroPendente>
+              <GateTermos key={token} token={token} API_URL={API_URL} logout={logout}>
+                <GateCadastroPendente token={token} userType={userType} API_URL={API_URL} notify={notify} logout={logout}>
+                  {renderDashboard()}
+                </GateCadastroPendente>
+              </GateTermos>
             ) : <Login />}
           </div>
         </div>

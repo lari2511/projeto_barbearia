@@ -11,6 +11,7 @@ import AlterarServicoFreelancer from './AlterarServicoFreelancer';
 import TrackingPanel from './TrackingPanel';
 import ChatRoom from './ChatRoom';
 import ProfileCard from './ProfileCard';
+import { EstruturaDaVaga } from './EstruturaBarbearia';
 import CronometroAtendimento, { parseDataServidorUTC } from './CronometroAtendimento';
 import BotaoVoltar from './BotaoVoltar';
 import { useBackHandler } from '../utils/useBackHandler';
@@ -1180,6 +1181,7 @@ export default function PainelBarberMovePremium({ token: tokenProp, logout: logo
                             {bloqueadoFinanceiro ? '⛔ Bloqueado' : jaCandidatado ? 'Candidatura enviada' : (aceitandoVagaId === vaga.id ? 'Candidatando...' : 'Candidatar-se')}
                           </button>
                         </div>
+                        <EstruturaDaVaga API_URL={API_URL} token={token} barbeariaId={vaga.barbearia_id} />
                       </div>
                       );
                     })}

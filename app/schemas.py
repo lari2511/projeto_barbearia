@@ -104,6 +104,7 @@ class BarbeiroCreate(UsuarioBase):
     longitude: Optional[float] = None  # Opcional - usado apenas na busca dinâmica
     # Opcional no backend para não quebrar builds antigos do app; o cadastro atual exige.
     tempo_experiencia: Optional[str] = None
+    data_nascimento: Optional[str] = None  # obrigatória: freelancer precisa de 18 anos completos
 
     @field_validator("tempo_experiencia")
     @classmethod
@@ -858,6 +859,7 @@ class CadastroRapido(BaseModel):
     email: EmailStr
     senha: str
     tipo: str
+    data_nascimento: Optional[str] = None  # obrigatória para freelancer (18 anos completos)
 
     @field_validator("senha")
     @classmethod

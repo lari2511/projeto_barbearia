@@ -887,10 +887,17 @@ def cadastrar_barbeiro(
         telefone_existente = db.query(models.Usuario).filter(models.Usuario.telefone == barbeiro.telefone).first()
         if telefone_existente:
             raise HTTPException(status_code=400, detail="Telefone já cadastrado")
-    
+
+    from app.termos.regras import exigir_maioridade_freelancer, interpretar_data_nascimento
+    if not barbeiro.data_nascimento:
+        raise HTTPException(status_code=400, detail="Informe sua data de nascimento")
+    nascimento = interpretar_data_nascimento(barbeiro.data_nascimento)
+    exigir_maioridade_freelancer(nascimento)
+
     novo_usuario = models.Usuario(
         email=email_normalizado,
         nome=barbeiro.nome,
+        data_nascimento=nascimento,
         senha_hash=get_password_hash(barbeiro.senha),
         telefone=barbeiro.telefone,
         cpf=barbeiro.cpf,

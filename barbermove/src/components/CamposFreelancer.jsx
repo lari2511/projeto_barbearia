@@ -1,10 +1,12 @@
 import React from 'react'
-import { Camera, Upload, X } from 'lucide-react'
-import { MAX_FOTOS_TRABALHOS, TEMPOS_PROFISSAO } from '../utils/cadastroFreelancer'
+import { Calendar, Camera, Upload, X } from 'lucide-react'
+import { Input } from './Common'
+import { IDADE_MINIMA_FREELANCER, MAX_FOTOS_TRABALHOS, TEMPOS_PROFISSAO } from '../utils/cadastroFreelancer'
 
 // "Há quanto tempo você trabalha como barbeiro(a)?" +"Adicione até 5 fotos dos seus trabalhos".
 // fotos = [{ file, preview }]
-export default function CamposFreelancer({ tempo, onTempoChange, fotos, onFotosChange, onErro, mostrarFotos = true }) {
+// Data de nascimento (AAAA-MM-DD) só aparece quando onNascimentoChange é passado.
+export default function CamposFreelancer({ tempo, onTempoChange, fotos, onFotosChange, onErro, mostrarFotos = true, nascimento, onNascimentoChange }) {
   const adicionar = (event) => {
     const files = Array.from(event.target.files || [])
     event.target.value = ''
@@ -17,6 +19,20 @@ export default function CamposFreelancer({ tempo, onTempoChange, fotos, onFotosC
 
   return (
     <>
+      {onNascimentoChange && (
+        <div>
+          <Input
+            label="Data de nascimento"
+            type="date"
+            icon={Calendar}
+            value={nascimento || ''}
+            onChange={(event) => onNascimentoChange(event.target.value)}
+            required
+          />
+          <p className="-mt-2 mb-3 text-[11px] text-zinc-500">Freelancers precisam ter {IDADE_MINIMA_FREELANCER} anos completos.</p>
+        </div>
+      )}
+
       <div className="mb-4">
         <p className="mb-2 block text-sm font-medium text-zinc-300">Há quanto tempo você trabalha como barbeiro(a)?</p>
         <div className="grid grid-cols-2 gap-2">

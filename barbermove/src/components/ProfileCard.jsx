@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useContext } from 'react';
 import { Star, MapPin, Phone, Award, TrendingUp, MessageCircle, Navigation, Scissors, Clock } from 'lucide-react';
 import ChatRoom from './ChatRoom';
 import ListaAvaliacoes from './ListaAvaliacoes';
+import { ListaEstrutura } from './EstruturaBarbearia';
 import { AppContext } from '../contexts/AppContext';
 import { getApiBaseUrl, resolveMediaUrl } from '../utils/api';
 import { formatarEndereco } from '../utils/address';
@@ -44,21 +45,6 @@ const normalizePortfolioFotos = (value) => {
     .map((item) => normalizeImageField(item))
     .filter(Boolean);
 };
-
-const ITENS_CONDICOES_ESTRUTURA = [
-  { chave: 'tomadas_equipamentos', label: 'Tomadas para equipamentos' },
-  { chave: 'local_carregar_celular', label: 'Local para carregar celular' },
-  { chave: 'banheiro', label: 'Banheiro' },
-  { chave: 'bebedouro_agua', label: 'Bebedouro/água' },
-  { chave: 'microondas', label: 'Micro-ondas' },
-  { chave: 'local_esquentar_marmita', label: 'Local para esquentar marmita' },
-  { chave: 'capa_fornecida', label: 'Capa fornecida pela barbearia' },
-  { chave: 'espaco_adequado_trabalho', label: 'Espaço adequado para trabalhar' },
-  { chave: 'local_guardar_materiais', label: 'Local para guardar materiais' },
-  { chave: 'ar_condicionado', label: 'Ar-condicionado' },
-  { chave: 'ventilador', label: 'Ventilador' },
-  { chave: 'wifi_freelancers', label: 'Wi-Fi para freelancers' },
-];
 
 const normalizeAvaliacoes = (value) => {
   if (!value || typeof value !== 'object') {
@@ -987,26 +973,8 @@ export default function ProfileCard({ usuarioId, userType, token, isOwnProfile: 
               logado como freelancer (cliente não vê essa seção). */}
           {userType === 'barbearia' && visitanteEhFreelancer && condicoesEstrutura && (
             <div className="mt-6 pt-6 border-t border-zinc-800 space-y-3">
-              <p className="text-xs text-zinc-400 uppercase">Condições e estrutura para freelancer</p>
-              <div className="space-y-2">
-                {ITENS_CONDICOES_ESTRUTURA.map(({ chave, label }) => {
-                  const valor = condicoesEstrutura[chave];
-                  return (
-                    <div key={chave} className="flex items-center justify-between gap-3 rounded-lg border border-zinc-800 bg-black/30 px-3 py-2">
-                      <span className="text-sm text-white">{label}</span>
-                      <span className={`px-2 py-1 rounded text-[10px] font-bold border shrink-0 ${
-                        valor === true
-                          ? 'bg-green-500/15 text-green-400 border-green-500/30'
-                          : valor === false
-                            ? 'bg-red-500/15 text-red-400 border-red-500/30'
-                            : 'bg-zinc-700/30 text-zinc-400 border-zinc-700'
-                      }`}>
-                        {valor === true ? 'SIM' : valor === false ? 'NÃO' : 'NÃO INFORMADO'}
-                      </span>
-                    </div>
-                  );
-                })}
-              </div>
+              <p className="text-xs text-zinc-400 uppercase">Estrutura oferecida ao freelancer</p>
+              <ListaEstrutura condicoes={condicoesEstrutura} />
             </div>
           )}
           {profile.telefone && userType === 'barbeiro' && (

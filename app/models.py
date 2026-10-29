@@ -115,6 +115,8 @@ class Usuario(Base):
     saida_pendente = Column(String, nullable=True)
     # Freelancer: tempo de experiência informado no cadastro ("Menos de 1 ano", "1 ano", ..., "5 anos ou mais")
     tempo_experiencia = Column(String, nullable=True)
+    # Freelancer: data de nascimento declarada (exige 18 anos completos). Não é pedida a cliente nem a dono.
+    data_nascimento = Column(Date, nullable=True)
     criado_em = Column(DateTime, default=datetime.utcnow)
     
     # ✅ CONTROLE ADMIN - Flagging de usuários problemáticos
@@ -183,6 +185,12 @@ class CondicoesEstruturaBarbearia(Base):
     ar_condicionado = Column(Boolean, nullable=True)
     ventilador = Column(Boolean, nullable=True)
     wifi_freelancers = Column(Boolean, nullable=True)
+    secador_disponivel = Column(Boolean, nullable=True)  # opcional: o dono decide se empresta
+    cadeira_disponivel = Column(Boolean, nullable=True)
+    bancada_disponivel = Column(Boolean, nullable=True)
+    espelho_disponivel = Column(Boolean, nullable=True)
+    outros_recursos = Column(String, nullable=True)  # texto livre do dono
+    observacoes = Column(String, nullable=True)  # texto livre do dono
 
     atualizado_em = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -1327,5 +1335,29 @@ class Cobranca(Base):
     ultima_consulta_em = Column(DateTime, nullable=True)
     criado_em = Column(DateTime, default=datetime.utcnow, nullable=False)
     atualizado_em = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    usuario = relationship("Usuario", foreign_keys=[usuario_id])
+
+
+class AceiteDocumento(Base):
+    """
+    Decisão do usuário sobre um documento legal (Termos de Uso / Política de Privacidade).
+
+    Uma linha por decisão, nunca editada: o histórico mostra quem aceitou (ou recusou) qual
+    versão e quando. Se o aceite está vigente é calculado contra a versão publicada atual
+    (app/termos/documentos.py). Data/hora sempre do servidor (UTC).
+    """
+    __tablename__ = "aceites_documentos"
+
+    id = Column(Integer, primary_key=True, index=True)
+    usuario_id = Column(Integer, ForeignKey("usuarios.id"), nullable=False, index=True)
+    perfil = Column(String(20), nullable=False)  # cliente | freelancer | proprietario
+    documento_codigo = Column(String(60), nullable=False, index=True)  # ex.: termos-freelancer
+    tipo_documento = Column(String(30), nullable=False)  # termos_uso | politica_privacidade
+    versao = Column(String(20), nullable=False)
+    conteudo_sha256 = Column(String(64), nullable=False)  # texto exato que estava publicado
+    decisao = Column(String(10), nullable=False)  # aceito | recusado
+    confirmacao = Column(String(200), nullable=False)  # frase que o usuário marcou
+    registrado_em = Column(DateTime, default=datetime.utcnow, nullable=False)
 
     usuario = relationship("Usuario", foreign_keys=[usuario_id])

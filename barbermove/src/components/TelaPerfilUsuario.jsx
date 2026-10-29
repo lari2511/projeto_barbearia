@@ -8,6 +8,7 @@ import { getApiBaseUrl, resolveMediaUrl } from '../utils/api';
 import { formatarEndereco } from '../utils/address';
 import { useBackHandler } from '../utils/useBackHandler';
 import BotaoVoltar from './BotaoVoltar';
+import { AVISO_KIT_FREELANCER, ITENS_CONDICOES_ESTRUTURA, TEXTOS_CONDICOES_ESTRUTURA } from './EstruturaBarbearia';
 import { gerarQrDataUrl, salvarMetodoPreferidoCliente, validarCartaoBasico } from './checkout/core';
 import PagamentoPix, { usePixDisponivel } from './PagamentoPix';
 import { criarPixAssinaturaCadeiras, orcarCadeiras } from '../utils/cobrancasPix';
@@ -19,21 +20,6 @@ const PERFIL_META = {
   freelancer: { badge: 'Barbeiro Profissional', titulo: 'Meu Perfil' },
   barbearia: { badge: 'Barbearia Parceira', titulo: 'Meu Perfil' },
 };
-
-const ITENS_CONDICOES_ESTRUTURA = [
-  { chave: 'tomadas_equipamentos', label: 'Tomadas para equipamentos' },
-  { chave: 'local_carregar_celular', label: 'Local para carregar celular' },
-  { chave: 'banheiro', label: 'Banheiro' },
-  { chave: 'bebedouro_agua', label: 'Bebedouro/água' },
-  { chave: 'microondas', label: 'Micro-ondas' },
-  { chave: 'local_esquentar_marmita', label: 'Local para esquentar marmita' },
-  { chave: 'capa_fornecida', label: 'Capa fornecida pela barbearia' },
-  { chave: 'espaco_adequado_trabalho', label: 'Espaço adequado para trabalhar' },
-  { chave: 'local_guardar_materiais', label: 'Local para guardar materiais' },
-  { chave: 'ar_condicionado', label: 'Ar-condicionado' },
-  { chave: 'ventilador', label: 'Ventilador' },
-  { chave: 'wifi_freelancers', label: 'Wi-Fi para freelancers' },
-];
 
 const calcularPrecoCadeira = precoCadeiraPorPosicao;
 const calcularMensalidadeTotal = mensalidadePorQuantidade;
@@ -1073,6 +1059,26 @@ export function TelaPerfilUsuario({
     }
   };
 
+  // Textos livres da estrutura: editados no estado e salvos ao sair do campo.
+  const salvarTextoEstrutura = async (chave) => {
+    if (!token || !apiBase || perfilTipo !== 'barbearia') return;
+    setSalvandoCondicaoEstrutura(chave);
+    try {
+      const res = await fetch(`${apiBase}/api/v1/barbearia/condicoes-estrutura`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ [chave]: condicoesEstrutura[chave] || '' }),
+      });
+      const data = await safeReadJson(res, {});
+      if (!res.ok) throw new Error(typeof data?.detail === 'string' ? data.detail : 'Não foi possível salvar');
+      setCondicoesEstrutura((prev) => ({ ...prev, [chave]: data?.[chave] ?? null, atualizado_em: data?.atualizado_em }));
+    } catch (e) {
+      onNotify?.(e?.message || 'Não foi possível salvar', 'error');
+    } finally {
+      setSalvandoCondicaoEstrutura(null);
+    }
+  };
+
   const statusAtualTexto = useMemo(() => {
     if (barberStatus === 'presente') {
       const base = barbeariaAtualNome
@@ -2106,10 +2112,12 @@ export function TelaPerfilUsuario({
       {perfilTipo === 'barbearia' && editMode && (
         <AppCard>
           <div className="space-y-3">
-            <p className={styles.labelStrong}>Condições e estrutura para freelancer</p>
+            <p className={styles.labelStrong}>Estrutura oferecida ao freelancer</p>
             <p className="text-[11px] text-zinc-500">
-              Visível só para freelancers ao ver o perfil da sua barbearia.
+              Visível só para freelancers, no perfil da sua barbearia e nas vagas relâmpago. Marque apenas o que você
+              realmente oferece e atualize quando algo mudar.
             </p>
+            <p className="text-[11px] text-zinc-500">{AVISO_KIT_FREELANCER}</p>
             <div className="space-y-2">
               {ITENS_CONDICOES_ESTRUTURA.map(({ chave, label }) => (
                 <div key={chave} className="flex items-center justify-between gap-3 rounded-lg border border-zinc-800 bg-zinc-950/50 px-3 py-2">
@@ -2135,6 +2143,21 @@ export function TelaPerfilUsuario({
                 </div>
               ))}
             </div>
+            {TEXTOS_CONDICOES_ESTRUTURA.map(({ chave, label, max }) => (
+              <div key={chave}>
+                <label className="text-xs text-zinc-400" htmlFor={`estrutura-${chave}`}>{label}</label>
+                <textarea
+                  id={`estrutura-${chave}`}
+                  value={condicoesEstrutura[chave] || ''}
+                  maxLength={max}
+                  onChange={(e) => setCondicoesEstrutura((prev) => ({ ...prev, [chave]: e.target.value }))}
+                  onBlur={() => salvarTextoEstrutura(chave)}
+                  disabled={salvandoCondicaoEstrutura === chave}
+                  className={styles.input + ' mt-1 min-h-[72px]'}
+                  placeholder={chave === 'outros_recursos' ? 'Ex.: toalhas, borrifador, aspirador' : 'Ex.: estação no fundo do salão, sem tomada 220V'}
+                />
+              </div>
+            ))}
           </div>
         </AppCard>
       )}

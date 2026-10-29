@@ -3,7 +3,7 @@ import { Building2, Hash, LogOut, MapPin, Phone, Store, User } from 'lucide-reac
 import { Button, Input } from './Common'
 import { isValidCNPJ, isValidCPF, maskCNPJ, maskCPF } from '../utils/documentValidation'
 import CamposFreelancer from './CamposFreelancer'
-import { enviarCadastroFreelancer } from '../utils/cadastroFreelancer'
+import { enviarCadastroFreelancer, erroDataNascimentoFreelancer } from '../utils/cadastroFreelancer'
 
 // Dados do perfil pedidos DEPOIS do cadastro rápido (e-mail + senha), já dentro do app.
 // Cliente: nome e telefone (pode pular). Freelancer: nome, tempo de profissão e fotos
@@ -35,9 +35,11 @@ const formVazio = {
   cep: '',
   endereco: '',
   tempoExperiencia: '',
+  dataNascimento: '',
 }
 
-export default function CompletarCadastro({ tipo, token, API_URL, notify, onConcluido, onSair, onPular }) {
+// pedirNascimento: freelancer sem data de nascimento gravada (18 anos completos).
+export default function CompletarCadastro({ tipo, token, API_URL, notify, onConcluido, onSair, onPular, pedirNascimento = false }) {
   const [form, setForm] = useState(formVazio)
   const [portfolio, setPortfolio] = useState([])
   const [fotosEnviadas, setFotosEnviadas] = useState(false)
@@ -97,6 +99,10 @@ export default function CompletarCadastro({ tipo, token, API_URL, notify, onConc
     if (form.nome.trim().length < 3) return 'Informe seu nome completo'
 
     if (tipo === 'barbeiro') {
+      if (pedirNascimento) {
+        const erroNascimento = erroDataNascimentoFreelancer(form.dataNascimento)
+        if (erroNascimento) return erroNascimento
+      }
       if (!form.tempoExperiencia) return 'Informe quanto tempo de profissão você tem'
       if (!fotosEnviadas && portfolio.length === 0) return 'Adicione pelo menos 1 foto dos seus trabalhos'
       return ''
@@ -147,6 +153,7 @@ export default function CompletarCadastro({ tipo, token, API_URL, notify, onConc
           token,
           nome: form.nome,
           tempoExperiencia: form.tempoExperiencia,
+          dataNascimento: pedirNascimento ? form.dataNascimento : undefined,
           fotos: portfolio.map((foto) => foto.file),
           fotosJaEnviadas: fotosEnviadas,
           onFotosEnviadas: () => setFotosEnviadas(true),
@@ -215,6 +222,8 @@ export default function CompletarCadastro({ tipo, token, API_URL, notify, onConc
               onFotosChange={setPortfolio}
               onErro={setErro}
               mostrarFotos={!fotosEnviadas}
+              nascimento={form.dataNascimento}
+              onNascimentoChange={pedirNascimento ? (valor) => setForm((atual) => ({ ...atual, dataNascimento: valor })) : undefined}
             />
           )}
 

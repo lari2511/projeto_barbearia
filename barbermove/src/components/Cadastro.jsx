@@ -1,9 +1,11 @@
-import React, { useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import { ArrowLeft, Mail, Scissors, Store, User, Lock } from 'lucide-react'
 import { useApp } from '../contexts/AppContext'
 import { Button, Input } from './Common'
 import CamposFreelancer from './CamposFreelancer'
-import { enviarCadastroFreelancer } from '../utils/cadastroFreelancer'
+import CaixasTermos, { todosConfirmados } from './CaixasTermos'
+import { enviarCadastroFreelancer, erroDataNascimentoFreelancer } from '../utils/cadastroFreelancer'
+import { aceitarDocumentos, listarDocumentos } from '../utils/termos'
 
 // Envia breadcrumbs do fluxo de cadastro pro servidor (visivel via `railway logs`),
 // já que console.log local nunca chega até quem está depurando remotamente.
@@ -66,7 +68,25 @@ export default function Cadastro({ initialType = 'cliente', onBack, onSuccess })
   const [nome, setNome] = useState('')
   const [tempoProfissao, setTempoProfissao] = useState('')
   const [fotosTrabalhos, setFotosTrabalhos] = useState([])
+  const [nascimento, setNascimento] = useState('')
+  // Termos/Privacidade publicados do perfil escolhido (vazio enquanto só houver rascunho).
+  const [documentos, setDocumentos] = useState([])
+  const [confirmados, setConfirmados] = useState({})
   const ehFreelancer = selectedType === 'barbeiro'
+
+  useEffect(() => {
+    let ativo = true
+    setDocumentos([])
+    setConfirmados({})
+    listarDocumentos(API_URL, selectedType)
+      .then((lista) => ativo && setDocumentos(lista))
+      .catch(() => {
+        // Sem a lista, a tela de aceite pede os documentos logo depois de entrar.
+      })
+    return () => {
+      ativo = false
+    }
+  }, [API_URL, selectedType])
 
   const senhasDiferentes = Boolean(form.confirmarSenha) && form.senha !== form.confirmarSenha
 
@@ -105,6 +125,13 @@ export default function Cadastro({ initialType = 'cliente', onBack, onSuccess })
       setLocalError('As senhas não coincidem.')
       return
     }
+    if (ehFreelancer) {
+      const erroNascimento = erroDataNascimentoFreelancer(nascimento)
+      if (erroNascimento) {
+        setLocalError(erroNascimento)
+        return
+      }
+    }
     if (ehFreelancer && !tempoProfissao) {
       setLocalError('Informe quanto tempo de profissão você tem')
       return
@@ -114,20 +141,32 @@ export default function Cadastro({ initialType = 'cliente', onBack, onSuccess })
       return
     }
 
+    if (documentos.length > 0 && !todosConfirmados(documentos, confirmados)) {
+      setLocalError('Leia e confirme os Termos de Uso e a Política de Privacidade')
+      return
+    }
+
     setLocalError('')
     try {
-      const opcoes = ehFreelancer
-        ? {
-            antesDeEntrar: (token) => enviarCadastroFreelancer({
+      // Aceite primeiro: sem ele o servidor recusa as demais chamadas da conta nova.
+      // Se falhar, a conta entra mesmo assim e a tela de aceite pede de novo.
+      const opcoes = {
+        antesDeEntrar: async (token) => {
+          if (documentos.length > 0) await aceitarDocumentos(API_URL, token, documentos)
+          if (ehFreelancer) {
+            await enviarCadastroFreelancer({
               API_URL,
               token,
               nome,
               tempoExperiencia: tempoProfissao,
+              dataNascimento: nascimento,
               fotos: fotosTrabalhos.map((foto) => foto.file),
-            }),
+            })
           }
-        : undefined
-      const result = await register(selectedType, { email, senha: form.senha }, opcoes)
+        },
+      }
+      const dados = ehFreelancer ? { email, senha: form.senha, data_nascimento: nascimento } : { email, senha: form.senha }
+      const result = await register(selectedType, dados, opcoes)
       void enviarDiagnosticoCadastro(API_URL, 'submit:resultado', result ? 'register() retornou sucesso' : 'register() retornou false/falha', { sucesso: Boolean(result) })
       if (!result) {
         setLocalError('O servidor recusou o cadastro. Veja o aviso no topo da tela para o motivo.')
@@ -230,7 +269,21 @@ export default function Cadastro({ initialType = 'cliente', onBack, onSuccess })
               fotos={fotosTrabalhos}
               onFotosChange={setFotosTrabalhos}
               onErro={setLocalError}
+              nascimento={nascimento}
+              onNascimentoChange={setNascimento}
             />
+          )}
+
+          {documentos.length > 0 && (
+            <div className="pt-2">
+              <CaixasTermos
+                API_URL={API_URL}
+                documentos={documentos}
+                confirmados={confirmados}
+                onChange={(codigo, valor) => setConfirmados((atual) => ({ ...atual, [codigo]: valor }))}
+                desabilitado={loading}
+              />
+            </div>
           )}
 
           {localError && (
@@ -239,8 +292,13 @@ export default function Cadastro({ initialType = 'cliente', onBack, onSuccess })
             </div>
           )}
 
-          <Button type="submit" fullWidth disabled={loading || senhasDiferentes} className="mt-2">
-            {loading ? 'Criando conta...' : 'Criar conta'}
+          <Button
+            type="submit"
+            fullWidth
+            disabled={loading || senhasDiferentes || (documentos.length > 0 && !todosConfirmados(documentos, confirmados))}
+            className="mt-2"
+          >
+            {loading ? 'Criando conta...' : documentos.length > 0 ? 'Aceitar e continuar' : 'Criar conta'}
           </Button>
         </form>
       </div>

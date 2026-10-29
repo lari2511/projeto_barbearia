@@ -20,6 +20,7 @@ from sqlalchemy.orm import Session
 from app import models, schemas
 from app.database import get_db
 from app.routes import create_access_token, get_current_user, get_password_hash, normalize_email
+from app.termos.regras import exigir_maioridade_freelancer, interpretar_data_nascimento
 
 router = APIRouter(prefix="/api/v1", tags=["Cadastro"])
 
@@ -32,6 +33,14 @@ def cadastro_rapido(dados: schemas.CadastroRapido, db: Session = Depends(get_db)
     email = normalize_email(dados.email)
     if db.query(models.Usuario.id).filter(func.lower(models.Usuario.email) == email).first():
         raise HTTPException(status_code=400, detail=EMAIL_JA_CADASTRADO)
+
+    # Freelancer: 18 anos completos. Menor não chega a ter conta criada (nem a data guardada).
+    nascimento = None
+    if dados.tipo == "barbeiro":
+        if not dados.data_nascimento:
+            raise HTTPException(status_code=400, detail="Informe sua data de nascimento")
+        nascimento = interpretar_data_nascimento(dados.data_nascimento)
+        exigir_maioridade_freelancer(nascimento)
 
     agora = datetime.now()
     usuario = models.Usuario(
@@ -46,6 +55,7 @@ def cadastro_rapido(dados: schemas.CadastroRapido, db: Session = Depends(get_db)
         # barbearia só aparece na busca depois de completar.
         perfil_aprovado=dados.tipo == "cliente",
         perfil_aprovado_em=agora if dados.tipo == "cliente" else None,
+        data_nascimento=nascimento,
     )
     db.add(usuario)
     try:
@@ -106,6 +116,15 @@ def completar_cadastro(
 
     if u.tipo == "barbeiro":
         from app.admin_routes import _qtd_fotos
+
+        if not u.data_nascimento:
+            if not payload.get("data_nascimento"):
+                raise HTTPException(status_code=400, detail="Informe sua data de nascimento")
+            nascimento = interpretar_data_nascimento(payload.get("data_nascimento"))
+            exigir_maioridade_freelancer(nascimento)
+            u.data_nascimento = nascimento
+        else:
+            exigir_maioridade_freelancer(u.data_nascimento)
 
         if _qtd_fotos(db, u) < MIN_FOTOS_PORTFOLIO:
             raise HTTPException(status_code=400, detail="Adicione pelo menos 1 foto dos seus trabalhos")

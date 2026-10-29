@@ -1,24 +1,49 @@
+"""
+Páginas públicas (HTML e texto puro) dos Termos de Uso e da Política de Privacidade.
+
+O texto vem do catálogo app/termos/documentos.py (o mesmo que o app mostra e que o usuário
+aceita). Sem versão publicada, mostra o rascunho mais recente com o aviso de que está em revisão.
+"""
+
+import html
+
 from fastapi import APIRouter
 from fastapi.responses import HTMLResponse, PlainTextResponse
-import os
+
+from app.termos import documentos as docs
 
 router = APIRouter()
 
-@router.get("/termos-de-uso", response_class=HTMLResponse)
-async def get_termos_de_uso():
-    """Retorna os termos de uso em HTML"""
-    try:
-        with open("TERMOS_DE_USO.md", "r", encoding="utf-8") as f:
-            content = f.read()
-        
-        # Converter markdown básico para HTML
-        html_content = f"""
+_CODIGO_TERMOS = {
+    "cliente": "termos-cliente",
+    "freelancer": "termos-freelancer",
+    "proprietario": "termos-proprietario",
+}
+
+
+def _documento(codigo: str):
+    return docs.versao_atual(codigo) or docs.ultima_versao(codigo)
+
+
+def _codigo_termos(perfil: str) -> str:
+    return _CODIGO_TERMOS.get(docs.normalizar_perfil(perfil) or "cliente", "termos-cliente")
+
+
+def _pagina(documento, cor: str) -> HTMLResponse:
+    if not documento:
+        return HTMLResponse(content="<h1>Documento não encontrado</h1>", status_code=404)
+    aviso = ""
+    if documento.estado != docs.PUBLICADO:
+        aviso = '<div class="aviso">RASCUNHO EM REVISÃO: este texto ainda não está publicado.</div>'
+    titulo = html.escape(documento.titulo)
+    conteudo = html.escape(documento.conteudo)
+    return HTMLResponse(content=f"""
         <!DOCTYPE html>
         <html lang="pt-BR">
         <head>
             <meta charset="UTF-8">
             <meta name="viewport" content="width=device-width, initial-scale=1.0">
-            <title>Termos de Uso - BarberMove</title>
+            <title>{titulo} - BarberMove</title>
             <style>
                 body {{
                     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
@@ -31,133 +56,57 @@ async def get_termos_de_uso():
                 }}
                 .container {{
                     background: white;
-                    padding: 40px;
+                    padding: 24px;
                     border-radius: 8px;
                     box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+                    border-top: 4px solid {cor};
                 }}
-                h1 {{ color: #1a1a1a; font-size: 2em; margin-bottom: 0.5em; }}
-                h2 {{ color: #2a2a2a; font-size: 1.5em; margin-top: 1.5em; border-bottom: 2px solid #f97316; padding-bottom: 0.3em; }}
-                h3 {{ color: #3a3a3a; font-size: 1.2em; margin-top: 1em; }}
-                ul, ol {{ padding-left: 20px; }}
-                li {{ margin: 0.5em 0; }}
-                strong {{ color: #f97316; }}
-                .highlight {{
+                .meta {{ color: #666; font-size: 0.9em; }}
+                .aviso {{
                     background: #fff3cd;
                     border-left: 4px solid #ffc107;
-                    padding: 15px;
-                    margin: 20px 0;
-                }}
-                .important {{
-                    background: #f8d7da;
-                    border-left: 4px solid #dc3545;
-                    padding: 15px;
-                    margin: 20px 0;
-                }}
-                .contact {{
-                    background: #d1ecf1;
-                    border-left: 4px solid #0dcaf0;
-                    padding: 20px;
-                    margin: 30px 0;
-                    border-radius: 4px;
+                    padding: 12px;
+                    margin-bottom: 16px;
+                    font-weight: bold;
                 }}
             </style>
         </head>
         <body>
             <div class="container">
-                <pre style="white-space: pre-wrap; font-family: inherit;">{content}</pre>
+                {aviso}
+                <p class="meta">Versão {html.escape(documento.versao)} · vigente desde {documento.vigente_desde.strftime('%d/%m/%Y')}</p>
+                <pre style="white-space: pre-wrap; font-family: inherit;">{conteudo}</pre>
             </div>
         </body>
         </html>
-        """
-        return HTMLResponse(content=html_content)
-    except FileNotFoundError:
-        return HTMLResponse(content="<h1>Termos de uso não encontrados</h1>", status_code=404)
+        """)
+
+
+@router.get("/termos-de-uso", response_class=HTMLResponse)
+async def get_termos_de_uso(perfil: str = "cliente"):
+    """Termos de Uso do perfil (cliente | freelancer | proprietario) em HTML"""
+    return _pagina(_documento(_codigo_termos(perfil)), "#f97316")
 
 
 @router.get("/politica-privacidade", response_class=HTMLResponse)
 async def get_politica_privacidade():
-    """Retorna a política de privacidade em HTML"""
-    try:
-        with open("POLITICA_PRIVACIDADE.md", "r", encoding="utf-8") as f:
-            content = f.read()
-        
-        html_content = f"""
-        <!DOCTYPE html>
-        <html lang="pt-BR">
-        <head>
-            <meta charset="UTF-8">
-            <meta name="viewport" content="width=device-width, initial-scale=1.0">
-            <title>Política de Privacidade - BarberMove</title>
-            <style>
-                body {{
-                    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
-                    line-height: 1.6;
-                    color: #333;
-                    max-width: 800px;
-                    margin: 0 auto;
-                    padding: 20px;
-                    background: #f5f5f5;
-                }}
-                .container {{
-                    background: white;
-                    padding: 40px;
-                    border-radius: 8px;
-                    box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-                }}
-                h1 {{ color: #1a1a1a; font-size: 2em; margin-bottom: 0.5em; }}
-                h2 {{ color: #2a2a2a; font-size: 1.5em; margin-top: 1.5em; border-bottom: 2px solid #0d6efd; padding-bottom: 0.3em; }}
-                h3 {{ color: #3a3a3a; font-size: 1.2em; margin-top: 1em; }}
-                ul, ol {{ padding-left: 20px; }}
-                li {{ margin: 0.5em 0; }}
-                strong {{ color: #0d6efd; }}
-                .highlight {{
-                    background: #e7f3ff;
-                    border-left: 4px solid #0d6efd;
-                    padding: 15px;
-                    margin: 20px 0;
-                }}
-                .important {{
-                    background: #f8d7da;
-                    border-left: 4px solid #dc3545;
-                    padding: 15px;
-                    margin: 20px 0;
-                }}
-                .contact {{
-                    background: #d1ecf1;
-                    border-left: 4px solid #0dcaf0;
-                    padding: 20px;
-                    margin: 30px 0;
-                    border-radius: 4px;
-                }}
-            </style>
-        </head>
-        <body>
-            <div class="container">
-                <pre style="white-space: pre-wrap; font-family: inherit;">{content}</pre>
-            </div>
-        </body>
-        </html>
-        """
-        return HTMLResponse(content=html_content)
-    except FileNotFoundError:
-        return HTMLResponse(content="<h1>Política de privacidade não encontrada</h1>", status_code=404)
+    """Política de Privacidade em HTML"""
+    return _pagina(_documento("politica-privacidade"), "#0d6efd")
 
 
 @router.get("/termos-de-uso/texto", response_class=PlainTextResponse)
-async def get_termos_texto():
-    """Retorna os termos de uso em texto puro"""
-    try:
-        with open("TERMOS_DE_USO.md", "r", encoding="utf-8") as f:
-            return f.read()
-    except FileNotFoundError:
+async def get_termos_texto(perfil: str = "cliente"):
+    """Termos de Uso em texto puro"""
+    documento = _documento(_codigo_termos(perfil))
+    if not documento:
         return PlainTextResponse(content="Termos de uso não encontrados", status_code=404)
+    return documento.conteudo
 
 
 @router.get("/politica-privacidade/texto", response_class=PlainTextResponse)
 async def get_privacidade_texto():
-    """Retorna a política de privacidade em texto puro"""
-    try:
-        with open("POLITICA_PRIVACIDADE.md", "r", encoding="utf-8") as f:
-            return f.read()
-    except FileNotFoundError:
+    """Política de privacidade em texto puro"""
+    documento = _documento("politica-privacidade")
+    if not documento:
         return PlainTextResponse(content="Política de privacidade não encontrada", status_code=404)
+    return documento.conteudo

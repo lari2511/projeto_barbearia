@@ -81,6 +81,29 @@ def init_db():
                 connection.execute(text("ALTER TABLE usuarios ADD COLUMN cadastro_pendente BOOLEAN DEFAULT FALSE"))
                 print("[migracao] Coluna cadastro_pendente criada")
 
+        # Freelancer: data de nascimento declarada (18 anos completos)
+        if "data_nascimento" not in colunas_existentes:
+            with engine.begin() as connection:
+                connection.execute(text("ALTER TABLE usuarios ADD COLUMN data_nascimento DATE"))
+                print("[migracao] Coluna data_nascimento criada")
+
+    if "condicoes_estrutura_barbearia" in inspector.get_table_names():
+        colunas_existentes = {coluna["name"] for coluna in inspector.get_columns("condicoes_estrutura_barbearia")}
+        # Estrutura oferecida ao freelancer: equipamentos e textos livres do dono
+        colunas_esperadas = {
+            "secador_disponivel": "BOOLEAN",
+            "cadeira_disponivel": "BOOLEAN",
+            "bancada_disponivel": "BOOLEAN",
+            "espelho_disponivel": "BOOLEAN",
+            "outros_recursos": "VARCHAR(500)",
+            "observacoes": "VARCHAR(1000)",
+        }
+
+        with engine.begin() as connection:
+            for nome_coluna, definicao in colunas_esperadas.items():
+                if nome_coluna not in colunas_existentes:
+                    connection.execute(text(f"ALTER TABLE condicoes_estrutura_barbearia ADD COLUMN {nome_coluna} {definicao}"))
+
     if "chamados" in inspector.get_table_names():
         colunas_existentes = {coluna["name"] for coluna in inspector.get_columns("chamados")}
         colunas_esperadas = {

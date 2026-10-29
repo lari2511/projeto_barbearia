@@ -130,6 +130,7 @@ def get_perfil_completo(db: Session = Depends(get_db), usuario = Depends(get_cur
         "foto_perfil": _normalizar_path_upload(usuario.foto_perfil),
         "cpf": usuario.cpf,
         "cnpj": usuario.cnpj,
+        "data_nascimento": usuario.data_nascimento.isoformat() if usuario.data_nascimento else None,
         "email_verificado": usuario.email_verificado,
         "documento_verificado": usuario.documento_verificado,
         "perfil_aprovado": usuario.perfil_aprovado,
@@ -797,8 +798,9 @@ def deletar_portfolio_barbearia(foto_id: int, db: Session = Depends(get_db), usu
 
 
 # ==================== CONDIÇÕES E ESTRUTURA PARA FREELANCER ====================
-# Checklist fixo SIM/NÃO, editado pelo dono e visível só para freelancers
-# olhando o perfil da barbearia.
+# Checklist fixo SIM/NÃO + textos livres, editado pelo dono e visível só para
+# freelancers (perfil da barbearia e vaga relâmpago). Nada vem marcado: None =
+# "não informado" até o dono responder.
 
 _ITENS_CONDICOES_ESTRUTURA = [
     "tomadas_equipamentos",
@@ -813,11 +815,23 @@ _ITENS_CONDICOES_ESTRUTURA = [
     "ar_condicionado",
     "ventilador",
     "wifi_freelancers",
+    "secador_disponivel",
+    "cadeira_disponivel",
+    "bancada_disponivel",
+    "espelho_disponivel",
 ]
+# Textos livres do dono: campo -> tamanho máximo
+_TEXTOS_CONDICOES_ESTRUTURA = {
+    "outros_recursos": 500,
+    "observacoes": 1000,
+}
 
 
 def _serializar_condicoes_estrutura(registro):
-    return {item: (getattr(registro, item) if registro else None) for item in _ITENS_CONDICOES_ESTRUTURA}
+    campos = list(_ITENS_CONDICOES_ESTRUTURA) + list(_TEXTOS_CONDICOES_ESTRUTURA)
+    dados = {item: (getattr(registro, item) if registro else None) for item in campos}
+    dados["atualizado_em"] = registro.atualizado_em.isoformat() if registro and registro.atualizado_em else None
+    return dados
 
 
 @router.get("/barbearia/{barbearia_id}/condicoes-estrutura")
@@ -866,6 +880,12 @@ def atualizar_condicoes_estrutura_barbearia(
         if item in payload:
             valor = payload.get(item)
             setattr(registro, item, bool(valor) if valor is not None else None)
+    for item, limite in _TEXTOS_CONDICOES_ESTRUTURA.items():
+        if item in payload:
+            texto = str(payload.get(item) or "").strip()
+            if len(texto) > limite:
+                raise HTTPException(status_code=400, detail=f"Texto muito longo (máximo {limite} caracteres)")
+            setattr(registro, item, texto or None)
 
     db.commit()
     db.refresh(registro)

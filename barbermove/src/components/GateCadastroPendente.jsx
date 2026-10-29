@@ -12,6 +12,7 @@ export default function GateCadastroPendente({ token, userType, API_URL, notify,
   const [situacao, setSituacao] = useState('carregando') // carregando | pendente | ok
   const [formClienteAberto, setFormClienteAberto] = useState(false)
   const [conviteDispensado, setConviteDispensado] = useState(false)
+  const [semNascimento, setSemNascimento] = useState(false)
 
   useEffect(() => {
     let ativo = true
@@ -21,7 +22,10 @@ export default function GateCadastroPendente({ token, userType, API_URL, notify,
           headers: { Authorization: `Bearer ${token}` },
         })
         const data = res.ok ? await res.json().catch(() => null) : null
-        if (ativo) setSituacao(data?.cadastro_pendente ? 'pendente' : 'ok')
+        if (ativo) {
+          setSemNascimento(Boolean(data) && !data.data_nascimento)
+          setSituacao(data?.cadastro_pendente ? 'pendente' : 'ok')
+        }
       } catch (_err) {
         if (ativo) setSituacao('ok')
       }
@@ -50,6 +54,7 @@ export default function GateCadastroPendente({ token, userType, API_URL, notify,
           notify={notify}
           onConcluido={concluir}
           onSair={logout}
+          pedirNascimento={userType === 'barbeiro' && semNascimento}
         />
       )
     }

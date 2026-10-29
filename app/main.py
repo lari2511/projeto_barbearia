@@ -56,6 +56,8 @@ from .routes_interesse import router as router_interesse  # 👀 Interesse de cl
 from .routes_alteracao_servico import router as router_alteracao_servico  # ✂️ Alteração de serviço pelo freelancer (confirmada pelo cliente)
 from .routes_cobrancas import router as router_cobrancas  # 💠 Cobranças Pix (Mercado Pago)
 from .routes_cadastro import router as router_cadastro  # 📝 Cadastro rápido (e-mail + senha) e completar perfil
+from .routes_termos import router as router_termos  # 📜 Termos de Uso / Privacidade: aceite obrigatório
+from .termos.middleware import ExigirAceiteTermosMiddleware
 from .realtime import realtime_manager
 from .pagamento_diario import loop_pagamento_diario
 import asyncio
@@ -86,6 +88,10 @@ origins_env = os.getenv("ALLOWED_ORIGINS", "http://localhost:5173,http://localho
 cors_origins = [o.strip() for o in origins_env.split(",") if o and o.strip()]
 
 # Origens do app mobile (Capacitor) para evitar bloqueio CORS no APK.
+# Aceite obrigatório dos Termos/Privacidade. Registrado ANTES do CORS para ficar por dentro
+# dele: a resposta 428 também precisa dos cabeçalhos CORS (app Capacitor tem outra origem).
+app.add_middleware(ExigirAceiteTermosMiddleware)
+
 mobile_origins = [
     "http://localhost",
     "https://localhost",
@@ -150,6 +156,7 @@ app.include_router(router_senha)  # 🔑 Reset de senha
 app.include_router(router_visibilidade)  # 👁️ Visibilidade do ecossistema local (freelancer vê barbearias / dono vê freelancers)
 app.include_router(router_cobrancas)  # 💠 Cobranças Pix (Mercado Pago)
 app.include_router(router_cadastro)  # 📝 Cadastro rápido e completar perfil
+app.include_router(router_termos)  # 📜 Termos de Uso / Privacidade
 app.include_router(router_interesse)  # 👀 Interesse de clientes em atendimento (agregado, via sino de notificações)
 app.include_router(router_alteracao_servico)  # ✂️ Alteração de serviço (freelancer pede, cliente confirma)
 # Rotas legais (Termos e Privacidade)
