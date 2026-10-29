@@ -1238,6 +1238,12 @@ export default function ClientDashboard({ token, logout, API_URL: apiUrlProp, no
 
     const totalSelecionado = selectedServices.reduce((acc, s) => acc + (Number(s.valor) || 0), 0);
     const duracaoSelecionada = selectedServices.reduce((acc, s) => acc + (Number(s.duracao_minutos) || 0), 0);
+    // Só exibição: "R$ 50" ou "R$ 47,90" (o valor enviado no chamado continua o do serviço).
+    const formatarPrecoServico = (valor) => {
+        const numero = Number(valor) || 0;
+        const casas = Number.isInteger(numero) ? 0 : 2;
+        return `R$ ${numero.toLocaleString('pt-BR', { minimumFractionDigits: casas, maximumFractionDigits: 2 })}`;
+    };
 
     // Atendimento iniciado: painel do cliente entra em modo "acompanhar" (somente visualizacao).
     const atendimentoEmAndamento =
@@ -1341,14 +1347,6 @@ export default function ClientDashboard({ token, logout, API_URL: apiUrlProp, no
     const tempoEstimadoBarbeiroMinutos = estimarTempoMinutos(distanciaBarbeiroParaBarbeariaKm);
     const barbeiroDentroDoLimite = tempoEstimadoBarbeiroMinutos !== null && tempoEstimadoBarbeiroMinutos <= 10;
     const possuiGpsBarbeiroValido = tempoEstimadoBarbeiroMinutos !== null;
-    const gpsStatusTexto = (() => {
-        if (!localizacaoCliente) return 'GPS indisponível';
-        if (tempoEstimadoBarbeariaMinutos == null) return 'GPS detectado';
-        return clienteDentroDoLimite ? 'GPS detectado com boa precisão' : 'GPS detectado, mas a distância está alta';
-    })();
-    const gpsStatusClasse = localizacaoCliente
-        ? (clienteDentroDoLimite ? 'text-green-400' : 'text-amber-300')
-        : 'text-red-400';
     const [barbeiroDisponibilidade, setBarbeiroDisponibilidade] = useState(null);
 
     // Consultar disponibilidade antecipada do barbeiro (regra dos 15 minutos)
@@ -2226,115 +2224,127 @@ export default function ClientDashboard({ token, logout, API_URL: apiUrlProp, no
 
                     {step === 'servicos' && (
                         <>
-                            <h2 className="text-sm font-bold text-zinc-300">Escolha um ou mais servicos em {selectedBarbearia?.nome}</h2>
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                                <div className={`rounded-lg p-3 border shadow-sm ${localizacaoCliente ? (clienteDentroDoLimite ? 'bg-green-950/40 border-green-500/40' : 'bg-amber-950/30 border-amber-500/40') : 'bg-red-950/30 border-red-500/40'}`}>
-                                    <p className="text-[10px] uppercase tracking-wide text-zinc-500 mb-1">Sua localização detectada</p>
-                                    <p className="text-sm font-bold text-white">
-                                        {localizacaoCliente
-                                            ? `${localizacaoCliente.latitude.toFixed(4)}, ${localizacaoCliente.longitude.toFixed(4)}`
-                                            : 'GPS indisponível'}
-                                    </p>
-                                    <div className="mt-2 flex items-center gap-2 flex-wrap">
-                                        <span className={`text-[10px] font-bold px-2 py-1 rounded-full border ${localizacaoCliente ? (clienteDentroDoLimite ? 'bg-green-500/15 text-green-300 border-green-500/30' : 'bg-amber-500/15 text-amber-300 border-amber-500/30') : 'bg-red-500/15 text-red-300 border-red-500/30'}`}>
-                                            {localizacaoCliente ? (clienteDentroDoLimite ? 'GPS OK' : 'GPS DISTANTE') : 'SEM GPS'}
-                                        </span>
-                                        <p className={`text-[11px] font-semibold ${gpsStatusClasse}`}>{gpsStatusTexto}</p>
-                                    </div>
-                                </div>
-                                <div className="bm-card p-3 rounded-lg">
-                                    <p className="text-[10px] uppercase tracking-wide text-zinc-500 mb-1">Barbearia selecionada</p>
-                                    <p className="text-sm font-bold text-white">{selectedBarbearia?.nome || 'Barbearia'}</p>
-                                    <p className="text-[11px] text-zinc-400 truncate">{selectedBarbearia?.endereco || selectedBarber?.endereco || selectedBarber?.barbearia_atual_nome || 'Endereço disponível no perfil'}</p>
-                                </div>
-                            </div>
-                            <div className="bm-card p-3 flex items-center justify-between rounded-lg">
-                                <div>
-                                    <p className="text-xs text-zinc-400">Barbeiro</p>
-                                    <p className="text-sm font-bold text-white">{selectedBarber?.nome || 'Barbeiro'}</p>
-                                </div>
-                                <button
-                                    onClick={() => setPerfilModal({ id: selectedBarber?.id, tipo: 'barbeiro' })}
-                                    className="bg-zinc-800 hover:bg-zinc-700 text-white px-3 py-2 rounded-lg text-xs font-bold"
-                                >
-                                    Ver perfil
-                                </button>
-                            </div>
+                            <h2 className="text-sm font-semibold text-zinc-300">Escolha um ou mais serviços em {selectedBarbearia?.nome}</h2>
 
-                            {/* 🚀 Modo chamada imediata: mostrar quando o backend confirmar presença real */}
-                            {barbeiroPodeReceberAgora && (
-                                <div className="bg-green-900/30 border-2 border-green-500 rounded-lg p-3 text-center">
-                                    <p className="text-green-400 font-bold text-sm">🚀 CHAMADA EM TEMPO REAL</p>
-                                    <p className="text-xs text-green-300 mt-1">{selectedBarber?.nome} está PRESENTE na barbearia!</p>
-                                    <p className="text-xs text-green-300">Vai receber seu chamado AGORA</p>
-                                </div>
-                            )}
-
-                            {!podeChamarAgora ? (
-                                <div className="bg-red-900/30 border-2 border-red-500 rounded-lg p-3 text-center">
-                                    <p className="text-red-300 font-bold text-sm">Você precisa estar a no máximo 10 minutos da barbearia</p>
-                                    <p className="text-xs text-red-200 mt-1">
-                                        {tempoEstimadoBarbeariaMinutos !== null
-                                            ? `Distância estimada: ${tempoEstimadoBarbeariaMinutos} min. Vá até a barbearia e tente de novo.`
-                                            : 'Não foi possível medir sua distância. Ative a localização para chamar agora.'}
-                                    </p>
-                                </div>
-                            ) : (
-                                <div className="bg-green-900/30 border-2 border-green-500 rounded-lg p-3 text-center">
-                                    <p className="text-green-400 font-bold text-sm">🚀 CHAMADA EM TEMPO REAL</p>
-                                    <p className="text-xs text-green-300 mt-1">
-                                        Distância estimada: {tempoEstimadoBarbeariaMinutos} min até a barbearia.
-                                    </p>
-                                    <p className="text-xs text-green-300">Você pode chamar agora</p>
-                                </div>
-                            )}
-                            
-                            <div className="space-y-2">
-                                {services && services.length > 0 ? services.map(service => (
-                                    <div key={service.id} className={`bm-card bg-zinc-900 rounded-2xl p-4 border ${selectedServices.find(s => s.id === service.id) ? 'border-orange-500' : 'border-zinc-800/60'}`}>
-                                        <div className="flex justify-between items-start">
-                                            <div>
-                                                <p className="font-bold text-sm">{service.nome}</p>
-                                                <p className="text-xs text-zinc-400">{service.duracao_minutos || 30} min</p>
-                                            </div>
-                                            <p className="text-sm font-bold text-green-400">R$ {service.valor}</p>
+                            {/* Profissional + disponibilidade num cartão só. Só mostra o que os dados confirmam. */}
+                            <div className="rounded-xl border border-zinc-800 bg-[#141417] p-3 space-y-3">
+                                <div className="flex items-center gap-3">
+                                    {resolverFotoBarbeiro(barbeiroInfo || selectedBarber) ? (
+                                        <img
+                                            src={resolverFotoBarbeiro(barbeiroInfo || selectedBarber)}
+                                            alt={selectedBarber?.nome || 'Barbeiro'}
+                                            className="h-11 w-11 shrink-0 rounded-full object-cover border border-zinc-800"
+                                            onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                                        />
+                                    ) : (
+                                        <div className="h-11 w-11 shrink-0 rounded-full border border-zinc-800 bg-zinc-900 flex items-center justify-center text-sm font-semibold text-zinc-300">
+                                            {String(selectedBarber?.nome || 'B').trim().charAt(0).toUpperCase()}
                                         </div>
-                                        <div className="flex gap-2 mt-3">
+                                    )}
+                                    <div className="min-w-0 flex-1">
+                                        <p className="truncate text-sm font-semibold text-white">{selectedBarber?.nome || 'Barbeiro'}</p>
+                                        <p className="text-xs text-zinc-500">Barbeiro</p>
+                                    </div>
+                                    <button
+                                        onClick={() => setPerfilModal({ id: selectedBarber?.id, tipo: 'barbeiro' })}
+                                        className="shrink-0 rounded-lg border border-zinc-700 bg-transparent px-3 py-2 text-xs font-semibold text-zinc-200 hover:bg-zinc-800"
+                                    >
+                                        Ver perfil
+                                    </button>
+                                </div>
+
+                                <div className="border-t border-zinc-800 pt-2.5 space-y-1.5 text-xs">
+                                    {imediatoPorPresenca ? (
+                                        <p className="flex items-center gap-2 text-zinc-200">
+                                            <span className="h-2 w-2 shrink-0 rounded-full bg-emerald-500" />
+                                            Presente na barbearia
+                                        </p>
+                                    ) : barbeiroPodeReceberAgora ? (
+                                        <p className="flex items-center gap-2 text-zinc-200">
+                                            <span className="h-2 w-2 shrink-0 rounded-full bg-emerald-500" />
+                                            Disponível para chamados
+                                        </p>
+                                    ) : null}
+                                    <p className="flex items-center gap-2 text-zinc-400 min-w-0">
+                                        <MapPin size={12} className="shrink-0 text-zinc-500" />
+                                        <span className="truncate">
+                                            {selectedBarbearia?.nome || 'Barbearia'}
+                                            {selectedBarbearia?.endereco ? ` · ${selectedBarbearia.endereco}` : ''}
+                                        </span>
+                                    </p>
+                                    {tempoEstimadoBarbeariaMinutos !== null ? (
+                                        <p className={clienteDentroDoLimite ? 'text-zinc-400' : 'text-amber-300/90'}>
+                                            Você está a aproximadamente {tempoEstimadoBarbeariaMinutos} min da barbearia
+                                        </p>
+                                    ) : (
+                                        <p className="text-zinc-500">{localizacaoCliente ? 'Não foi possível estimar sua distância' : 'Localização indisponível'}</p>
+                                    )}
+                                    {!podeChamarAgora && (
+                                        <p className="rounded-lg border border-red-500/25 bg-red-500/5 px-2.5 py-2 text-red-300">
+                                            Para chamar, você precisa estar a no máximo 10 minutos da barbearia.
+                                            {tempoEstimadoBarbeariaMinutos === null ? ' Ative a localização e tente de novo.' : ''}
+                                        </p>
+                                    )}
+                                </div>
+                            </div>
+
+                            <div className="space-y-2">
+                                {services && services.length > 0 ? services.map(service => {
+                                    const selecionado = Boolean(selectedServices.find(s => s.id === service.id));
+                                    const podeChamar = podeChamarAgora && !bookingLoading;
+                                    return (
+                                    <div key={service.id} className={`rounded-xl border bg-[#141417] p-3 transition-colors ${selecionado ? 'border-zinc-500' : 'border-zinc-800'}`}>
+                                        <div className="flex items-start justify-between gap-3">
+                                            <div className="min-w-0">
+                                                <p className="text-sm font-semibold text-white break-words">{service.nome}</p>
+                                                <p className="mt-0.5 text-xs text-zinc-500">{service.duracao_minutos || 30} min</p>
+                                            </div>
+                                            <p className="shrink-0 text-sm font-semibold text-emerald-300/90">{formatarPrecoServico(service.valor)}</p>
+                                        </div>
+                                        <div className="mt-2.5 grid grid-cols-2 gap-2">
                                             <button
                                                 onClick={() => toggleServiceSelection(service)}
-                                                className={`flex-1 ${selectedServices.find(s => s.id === service.id) ? 'bg-zinc-700' : 'bg-orange-600 hover:bg-orange-700'} text-white font-bold rounded-xl py-3 text-sm`}
+                                                aria-pressed={selecionado}
+                                                className={`min-h-[40px] rounded-lg border px-3 text-sm font-semibold transition-colors ${selecionado ? 'border-zinc-400 bg-zinc-800 text-white' : 'border-zinc-700 bg-transparent text-zinc-200 hover:bg-zinc-900'}`}
                                             >
-                                                {selectedServices.find(s => s.id === service.id) ? 'Selecionado' : 'Selecionar'}
+                                                {selecionado ? '✓ Selecionado' : 'Selecionar'}
                                             </button>
                                             <button
                                                 onClick={() => handleBooking(service)}
-                                                    disabled={!podeChamarAgora || bookingLoading}
-                                                    className={`flex-1 ${podeChamarAgora && !bookingLoading ? 'bg-emerald-500 hover:bg-emerald-400' : 'bg-zinc-700 cursor-not-allowed'} text-white font-bold rounded-xl py-3 text-sm`}
+                                                disabled={!podeChamar}
+                                                className={`min-h-[40px] rounded-lg px-3 text-sm font-semibold transition-colors ${podeChamar ? 'bg-emerald-700 text-white hover:bg-emerald-600' : 'bg-zinc-800 text-zinc-500 cursor-not-allowed'}`}
                                             >
-                                                {bookingLoading ? 'Buscando localização...' : 'Chamar AGORA'}
+                                                {bookingLoading ? 'Aguarde...' : 'Chamar'}
                                             </button>
                                         </div>
                                     </div>
-                                )) : (
-                                    <p className="text-zinc-600 text-center py-10 text-xs">Nenhum servico encontrado</p>
+                                    );
+                                }) : (
+                                    <p className="text-zinc-600 text-center py-10 text-xs">Nenhum serviço encontrado</p>
                                 )}
                             </div>
-                            {selectedServices.length > 0 && (
-                                <div className="bm-card bg-zinc-900 rounded-2xl p-4 mt-2 border border-zinc-800/60">
-                                    <div className="flex justify-between text-xs text-zinc-400">
-                                        <span>{selectedServices.length} servico(s)</span>
-                                        <span>{duracaoSelecionada || 0} min</span>
-                                    </div>
-                                    <div className="flex justify-between items-center mt-2">
-                                        <span className="text-sm font-bold text-white">Total</span>
-                                        <span className="text-sm font-bold text-green-400">R$ {totalSelecionado}</span>
+
+                            {/* Resumo: sempre no fim da lista (antes da navegação), também sem seleção. */}
+                            {services && services.length > 0 && (
+                                <div className="rounded-xl border border-zinc-800 bg-[#141417] p-3">
+                                    {selectedServices.length > 0 ? (
+                                        <div className="flex justify-between text-xs text-zinc-500">
+                                            <span>{selectedServices.length} serviço(s)</span>
+                                            <span>{duracaoSelecionada || 0} min</span>
+                                        </div>
+                                    ) : (
+                                        <p className="text-xs text-zinc-500">Nenhum serviço selecionado</p>
+                                    )}
+                                    <div className="mt-1.5 flex items-center justify-between">
+                                        <span className="text-sm font-semibold text-white">Total</span>
+                                        <span className="text-base font-semibold text-white">{formatarPrecoServico(totalSelecionado)}</span>
                                     </div>
                                     <button
                                         onClick={handleBookingMultiple}
-                                        disabled={!podeChamarAgora || bookingLoading}
-                                        className={`mt-3 w-full ${podeChamarAgora && !bookingLoading ? 'bg-emerald-500 hover:bg-emerald-400' : 'bg-zinc-700 cursor-not-allowed'} text-white font-bold rounded-xl py-3 text-sm`}
+                                        disabled={!podeChamarAgora || bookingLoading || selectedServices.length === 0}
+                                        className={`mt-3 min-h-[44px] w-full rounded-lg text-sm font-semibold transition-colors ${podeChamarAgora && !bookingLoading && selectedServices.length > 0 ? 'bg-emerald-700 text-white hover:bg-emerald-600' : 'bg-zinc-800 text-zinc-500 cursor-not-allowed'}`}
                                     >
-                                        {bookingLoading ? 'Buscando localização...' : 'Chamar AGORA'}
+                                        {bookingLoading ? 'Buscando localização...' : 'Chamar agora'}
                                     </button>
                                 </div>
                             )}
@@ -2445,12 +2455,12 @@ export default function ClientDashboard({ token, logout, API_URL: apiUrlProp, no
         </div>
 
         {/* NAVBAR */}
-        <div className="bm-bottom-nav dashboard-nav fixed bottom-0 left-0 right-0 mx-auto w-full max-w-[430px] h-[calc(4.4rem+env(safe-area-inset-bottom))] pb-[env(safe-area-inset-bottom)] flex justify-around items-center z-40 px-2.5 sm:px-4">
-            <button data-active={tab === 'inicio'} onClick={() => setTab('inicio')} className={`bm-bottom-nav-btn dashboard-nav-btn flex flex-col items-center justify-center gap-1 h-[3.35rem] flex-1 text-center ${tab === 'inicio' ? 'text-orange-500 bg-orange-500/5' : 'text-zinc-400 hover:text-zinc-200'}`}><span className="text-base">🏠</span><span>Início</span></button>
-            <button data-active={tab === 'buscar'} onClick={() => setTab('buscar')} className={`bm-bottom-nav-btn dashboard-nav-btn flex flex-col items-center justify-center gap-1 h-[3.35rem] flex-1 text-center ${tab === 'buscar' ? 'text-orange-500 bg-orange-500/5' : 'text-zinc-400 hover:text-zinc-200'}`}><Search size={14} /><span>Buscar</span></button>
-            <button data-active={tab === 'agenda'} onClick={() => setTab('agenda')} className={`bm-bottom-nav-btn dashboard-nav-btn flex flex-col items-center justify-center gap-1 h-[3.35rem] flex-1 text-center ${tab === 'agenda' ? 'text-orange-500 bg-orange-500/5' : 'text-zinc-400 hover:text-zinc-200'}`}><Calendar size={14} /><span>Chamadas</span></button>
-            <button data-active={tab === 'avaliar'} onClick={() => setTab('avaliar')} className={`bm-bottom-nav-btn dashboard-nav-btn flex flex-col items-center justify-center gap-1 h-[3.35rem] flex-1 text-center ${tab === 'avaliar' ? 'text-orange-500 bg-orange-500/5' : 'text-zinc-400 hover:text-zinc-200'}`}><Star size={14} /><span>Avaliar</span></button>
-            <button data-active={tab === 'perfil'} onClick={() => setTab('perfil')} className={`bm-bottom-nav-btn dashboard-nav-btn flex flex-col items-center justify-center gap-1 h-[3.35rem] flex-1 text-center ${tab === 'perfil' ? 'text-orange-500 bg-orange-500/5' : 'text-zinc-400 hover:text-zinc-200'}`}><User size={14} /><span>Perfil</span></button>
+        <div className="bm-bottom-nav bm-bottom-nav--cliente dashboard-nav fixed bottom-0 left-0 right-0 mx-auto w-full max-w-[430px] h-[calc(4.4rem+env(safe-area-inset-bottom))] pb-[env(safe-area-inset-bottom)] flex justify-around items-center z-40 px-2.5 sm:px-4">
+            <button data-active={tab === 'inicio'} onClick={() => setTab('inicio')} className={`bm-bottom-nav-btn dashboard-nav-btn flex flex-col items-center justify-center gap-1 h-[3.35rem] flex-1 text-center ${tab === 'inicio' ? 'text-emerald-400' : 'text-zinc-400 hover:text-zinc-200'}`}><span className="text-base">🏠</span><span>Início</span></button>
+            <button data-active={tab === 'buscar'} onClick={() => setTab('buscar')} className={`bm-bottom-nav-btn dashboard-nav-btn flex flex-col items-center justify-center gap-1 h-[3.35rem] flex-1 text-center ${tab === 'buscar' ? 'text-emerald-400' : 'text-zinc-400 hover:text-zinc-200'}`}><Search size={14} /><span>Buscar</span></button>
+            <button data-active={tab === 'agenda'} onClick={() => setTab('agenda')} className={`bm-bottom-nav-btn dashboard-nav-btn flex flex-col items-center justify-center gap-1 h-[3.35rem] flex-1 text-center ${tab === 'agenda' ? 'text-emerald-400' : 'text-zinc-400 hover:text-zinc-200'}`}><Calendar size={14} /><span>Chamadas</span></button>
+            <button data-active={tab === 'avaliar'} onClick={() => setTab('avaliar')} className={`bm-bottom-nav-btn dashboard-nav-btn flex flex-col items-center justify-center gap-1 h-[3.35rem] flex-1 text-center ${tab === 'avaliar' ? 'text-emerald-400' : 'text-zinc-400 hover:text-zinc-200'}`}><Star size={14} /><span>Avaliar</span></button>
+            <button data-active={tab === 'perfil'} onClick={() => setTab('perfil')} className={`bm-bottom-nav-btn dashboard-nav-btn flex flex-col items-center justify-center gap-1 h-[3.35rem] flex-1 text-center ${tab === 'perfil' ? 'text-emerald-400' : 'text-zinc-400 hover:text-zinc-200'}`}><User size={14} /><span>Perfil</span></button>
         </div>
 
         {avaliacaoPendente && (

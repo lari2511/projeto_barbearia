@@ -247,6 +247,22 @@ img, svg, picture {
   height: 16px !important;
 }
 
+/* Navegação do cliente: item ativo em verde suave, sem fundo nem brilho (painéis do dono/freelancer seguem o padrão acima). */
+.bm-bottom-nav--cliente .bm-bottom-nav-btn {
+  font-weight: 500 !important;
+}
+
+.bm-bottom-nav--cliente .bm-bottom-nav-btn[data-active="true"] {
+  color: #6ee7b7 !important;
+  background: transparent !important;
+  box-shadow: none;
+  transform: none;
+}
+
+.bm-bottom-nav--cliente .bm-bottom-nav-btn[data-active="true"] svg {
+  filter: none;
+}
+
 
 /* Evita que mapas no modal de perfil capturem toques e bloqueiem ações de reserva */
 .profile-modal .leaflet-container,
