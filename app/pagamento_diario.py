@@ -173,16 +173,16 @@ def exigir_freelancer_liberado(db: Session, freelancer_id: int) -> None:
 # 21:00 - FECHAMENTO
 # ============================================================
 
-def atendimentos_sem_comissao(db: Session, data_ref: date) -> List[models.Chamado]:
+CONCLUIDO_EM = func.coalesce(models.Chamado.concluido_em, models.Chamado.data_hora_fim)
+
+
+def _consulta_atendimentos_sem_comissao(db: Session):
     """
-    Atendimentos concluídos até o fechamento (21:00) de data_ref que ainda não têm comissão
-    nem ganho lançado na carteira. Inclui dias anteriores que tenham ficado de fora (recuperação),
-    a partir de COMISSAO_AUTOMATICA_DESDE. Cancelados não entram (status != concluido); cliente
-    próprio do freelancer também não (OrigemCliente.PROPRIO não gera comissão).
+    Atendimentos concluídos que ainda não têm comissão nem ganho lançado na carteira, a partir de
+    COMISSAO_AUTOMATICA_DESDE. Cancelados não entram (status != concluido); cliente próprio do
+    freelancer também não (OrigemCliente.PROPRIO não gera comissão).
     """
     inicio = _utc_naive(datetime.combine(COMISSAO_AUTOMATICA_DESDE, time(0, 0), tzinfo=TZ_SP))
-    ate = _utc_naive(fechamento_em(data_ref))
-    concluido_em = func.coalesce(models.Chamado.concluido_em, models.Chamado.data_hora_fim)
     ja_lancado = exists().where(and_(
         models.HistoricoMovimentacaoFinanceira.chamado_id == models.Chamado.id,
         models.HistoricoMovimentacaoFinanceira.tipo.in_(TIPOS_MOV_ATENDIMENTO),
@@ -190,12 +190,49 @@ def atendimentos_sem_comissao(db: Session, data_ref: date) -> List[models.Chamad
     return db.query(models.Chamado).filter(
         models.Chamado.status == models.StatusAgendamento.CONCLUIDO.value,
         models.Chamado.barbeiro_id.isnot(None),
-        concluido_em >= inicio,
-        concluido_em < ate,
+        CONCLUIDO_EM >= inicio,
         or_(models.Chamado.origem_cliente.is_(None),
             models.Chamado.origem_cliente != models.OrigemCliente.PROPRIO.value),
         ~ja_lancado,
+    )
+
+
+def atendimentos_sem_comissao(db: Session, data_ref: date) -> List[models.Chamado]:
+    """
+    Atendimentos sem comissão concluídos até o fechamento (21:00, inclusive) de data_ref.
+    Inclui dias anteriores: quem concluiu depois das 21:00 entra no fechamento seguinte.
+    """
+    ate = _utc_naive(fechamento_em(data_ref))
+    return _consulta_atendimentos_sem_comissao(db).filter(
+        CONCLUIDO_EM <= ate,
     ).order_by(models.Chamado.barbeiro_id, models.Chamado.id).all()
+
+
+def resumo_atendimentos_pendentes(db: Session, freelancer_id: int, agora: datetime) -> dict:
+    """
+    Atendimentos concluídos que aguardam o próximo fechamento, para a carteira mostrar. Só leitura:
+    o saldo só muda quando o fechamento lança a comissão pela regra oficial (10% do serviço).
+    """
+    chamados = _consulta_atendimentos_sem_comissao(db).filter(
+        models.Chamado.barbeiro_id == freelancer_id,
+    ).order_by(CONCLUIDO_EM, models.Chamado.id).all()
+    itens = []
+    for c in chamados:
+        valor = float(c.valor_total or c.valor_final or 0.0)
+        if valor <= 0:
+            continue  # o fechamento não lança comissão de atendimento sem valor
+        concluido = c.concluido_em or c.data_hora_fim
+        itens.append({
+            "chamado_id": c.id,
+            "concluido_em": concluido.isoformat() + "Z",
+            "valor_servico": round(valor, 2),
+            "comissao_prevista": round(valor * 0.10, 2),
+        })
+    return {
+        "proximo_fechamento": fechamento_em(data_fechamento_vigente(agora) + timedelta(days=1)).isoformat(),
+        "comissao_prevista": round(sum(i["comissao_prevista"] for i in itens), 2),
+        "atendimentos": itens,
+    }
 
 
 def registrar_comissoes_do_fechamento(db: Session, data_ref: date, erros: Optional[list] = None) -> dict:
@@ -726,6 +763,7 @@ def resumo_pagamento_diario(db: Session, freelancer_id: int) -> dict:
         "fechamento_hoje": serializar_fechamento(hoje, agora) if hoje else None,
         # Pix gerado pelo job das 21:00 (ou pelo botão): o painel mostra sem gerar outro.
         "cobranca_pix": serializar_cobranca(cobranca) if cobranca else None,
+        "pendentes_proximo_fechamento": resumo_atendimentos_pendentes(db, freelancer_id, agora),
     }
 
 

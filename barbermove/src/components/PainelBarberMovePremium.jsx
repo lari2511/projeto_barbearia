@@ -1539,6 +1539,27 @@ export default function PainelBarberMovePremium({ token: tokenProp, logout: logo
                     </div>
                   )}
 
+                  {ganhos?.pagamento_diario?.pendentes_proximo_fechamento?.atendimentos?.length > 0 && (
+                    <div className="rounded-2xl border border-zinc-800 bg-zinc-900 p-4 space-y-2">
+                      <p className="text-xs font-black text-zinc-500 uppercase tracking-widest">Aguardando o próximo fechamento</p>
+                      <p className="text-[11px] text-zinc-400">
+                        Taxa prevista de R$ {Number(ganhos.pagamento_diario.pendentes_proximo_fechamento.comissao_prevista || 0).toFixed(2)}, cobrada no fechamento de{' '}
+                        {new Date(ganhos.pagamento_diario.pendentes_proximo_fechamento.proximo_fechamento).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}.
+                      </p>
+                      <div className="space-y-2 max-h-72 overflow-y-auto">
+                        {ganhos.pagamento_diario.pendentes_proximo_fechamento.atendimentos.map((item) => (
+                          <div key={item.chamado_id} className="rounded-xl border border-zinc-800 bg-zinc-950 p-3">
+                            <p className="text-xs text-zinc-300 font-bold">Corte #{item.chamado_id} • R$ {Number(item.valor_servico || 0).toFixed(2)}</p>
+                            <div className="flex justify-between text-[11px] mt-1">
+                              <span className="text-zinc-500">{new Date(item.concluido_em).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })}</span>
+                              <span className="text-amber-400 font-bold">Taxa prevista: R$ {Number(item.comissao_prevista || 0).toFixed(2)}</span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
                   {Array.isArray(ganhos?.historico_movimentacoes) && ganhos.historico_movimentacoes.length > 0 && (
                     <div className="rounded-2xl border border-zinc-800 bg-zinc-900 p-4 space-y-2">
                       <p className="text-xs font-black text-zinc-500 uppercase tracking-widest">Histórico de movimentações</p>

@@ -316,6 +316,92 @@ def test_tres_dias_fechamento_bloqueio_e_desbloqueio(ambiente, cliente_http):
     assert bloqueado(db, ana, sp(D3, 22, 0)) and bloqueado(db, carla, sp(D3, 22, 0))
 
 
+# ------------------------------------------------------------------ limite das 21:00
+
+def test_chamados_depois_das_21h_vao_para_o_proximo_ciclo(ambiente, cliente_http):
+    db, mp, relogio = ambiente
+    cliente = criar_usuario(db, "Cliente", tipo="cliente")
+    lia = criar_usuario(db, "Lia")
+
+    def concluir(hh, mm, valor):
+        c = models.Chamado(cliente_id=cliente.id, barbeiro_id=lia.id, valor_total=valor,
+                           status=models.StatusAgendamento.CONCLUIDO.value,
+                           origem_cliente=models.OrigemCliente.APP.value, concluido_em=utc(D1, hh, mm))
+        db.add(c)
+        db.commit()
+        return c.id
+
+    # Serviços de valores diferentes: a soma identifica exatamente quem entrou em cada Pix
+    ate_o_limite = [concluir(20, 50, 100.0), concluir(21, 0, 80.0)]
+    depois = [concluir(21, 5, 60.0), concluir(21, 30, 40.0), concluir(22, 10, 20.0)]
+    horarios = {c.id: c.concluido_em for c in db.query(models.Chamado).all()}
+
+    def carteira(quando):
+        relogio["agora"] = quando
+        r = cliente_http.get("/api/v1/freelancer/carteira/resumo", headers=token(lia))
+        assert r.status_code == 200, r.text
+        return r.json()
+
+    def chamados_do_fechamento(d):
+        f = db.query(models.FechamentoDiarioFreelancer).filter_by(freelancer_id=lia.id, data_referencia=d).one()
+        return f, sorted(m.chamado_id for m in f.movimentacoes)
+
+    # Enquanto o fechamento não roda, tudo aparece como pendente e o saldo não muda
+    pendentes = carteira(sp(D1, 22, 15))["pagamento_diario"]["pendentes_proximo_fechamento"]
+    assert [a["chamado_id"] for a in pendentes["atendimentos"]] == ate_o_limite + depois
+    assert saldo(db, lia) == 0.0
+
+    # Ciclo 1: 20:50 e 21:00 (limite inclusivo) entram; 21:05, 21:30 e 22:10 ficam pendentes
+    ciclo(db, relogio, sp(D1, 21, 0))
+    f1, chamados_f1 = chamados_do_fechamento(D1)
+    assert chamados_f1 == ate_o_limite
+    assert f1.valor_devido == 18.0 and saldo(db, lia) == -18.0
+    pix1 = pix_aberto(db, lia)
+    assert float(pix1.valor) == 18.0, "o Pix cobre só os serviços do ciclo"
+
+    # Às 22:15 e na manhã seguinte os pendentes continuam visíveis na carteira, com o horário real
+    for quando in (sp(D1, 22, 15), sp(D2, 12, 0)):
+        ciclo(db, relogio, quando)
+        pd_resumo = carteira(quando)["pagamento_diario"]
+        pendentes = pd_resumo["pendentes_proximo_fechamento"]
+        assert [a["chamado_id"] for a in pendentes["atendimentos"]] == depois
+        assert pendentes["comissao_prevista"] == 12.0
+        assert pendentes["proximo_fechamento"] == sp(D2, 21).isoformat()
+        assert pendentes["atendimentos"][0]["concluido_em"] == utc(D1, 21, 5).isoformat() + "Z"
+    assert saldo(db, lia) == -18.0, "pendente aparece, mas só é lançado no fechamento"
+
+    # Paga o ciclo 1 pelo caminho real do Mercado Pago
+    from app.cobrancas import servico
+    mp.definir(pix1.provedor_pagamento_id, "approved", aprovado_em=utc(D2, 12))
+    servico.processar_notificacao(db, pix1.provedor_pagamento_id)
+    db.expire_all()
+    assert saldo(db, lia) == 0.0
+
+    # Ciclo 2: todos os pendentes entram e somem da lista; comissão prevista = comissão lançada
+    ciclo(db, relogio, sp(D2, 21, 0))
+    f2, chamados_f2 = chamados_do_fechamento(D2)
+    assert chamados_f2 == depois
+    assert f2.valor_devido == 12.0 and saldo(db, lia) == -12.0
+    assert float(pix_aberto(db, lia).valor) == 12.0
+    assert carteira(sp(D2, 21, 1))["pagamento_diario"]["pendentes_proximo_fechamento"]["atendimentos"] == []
+
+    # Reprocessar o fechamento não duplica; cada chamado tem exatamente uma comissão
+    antes = contagens(db)
+    ex = execucao(db, D2, pd.ROTINA_FECHAMENTO)
+    ex.status = "parcial"
+    ex.atualizado_em = utc(D2, 20)
+    db.commit()
+    ciclo(db, relogio, sp(D2, 21, 30))
+    ciclo(db, relogio, sp(D3, 21, 0))
+    assert contagens(db) == antes
+    assert saldo(db, lia) == -12.0
+    for chamado_id in ate_o_limite + depois:
+        assert db.query(models.HistoricoMovimentacaoFinanceira).filter_by(
+            chamado_id=chamado_id, tipo="debito_taxa_dinheiro").count() == 1
+    # O horário real de finalização é preservado
+    assert {c.id: c.concluido_em for c in db.query(models.Chamado).all()} == horarios
+
+
 # ------------------------------------------------------------------ idempotência e recuperação
 
 def test_reprocessar_execucao_nao_duplica(ambiente):
