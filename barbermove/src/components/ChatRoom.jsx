@@ -1,3 +1,4 @@
+import { formatarHoraSP } from '../utils/dataHora';
 import React, { useEffect, useState, useRef } from 'react';
 
 const rotuloRemetente = (tipo) => {
@@ -67,7 +68,7 @@ export default function ChatRoom({ chamadoId, token, API_URL, compact = true }) 
                             {rotuloRemetente(m.remetente_tipo)}{m.remetente_nome ? ` · ${m.remetente_nome}` : ''}
                         </div>
                         <div className={`${compact ? 'text-white' : 'text-white text-sm'}`}>{m.mensagem}</div>
-                        <div className={`${compact ? 'text-[10px] text-zinc-500' : 'text-[11px] text-zinc-500 mt-2'}`}>{new Date(m.criado_em || Date.now()).toLocaleTimeString()}</div>
+                        <div className={`${compact ? 'text-[10px] text-zinc-500' : 'text-[11px] text-zinc-500 mt-2'}`}>{formatarHoraSP(m.criado_em || new Date())}</div>
                     </div>
                 ))}
             </div>

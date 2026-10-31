@@ -1,3 +1,4 @@
+import { formatarDataSP } from '../utils/dataHora';
 import React from 'react';
 import { Star, ThumbsUp } from 'lucide-react';
 
@@ -83,7 +84,7 @@ export default function ListaAvaliacoes({ avaliacoes = [] }) {
                                     <p className="text-zinc-400 text-xs">{avaliacao.barbearia_nome}</p>
                                 )}
                                 <p className="text-zinc-500 text-xs">
-                                    {new Date(avaliacao.criado_em).toLocaleDateString('pt-BR')}
+                                    {formatarDataSP(avaliacao.criado_em)}
                                 </p>
                             </div>
                             <div className="flex gap-1">

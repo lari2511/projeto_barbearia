@@ -413,11 +413,11 @@ def confirmar_pagamento(
         }
 
     # Marcar como pago
-    pagamento.pago_em = datetime.now()
+    pagamento.pago_em = datetime.utcnow()
 
     # Atualizar status do chamado para concluído
     chamado.status = StatusAgendamento.CONCLUIDO
-    chamado.concluido_em = datetime.now()
+    chamado.concluido_em = datetime.utcnow()
 
     # Se chamado estiver vinculado a uma cadeira, ocupar automaticamente.
     # Evita inconsistência visual/operacional após pagamento aprovado.
@@ -810,10 +810,10 @@ def criar_pagamento_cartao_mercadopago(
         if not dados.cvv or len(dados.cvv) < 3:
             raise HTTPException(status_code=400, detail="CVV inválido")
         # Confirmar pagamento no banco
-        pagamento.pago_em = datetime.now()
+        pagamento.pago_em = datetime.utcnow()
         chamado_local = pagamento.chamado
         chamado_local.status = StatusAgendamento.CONCLUIDO
-        chamado_local.concluido_em = datetime.now()
+        chamado_local.concluido_em = datetime.utcnow()
         if chamado_local.cadeira_id:
             cadeira_local = db.query(Cadeira).filter(Cadeira.id == chamado_local.cadeira_id).first()
             if cadeira_local:
@@ -880,9 +880,9 @@ def criar_pagamento_cartao_mercadopago(
             
             # Se pagamento aprovado, marcar como pago
             if payment_response["status"] == "approved":
-                pagamento.pago_em = datetime.now()
+                pagamento.pago_em = datetime.utcnow()
                 pagamento.chamado.status = StatusAgendamento.CONCLUIDO
-                pagamento.chamado.concluido_em = datetime.now()
+                pagamento.chamado.concluido_em = datetime.utcnow()
                 _aplicar_movimentacao_financeira_carteira(
                     db,
                     chamado=pagamento.chamado,
@@ -900,10 +900,10 @@ def criar_pagamento_cartao_mercadopago(
             
         except Exception as e:
             print(f"Erro MercadoPago Cartao, usando fallback local: {str(e)}")
-            pagamento.pago_em = datetime.now()
+            pagamento.pago_em = datetime.utcnow()
             chamado_local = pagamento.chamado
             chamado_local.status = StatusAgendamento.CONCLUIDO
-            chamado_local.concluido_em = datetime.now()
+            chamado_local.concluido_em = datetime.utcnow()
             if chamado_local.cadeira_id:
                 cadeira_local = db.query(Cadeira).filter(Cadeira.id == chamado_local.cadeira_id).first()
                 if cadeira_local:
@@ -993,10 +993,10 @@ def webhook_mercadopago(
 
         if status == "approved":
             # 1️⃣ Atualizar Pagamento (sistema antigo)
-            pagamento.pago_em = datetime.now()
+            pagamento.pago_em = datetime.utcnow()
             if pagamento.chamado:
                 pagamento.chamado.status = StatusAgendamento.CONCLUIDO
-                pagamento.chamado.concluido_em = datetime.now()
+                pagamento.chamado.concluido_em = datetime.utcnow()
                 _aplicar_movimentacao_financeira_carteira(
                     db,
                     chamado=pagamento.chamado,

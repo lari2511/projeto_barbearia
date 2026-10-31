@@ -1,4 +1,5 @@
 // Componentes reutilizáveis do BarberMove
+import { formatarDataHoraSP } from '../utils/dataHora';
 import React from 'react'
 import { Star, MapPin, Clock, Award, User, XCircle, AlertTriangle, CheckCircle, Info, Eye, EyeOff } from 'lucide-react'
 import { getApiBaseUrl, resolveMediaUrl } from '../utils/api'
@@ -234,7 +235,7 @@ export const AgendamentoCard = ({ agendamento, onClick }) => {
 
       <div className="mt-2 flex items-center gap-2 text-sm text-zinc-400">
         <Clock size={14} />
-        <span>{new Date(data_hora_inicio).toLocaleString('pt-BR')}</span>
+        <span>{formatarDataHoraSP(data_hora_inicio)}</span>
       </div>
 
       <div className="mt-1 flex items-center gap-2 text-sm text-zinc-400">

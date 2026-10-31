@@ -1,3 +1,4 @@
+import { formatarDataSP } from '../utils/dataHora';
 import React, { useEffect, useState } from 'react';
 import { AlertTriangle, CreditCard, X, Loader } from 'lucide-react';
 import { getApiBaseUrl } from '../utils/api';
@@ -354,7 +355,7 @@ export default function ModalBloqueio({
               </div>
               {statusBloqueio.proximo_vencimento && (
                 <p className="text-xs text-zinc-500 mt-2">
-                  Vencimento: {new Date(statusBloqueio.proximo_vencimento).toLocaleDateString('pt-BR')}
+                  Vencimento: {formatarDataSP(statusBloqueio.proximo_vencimento)}
                 </p>
               )}
             </div>

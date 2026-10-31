@@ -402,6 +402,53 @@ def test_chamados_depois_das_21h_vao_para_o_proximo_ciclo(ambiente, cliente_http
     assert {c.id: c.concluido_em for c in db.query(models.Chamado).all()} == horarios
 
 
+# ------------------------------------------------------------------ fuso horário
+
+def test_finalizacao_grava_utc_em_servidor_com_qualquer_fuso(ambiente, cliente_http):
+    """O corte das 21:00 assume UTC no banco: finalizar não pode depender do fuso do servidor."""
+    db, mp, relogio = ambiente
+    cliente = criar_usuario(db, "Cliente", tipo="cliente")
+    nina = criar_usuario(db, "Nina")
+    c = models.Chamado(cliente_id=cliente.id, barbeiro_id=nina.id, valor_total=50.0,
+                       status=models.StatusAgendamento.EM_ATENDIMENTO.value,
+                       origem_cliente=models.OrigemCliente.APP.value)
+    db.add(c)
+    db.commit()
+
+    r = cliente_http.put(f"/api/v1/chamados/{c.id}/finalizar", headers=token(nina))
+    assert r.status_code == 200, r.text
+    db.expire_all()
+    c = db.get(models.Chamado, c.id)
+    agora_real = datetime.now(pd.TZ_SP)
+    assert abs((pd._sp_de_utc_naive(c.concluido_em) - agora_real).total_seconds()) < 60
+    assert abs((c.concluido_em - c.data_hora_fim).total_seconds()) < 60
+
+
+def test_checkin_usa_o_dia_de_brasilia(ambiente, cliente_http):
+    """Depois das 21:00 já é outro dia em UTC: o agendamento da noite ainda é de hoje."""
+    db, mp, relogio = ambiente
+    cliente = criar_usuario(db, "Cliente", tipo="cliente")
+    dono = criar_usuario(db, "Dono", tipo="barbearia")
+    otto = criar_usuario(db, "Otto")
+    loja = models.Barbearia(usuario_id=dono.id, nome="Loja", endereco="", latitude=-23.5, longitude=-46.6)
+    db.add(loja)
+    db.commit()
+    db.add(models.Chamado(cliente_id=cliente.id, barbeiro_id=otto.id, barbearia_id=loja.id, valor_total=50.0,
+                          status=models.StatusAgendamento.CONFIRMADO.value, data_hora_inicio=utc(D1, 21, 45)))
+    db.commit()
+
+    def checkin(quando):
+        relogio["agora"] = quando
+        r = cliente_http.post("/api/v1/geo/check-proximity", json={"latitude": 0.0, "longitude": 0.0},
+                              headers=token(otto))
+        assert r.status_code == 200, r.text
+        return r.json()
+
+    nenhum = "Nenhum agendamento confirmado para hoje"
+    assert checkin(sp(D1, 21, 30)).get("mensagem") != nenhum, "21:30 em Brasília: ainda é o mesmo dia"
+    assert checkin(sp(D2, 8, 0)).get("mensagem") == nenhum, "na manhã seguinte não é mais de hoje"
+
+
 # ------------------------------------------------------------------ idempotência e recuperação
 
 def test_reprocessar_execucao_nao_duplica(ambiente):

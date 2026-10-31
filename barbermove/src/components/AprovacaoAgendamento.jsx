@@ -1,3 +1,4 @@
+import { formatarDataSP, formatarHoraSP } from '../utils/dataHora';
 import React, { useState } from 'react';
 import { CheckCircle, XCircle, Clock, AlertCircle } from 'lucide-react';
 
@@ -40,7 +41,7 @@ export default function AprovacaoAgendamento({
                     Barbeiro e barbearia aprovaram. A cadeira foi bloqueada para este horário.
                 </p>
                 <p className="text-green-300 text-sm mt-2">
-                    Data: {new Date(chamado?.data_hora_inicio).toLocaleDateString('pt-BR')} às {new Date(chamado?.data_hora_inicio).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+                    Data: {formatarDataSP(chamado?.data_hora_inicio)} às {formatarHoraSP(chamado?.data_hora_inicio)}
                 </p>
             </div>
         );
@@ -230,7 +231,7 @@ export default function AprovacaoAgendamento({
                                             <option value="">Selecionar horário...</option>
                                             {horariosDisponiveis.map((horario, idx) => (
                                                 <option key={idx} value={horario.data_hora}>
-                                                    {new Date(horario.data_hora).toLocaleDateString('pt-BR')} às {new Date(horario.data_hora).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+                                                    {formatarDataSP(horario.data_hora)} às {formatarHoraSP(horario.data_hora)}
                                                 </option>
                                             ))}
                                         </select>

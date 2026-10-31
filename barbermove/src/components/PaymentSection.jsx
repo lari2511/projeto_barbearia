@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { DollarSign, CreditCard, Wallet, Clock, Eye, EyeOff, RefreshCw } from 'lucide-react';
 import { getApiBaseUrl } from '../utils/api';
+import { formatarDataSP } from '../utils/dataHora';
 
 const DEFAULT_HOST = typeof window !== 'undefined' ? window.location.hostname : 'localhost';
 const DEFAULT_PROTOCOL = typeof window !== 'undefined' && window.location.protocol === 'https:' ? 'https' : 'http';
@@ -45,9 +46,7 @@ export default function PaymentSection({ userType, token, onNotify }) {
 
   const formatarDataCurta = (iso) => {
     if (!iso) return '-';
-    const data = new Date(iso);
-    if (Number.isNaN(data.getTime())) return '-';
-    return data.toLocaleDateString('pt-BR');
+    return formatarDataSP(iso);
   };
 
   const carregarDadosPagamento = useCallback(async () => {

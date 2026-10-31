@@ -1,3 +1,4 @@
+import { formatarDataSP } from '../utils/dataHora';
 import React from 'react';
 import { Image, Camera, Trash2, X } from 'lucide-react';
 
@@ -132,7 +133,7 @@ export function TabAvaliacoesBarbeiro({
                   <div className="flex items-center justify-between mb-1">
                     <span className="text-yellow-400 text-base">{'★'.repeat(nota)}{'☆'.repeat(5 - nota)}</span>
                     <span className="text-zinc-500">
-                      {av.criado_em ? new Date(av.criado_em).toLocaleDateString('pt-BR') : ''}
+                      {av.criado_em ? formatarDataSP(av.criado_em) : ''}
                     </span>
                   </div>
                   {av.comentario && (

@@ -1,3 +1,4 @@
+import { formatarDataSP } from '../utils/dataHora';
 import React, { useState, useEffect, useCallback, useContext } from 'react';
 import { Star, MapPin, Phone, Award, TrendingUp, MessageCircle, Navigation, Scissors, Clock } from 'lucide-react';
 import ChatRoom from './ChatRoom';
@@ -1087,7 +1088,7 @@ export default function ProfileCard({ usuarioId, userType, token, isOwnProfile: 
                   <div>
                     <p className="font-bold text-white">{aval.avaliador_nome || 'Usuário'}</p>
                     <p className="text-xs text-zinc-400">
-                      {new Date(aval.data).toLocaleDateString('pt-BR')}
+                      {formatarDataSP(aval.data)}
                     </p>
                   </div>
                   <div className="flex gap-1">

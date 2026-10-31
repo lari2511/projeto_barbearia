@@ -3041,7 +3041,7 @@ def finalizar_servico_manualmente(id: int, token: str = Depends(oauth2_scheme), 
             cadeira.chamado_id = None
         cadeira.liberada_em = datetime.now()
     
-    chamado.concluido_em = datetime.now()
+    chamado.concluido_em = datetime.utcnow()
 
     resultado = _finalizar_chamado_e_avancar_fila(db, chamado, barbeiro)
     db.add(models.ChamadoHistorico(

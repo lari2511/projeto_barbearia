@@ -1,3 +1,4 @@
+import { formatarDataHoraSP } from '../utils/dataHora';
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { getWsBaseUrl, resolveMediaUrl } from '../utils/api';
 import { Store, LogOut, CheckCircle, AlertCircle, User, CreditCard, Calendar, Search, Star, TrendingUp, Users, Bell, Pencil, Trash2, X, Check } from 'lucide-react';
@@ -311,7 +312,7 @@ export default function ShopDashboard({ token, logout, notify, API_URL }) {
                             ) : (ag.barbeiro_nome || ag.nome_barbeiro)}
                         </p>
                         <p className="text-xs text-zinc-300">
-                            {ag.data_hora_inicio ? new Date(ag.data_hora_inicio).toLocaleString('pt-BR') : 'Horário não definido'}
+                            {ag.data_hora_inicio ? formatarDataHoraSP(ag.data_hora_inicio) : 'Horário não definido'}
                         </p>
                     </div>
                     <div className={`text-xs px-2 py-1 rounded font-bold ${

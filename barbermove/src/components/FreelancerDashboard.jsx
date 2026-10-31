@@ -1,4 +1,5 @@
 // Dashboard do Freelancer - BarberMove
+import { formatarDataHoraSP } from '../utils/dataHora';
 import React, { useState, useEffect, useCallback } from 'react';
 import ScreenWrapper from './ScreenWrapper';
 import { 
@@ -284,7 +285,7 @@ function SolicitacaoCard({ solicitacao }) {
       </p>
       
       <p className="text-sm text-gray-600 mb-3">
-        🕐 {new Date(solicitacao.data_hora).toLocaleString('pt-BR')}
+        🕐 {formatarDataHoraSP(solicitacao.data_hora)}
       </p>
       
       <div className="flex gap-2">

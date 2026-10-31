@@ -1,3 +1,4 @@
+import { formatarDataSP } from '../utils/dataHora';
 import React, { useState } from 'react'
 
 // "Estrutura oferecida ao freelancer": checklist SIM/NÃO + textos livres preenchidos pelo dono
@@ -70,7 +71,7 @@ export function ListaEstrutura({ condicoes, compacta = false }) {
       <p className="text-[11px] text-zinc-500">{AVISO_KIT_FREELANCER}</p>
       {condicoes.atualizado_em && (
         <p className="text-[10px] text-zinc-600">
-          Informado pela barbearia · atualizado em {new Date(condicoes.atualizado_em).toLocaleDateString('pt-BR')}
+          Informado pela barbearia · atualizado em {formatarDataSP(condicoes.atualizado_em)}
         </p>
       )}
     </div>

@@ -1,3 +1,4 @@
+import { parseDataServidorUTC } from '../utils/dataHora';
 import React, { useState, useEffect, useCallback } from 'react';
 import { Loader, AlertCircle, CheckCircle, Armchair, Lock, LockOpen, Plus } from 'lucide-react';
 
@@ -43,7 +44,7 @@ export default function LiberarCadeirasComponent({ token, API_URL, notify, barbe
         const updated = { ...prev };
         cadeiras.forEach(c => {
           if (c.ocupada_em) {
-            const ocupadaEm = new Date(c.ocupada_em).getTime();
+            const ocupadaEm = parseDataServidorUTC(c.ocupada_em);
             const agora = Date.now();
             const tempoDecorrido = (agora - ocupadaEm) / 1000; // segundos
             updated[c.id] = Math.max(0, tempoDecorrido);

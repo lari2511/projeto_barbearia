@@ -1,14 +1,7 @@
 import { Pause, Play } from 'lucide-react';
+import { parseDataServidorUTC } from '../utils/dataHora';
 
-// O backend salva/serializa datas em UTC "ingenuo" (sem sufixo Z/offset).
-// new Date(string) sem timezone e interpretado pelo JS como horario LOCAL
-// do aparelho, nao UTC -- isso inflava o cronometro em +3h (fuso do Brasil).
-// Forca a interpretacao como UTC quando a string nao ja traz timezone.
-export function parseDataServidorUTC(valor) {
-  if (!valor) return NaN;
-  const temTimezone = /Z$|[+-]\d{2}:?\d{2}$/.test(valor);
-  return new Date(temTimezone ? valor : `${valor}Z`).getTime();
-}
+export { parseDataServidorUTC };
 
 export function formatarDuracao(totalSegundos) {
   const seg = Math.max(0, Number(totalSegundos) || 0);

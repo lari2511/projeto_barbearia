@@ -1,3 +1,4 @@
+import { formatarDataHoraSP } from '../utils/dataHora';
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { LogOut, Search, MapPin, Star, Calendar, ArrowRight, CheckCircle, User, MessageSquare, QrCode, Bell } from 'lucide-react';
 import TelaPerfilUsuario from './TelaPerfilUsuario';
@@ -354,7 +355,7 @@ export default function ClientDashboard({ token, logout, API_URL: apiUrlProp, no
 
         // ✅ Usar horario_match para calcular tempo (quando o freelancer aceitou)
         const baseIso = chamado.horario_match || chamado.aprovado_barbeiro_em || chamado.data_agendamento || chamado.criado_em;
-        const baseDate = baseIso ? new Date(baseIso) : null;
+        const baseDate = baseIso ? new Date(parseDataServidorUTC(baseIso)) : null;
         const agora = new Date();
         const segundosDecorridos = baseDate && !Number.isNaN(baseDate.getTime())
             ? Math.max(0, Math.floor((agora.getTime() - baseDate.getTime()) / 1000))
@@ -2371,7 +2372,7 @@ export default function ClientDashboard({ token, logout, API_URL: apiUrlProp, no
                                     <p className="text-zinc-400 truncate">{order.servico_nome || order.descricao || 'Servico'}</p>
                                     <p className="text-zinc-500 truncate">{order.nome_barbearia || 'Barbearia'}</p>
                                     {order.data_hora_inicio && (
-                                        <p className="text-zinc-300">{new Date(order.data_hora_inicio).toLocaleString('pt-BR')}</p>
+                                        <p className="text-zinc-300">{formatarDataHoraSP(order.data_hora_inicio)}</p>
                                     )}
                                     <p className="text-zinc-500">Status: {order.status}</p>
 

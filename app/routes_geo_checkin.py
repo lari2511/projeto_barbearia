@@ -60,19 +60,18 @@ def verificar_proximidade_e_checkin(
         )
 
     # Taxa diária vencida: não pode ficar PRESENTE (mesma trava das demais rotas de status)
-    from app.pagamento_diario import exigir_freelancer_liberado
+    from app.pagamento_diario import exigir_freelancer_liberado, limites_dia_sp_em_utc
     exigir_freelancer_liberado(db, usuario_atual.id)
 
-    # 2. Buscar agendamentos CONFIRMADOS do barbeiro para hoje
-    hoje = datetime.utcnow().date()
-    amanha = hoje + timedelta(days=1)
-    
+    # 2. Buscar agendamentos CONFIRMADOS do barbeiro para hoje (dia de Brasília)
+    inicio_dia, fim_dia = limites_dia_sp_em_utc()
+
     agendamentos = db.query(Chamado).filter(
         and_(
             Chamado.barbeiro_id == usuario_atual.id,
             Chamado.status == StatusAgendamento.CONFIRMADO.value,
-            Chamado.data_hora_inicio >= datetime.combine(hoje, datetime.min.time()),
-            Chamado.data_hora_inicio < datetime.combine(amanha, datetime.min.time())
+            Chamado.data_hora_inicio >= inicio_dia,
+            Chamado.data_hora_inicio < fim_dia
         )
     ).all()
     

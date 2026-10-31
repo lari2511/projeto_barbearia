@@ -1,3 +1,4 @@
+import { formatarDataSP } from '../utils/dataHora';
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { CreditCard, Calendar, AlertTriangle, CheckCircle, Loader, TrendingUp } from 'lucide-react';
 import { getApiBaseUrl } from '../utils/api';
@@ -541,7 +542,7 @@ export default function TelaAssinaturaBarbearia({ token, onNotify }) {
                 <div className="mt-2 text-sm opacity-90">
                   <p>Cadeiras ativas: {status.cadeiras_ativas}</p>
                   <p>Valor mensal: R$ {status.valor_mensalidade?.toFixed(2)}</p>
-                  <p>Vencimento: {new Date(status.proximo_vencimento).toLocaleDateString('pt-BR')}</p>
+                  <p>Vencimento: {formatarDataSP(status.proximo_vencimento)}</p>
                 </div>
               )}
             </div>
@@ -896,7 +897,7 @@ export default function TelaAssinaturaBarbearia({ token, onNotify }) {
                         </span>
                       </td>
                       <td className="px-3 py-2">R$ {Number(cadeira.valor_individual || 0).toFixed(2)}</td>
-                      <td className="px-3 py-2">{cadeira.data_proxima_cobranca ? new Date(cadeira.data_proxima_cobranca).toLocaleDateString('pt-BR') : '-'}</td>
+                      <td className="px-3 py-2">{cadeira.data_proxima_cobranca ? formatarDataSP(cadeira.data_proxima_cobranca) : '-'}</td>
                     </tr>
                   ))}
                 </tbody>

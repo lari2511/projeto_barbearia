@@ -1,3 +1,4 @@
+import { formatarDataSP, formatarHoraSP, formatarDataHoraSP } from '../utils/dataHora';
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { Home, ClipboardList, Star, User, CreditCard, LogOut, CheckCircle, XCircle, DollarSign, Copy, Phone, Scissors, MapPin, RefreshCw, Bell } from 'lucide-react';
 import { useApp } from '../contexts/AppContext';
@@ -963,10 +964,9 @@ export default function PainelBarberMovePremium({ token: tokenProp, logout: logo
     if (filtroHistorico === 'todos') return true;
     const dataRef = c.data_hora_inicio || c.data_agendamento;
     if (!dataRef) return false;
-    const data = new Date(dataRef);
     const agora = new Date();
-    const diffDias = (agora - data) / (1000 * 60 * 60 * 24);
-    if (filtroHistorico === 'hoje') return data.toDateString() === agora.toDateString();
+    const diffDias = (agora.getTime() - parseDataServidorUTC(dataRef)) / (1000 * 60 * 60 * 24);
+    if (filtroHistorico === 'hoje') return formatarDataSP(dataRef) === formatarDataSP(agora);
     if (filtroHistorico === 'semana') return diffDias <= 7;
     if (filtroHistorico === 'mes') return diffDias <= 30;
     return true;
@@ -1400,8 +1400,8 @@ export default function PainelBarberMovePremium({ token: tokenProp, logout: logo
                           </span>
                         </div>
                         <p className="text-xs text-zinc-500">
-                          {c.data_agendamento ? new Date(c.data_agendamento).toLocaleDateString('pt-BR') : '-'}
-                          {c.data_hora_inicio ? ` · ${new Date(c.data_hora_inicio).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}` : ''}
+                          {c.data_agendamento ? formatarDataSP(c.data_agendamento) : '-'}
+                          {c.data_hora_inicio ? ` · ${formatarHoraSP(c.data_hora_inicio)}` : ''}
                         </p>
                         <div className="flex justify-between items-center text-xs text-zinc-500">
                           <span>#{c.id}</span>
@@ -1568,7 +1568,7 @@ export default function PainelBarberMovePremium({ token: tokenProp, logout: logo
                           <div key={mov.id} className="rounded-xl border border-zinc-800 bg-zinc-950 p-3">
                             <p className="text-xs text-zinc-300 font-bold">{mov.descricao}</p>
                             <div className="flex justify-between text-[11px] mt-1">
-                              <span className="text-zinc-500">{mov.criado_em ? new Date(mov.criado_em).toLocaleString('pt-BR') : '-'}</span>
+                              <span className="text-zinc-500">{mov.criado_em ? formatarDataHoraSP(mov.criado_em) : '-'}</span>
                               <span className={Number(mov.valor) >= 0 ? 'text-emerald-400 font-bold' : 'text-red-400 font-bold'}>
                                 {Number(mov.valor) >= 0 ? '+' : '-'}R$ {Math.abs(Number(mov.valor || 0)).toFixed(2)}
                               </span>

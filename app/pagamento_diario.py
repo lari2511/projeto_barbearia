@@ -82,6 +82,14 @@ def _sp_de_utc_naive(dt: datetime) -> datetime:
     return dt.replace(tzinfo=timezone.utc).astimezone(TZ_SP)
 
 
+def limites_dia_sp_em_utc() -> tuple:
+    """Início e fim do dia atual de São Paulo, em UTC naive (como o banco guarda)."""
+    hoje = agora_sp().date()
+    inicio = datetime.combine(hoje, time(0, 0), tzinfo=TZ_SP)
+    fim = datetime.combine(hoje + timedelta(days=1), time(0, 0), tzinfo=TZ_SP)
+    return _utc_naive(inicio), _utc_naive(fim)
+
+
 def prazo_do_fechamento(f: models.FechamentoDiarioFreelancer) -> datetime:
     """22:00 do dia; se o fechamento saiu atrasado, pelo menos JANELA_MINIMA_PAGAMENTO depois dele."""
     prazo = prazo_pagamento(f.data_referencia)

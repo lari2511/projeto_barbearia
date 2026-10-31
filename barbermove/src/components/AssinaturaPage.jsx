@@ -1,3 +1,4 @@
+import { formatarDataSP } from '../utils/dataHora';
 import React, { useState, useEffect, useCallback } from 'react';
 import { CreditCard, Check, AlertCircle, TrendingDown, QrCode, Copy } from 'lucide-react';
 import { getApiBaseUrl } from '../utils/api';
@@ -468,7 +469,7 @@ export default function AssinaturaPage({ token, notify }) {
                                     <span className="font-bold">{assinaturaAtual.cadeiras_ativas}</span> cadeira(s) ativa(s)
                                 </p>
                                 <p className="text-xs text-zinc-400 mt-1">
-                                    Vence em: {new Date(assinaturaAtual.proximo_vencimento).toLocaleDateString('pt-BR')}
+                                    Vence em: {formatarDataSP(assinaturaAtual.proximo_vencimento)}
                                 </p>
                                 <p className="text-xs text-zinc-400">
                                     Valor: R$ {assinaturaAtual.valor_mensal?.toFixed(2)}
