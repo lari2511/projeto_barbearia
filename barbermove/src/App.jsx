@@ -4,6 +4,7 @@ import ClientDashboard from './components/ClientDashboard'
 import BarberDashboard from './components/BarberDashboard'
 import ShopDashboard from './components/ShopDashboard'
 import { avisarMensagemSuporte, chatSuporteEstaAberto } from './utils/suporte'
+import { avisarMensagemVaga, chatDaVagaEstaAberto } from './utils/vagas'
 import Login from './components/Login'
 import GateCadastroPendente from './components/GateCadastroPendente'
 import GateTermos from './components/GateTermos'
@@ -222,6 +223,13 @@ export default function App() {
         return {
           title: 'Resposta do ADM',
           body: 'Você recebeu uma resposta do ADM. Veja em Perfil > Falar com o ADM.',
+        }
+      case 'vaga_chat_mensagem':
+        // Com a conversa aberta a mensagem ja aparece na tela.
+        if (chatDaVagaEstaAberto(message?.vaga_id)) return null
+        return {
+          title: 'Nova mensagem sobre a vaga',
+          body: 'Você recebeu uma mensagem no chat da vaga. Abra pela tela inicial.',
         }
       default:
         return null
@@ -477,6 +485,7 @@ export default function App() {
           try {
             const payload = JSON.parse(event.data)
             if (payload?.type === 'suporte_mensagem') avisarMensagemSuporte()
+            if (payload?.type === 'vaga_chat_mensagem') avisarMensagemVaga()
             await emitRealtimeAlert(payload)
           } catch (_error) {
             // Mensagem não JSON ou inválida.

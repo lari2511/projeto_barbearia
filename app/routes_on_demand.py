@@ -13,7 +13,7 @@ Este módulo implementa:
 from fastapi import APIRouter, Depends, HTTPException, status, Query, Request
 from sqlalchemy.orm import Session
 from sqlalchemy import and_, or_
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import List, Optional
 from datetime import datetime, timedelta
 import math
@@ -25,6 +25,20 @@ from app.routes import get_current_user
 from app.models import Usuario, RadarFreelancer, SolicitacaoBarbeiro, NotificacaoBarbeiro, RequestView, Barbearia, CadeiraAcionada, CadeiraAcionadaCandidatura, Cadeira, StatusCadeira, Notificacao
 from app.firebase_config import enviar_notificacao_novo_chamado
 from app.realtime import broadcast_event
+from app.routes_vaga_chat import nao_lidas_por_vaga
+from app.vagas import (
+    STATUS_ABERTA,
+    STATUS_AGUARDANDO_DESBLOQUEIO,
+    STATUS_CANCELADA,
+    STATUS_OCUPADA,
+    TIPO_VAGA_DIARIA,
+    aplicar_freelancer_na_cadeira,
+    cadeira_esta_bloqueada,
+    fim_do_dia_utc,
+    limites_de_anuncio,
+    reservar_cadeiras,
+    travar_barbearia,
+)
 
 router = APIRouter(prefix="/api/v1/on-demand", tags=["on-demand"])
 
@@ -244,6 +258,11 @@ class AcionarCadeiraRequest(BaseModel):
     valor_oferta: Optional[float] = None
     observacoes: Optional[str] = None
     expira_em_minutos: int = 10
+
+
+class AnunciarVagasRequest(BaseModel):
+    quantidade: int = Field(ge=1)
+    raio_km: float = Field(default=5.0, gt=0)
 
 
 class CadeiraAcionadaResponse(BaseModel):
@@ -864,6 +883,173 @@ async def obter_status_radar(
     return RadarFreelancerResponse.from_orm(radar)
 
 
+def _avisar_freelancers_da_vaga(
+    db: Session,
+    barbearia: Barbearia,
+    vaga: CadeiraAcionada,
+    raio_km: float,
+    autor_id: int,
+    nome_servico: str,
+    mensagem: str,
+) -> List[int]:
+    """Avisa os freelancers online no raio (sino + push) e devolve os ids avisados."""
+    barbeiros_online = db.query(RadarFreelancer).filter(
+        RadarFreelancer.is_online == True,
+        _radar_elegivel_para_novo_clause(),
+        RadarFreelancer.latitude.isnot(None),
+        RadarFreelancer.longitude.isnot(None),
+    ).all()
+
+    avisados = []
+    for radar in barbeiros_online:
+        distancia = calcular_distancia_haversine(
+            barbearia.latitude,
+            barbearia.longitude,
+            radar.latitude,
+            radar.longitude,
+        )
+        if distancia > raio_km:
+            continue
+
+        barbeiro = db.query(Usuario).filter(Usuario.id == radar.freelancer_id).first()
+        # Quem anunciou a vaga nao e notificado do proprio anuncio.
+        if not barbeiro or barbeiro.id == autor_id:
+            continue
+
+        # Fica registrada no sino de notificacoes do freelancer, alem do push
+        # (push exige device_token e pode nao chegar; a notificacao no sino
+        # fica disponivel de qualquer forma).
+        db.add(Notificacao(
+            usuario_id=barbeiro.id,
+            titulo="Nova vaga de cadeira disponível 💈",
+            mensagem=mensagem,
+            tipo="vaga_disponivel",
+            referencia_id=vaga.id,
+        ))
+        avisados.append(barbeiro.id)
+
+        if barbeiro.device_token:
+            enviar_notificacao_novo_chamado(
+                token_dispositivo=barbeiro.device_token,
+                nome_cliente="BarberMove",
+                nome_servico=nome_servico,
+                nome_barbearia=barbearia.nome,
+            )
+
+    db.commit()
+    return avisados
+
+
+def _barbearia_do_dono(db: Session, current_user: Usuario) -> Barbearia:
+    if current_user.tipo != "barbearia":
+        raise HTTPException(status_code=403, detail="Apenas barbearias podem anunciar vagas")
+
+    barbearia = db.query(Barbearia).filter(Barbearia.usuario_id == current_user.id).first()
+    if not barbearia:
+        raise HTTPException(status_code=404, detail="Barbearia nao encontrada")
+    return barbearia
+
+
+def _resumo_de_vagas(db: Session, barbearia: Barbearia, usuario_id: int) -> dict:
+    limites = limites_de_anuncio(db, barbearia)
+    ativas = limites["ativas"]
+    posicao_cadeira = {cadeira.id: indice + 1 for indice, cadeira in enumerate(limites["cadeiras"])}
+    nao_lidas = nao_lidas_por_vaga(db, [vaga.id for vaga in ativas], usuario_id)
+
+    vagas = []
+    for vaga in sorted(ativas, key=lambda item: (posicao_cadeira.get(item.cadeira_id, 9999), item.id)):
+        total_candidatos = db.query(CadeiraAcionadaCandidatura).filter(
+            CadeiraAcionadaCandidatura.vaga_id == vaga.id
+        ).count()
+        vagas.append({
+            **_serializar_cadeira_acionada(vaga),
+            "cadeira_numero": posicao_cadeira.get(vaga.cadeira_id),
+            "cadeira_bloqueada": cadeira_esta_bloqueada(vaga.cadeira),
+            "barbeiro_nome": vaga.barbeiro.nome if vaga.barbeiro else None,
+            "total_candidatos": total_candidatos,
+            "nao_lidas": nao_lidas.get(vaga.id, 0),
+        })
+
+    return {
+        "cadeiras_pagas": limites["cadeiras_pagas"],
+        "vagas_anunciadas": len(ativas),
+        "vagas_disponiveis_para_anunciar": limites["disponiveis"],
+        "vagas": vagas,
+    }
+
+
+@router.get("/cadeiras-acionadas/resumo", status_code=200)
+async def resumo_de_vagas(
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user)
+):
+    """Limite de vagas pelas cadeiras pagas e vagas ativas, para a tela inicial do dono."""
+    barbearia = _barbearia_do_dono(db, current_user)
+    _expirar_vagas_vencidas(db)
+    return _resumo_de_vagas(db, barbearia, current_user.id)
+
+
+@router.post("/cadeiras-acionadas/anunciar", status_code=201)
+async def anunciar_vagas(
+    request: AnunciarVagasRequest,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user)
+):
+    """
+    Publica a quantidade pedida de vagas diarias, cada uma com a propria cadeira e as proprias
+    candidaturas. Podem ser cadeiras bloqueadas; o status delas nao muda aqui.
+    """
+    barbearia = _barbearia_do_dono(db, current_user)
+    if barbearia.latitude is None or barbearia.longitude is None:
+        raise HTTPException(status_code=400, detail="Barbearia sem coordenadas para validar ETA")
+
+    _expirar_vagas_vencidas(db)
+
+    cadeiras = reservar_cadeiras(db, barbearia, request.quantidade)
+    expira_em = fim_do_dia_utc()
+    vagas = [
+        CadeiraAcionada(
+            barbearia_id=barbearia.id,
+            cadeira_id=cadeira.id,
+            status=STATUS_ABERTA,
+            raio_km=float(request.raio_km),
+            tipo_servico=TIPO_VAGA_DIARIA,
+            expira_em=expira_em,
+        )
+        for cadeira in cadeiras
+    ]
+    db.add_all(vagas)
+    db.commit()
+
+    avisados = _avisar_freelancers_da_vaga(
+        db,
+        barbearia,
+        vagas[0],
+        float(request.raio_km),
+        current_user.id,
+        nome_servico="Vaga de cadeira",
+        mensagem=(
+            f"{barbearia.nome} anunciou {len(vagas)} vagas de cadeira perto de você."
+            if len(vagas) > 1
+            else f"{barbearia.nome} anunciou uma vaga de cadeira perto de você."
+        ),
+    )
+
+    # Vaga diaria e so para freelancers: nao entra no broadcast geral, que chega aos clientes.
+    # Um evento por freelancer basta; as demais vagas chegam na proxima atualizacao do painel.
+    for freelancer_id in avisados:
+        await broadcast_event(
+            "cadeira_acionada_aberta",
+            destinatario_id=freelancer_id,
+            vaga=_serializar_cadeira_acionada(vagas[0]),
+        )
+
+    return {
+        "publicadas": [vaga.id for vaga in vagas],
+        **_resumo_de_vagas(db, barbearia, current_user.id),
+    }
+
+
 @router.post("/cadeiras-acionadas/acionar", response_model=CadeiraAcionadaResponse, status_code=201)
 async def acionar_cadeira_relampago(
     request: AcionarCadeiraRequest,
@@ -887,9 +1073,14 @@ async def acionar_cadeira_relampago(
     if request.expira_em_minutos <= 0:
         raise HTTPException(status_code=400, detail="expira_em_minutos deve ser maior que zero")
 
+    _expirar_vagas_vencidas(db)
+
+    cadeira = reservar_cadeiras(db, barbearia, 1, cadeira_id=request.cadeira_id)[0]
+    cadeira_bloqueada = cadeira_esta_bloqueada(cadeira)
+
     vaga = CadeiraAcionada(
         barbearia_id=barbearia.id,
-        cadeira_id=request.cadeira_id,
+        cadeira_id=cadeira.id,
         status="disponivel",
         raio_km=float(request.raio_km),
         tipo_servico=request.tipo_servico,
@@ -903,54 +1094,30 @@ async def acionar_cadeira_relampago(
     db.refresh(vaga)
 
     # Frente A: notificar barbeiros online no raio configurado
-    barbeiros_online = db.query(RadarFreelancer).filter(
-        RadarFreelancer.is_online == True,
-        _radar_elegivel_para_novo_clause(),
-        RadarFreelancer.latitude.isnot(None),
-        RadarFreelancer.longitude.isnot(None),
-    ).all()
-
-    for radar in barbeiros_online:
-        distancia = calcular_distancia_haversine(
-            barbearia.latitude,
-            barbearia.longitude,
-            radar.latitude,
-            radar.longitude,
-        )
-        if distancia > request.raio_km:
-            continue
-
-        barbeiro = db.query(Usuario).filter(Usuario.id == radar.freelancer_id).first()
-        # Quem anunciou a vaga nao e notificado do proprio anuncio.
-        if not barbeiro or barbeiro.id == current_user.id:
-            continue
-
-        # Fica registrada no sino de notificacoes do freelancer, alem do push
-        # (push exige device_token e pode nao chegar; a notificacao no sino
-        # fica disponivel de qualquer forma).
-        db.add(Notificacao(
-            usuario_id=barbeiro.id,
-            titulo="Nova vaga de cadeira disponível 💈",
-            mensagem=f"{barbearia.nome} anunciou uma vaga de cadeira perto de você.",
-            tipo="vaga_disponivel",
-            referencia_id=vaga.id,
-        ))
-
-        if barbeiro.device_token:
-            enviar_notificacao_novo_chamado(
-                token_dispositivo=barbeiro.device_token,
-                nome_cliente="BarberMove",
-                nome_servico=request.tipo_servico or "Vaga relampago",
-                nome_barbearia=barbearia.nome,
-            )
-
-    db.commit()
-
-    await broadcast_event(
-        "cadeira_acionada_aberta",
-        autor_id=current_user.id,
-        vaga=_serializar_cadeira_acionada(vaga),
+    avisados = _avisar_freelancers_da_vaga(
+        db,
+        barbearia,
+        vaga,
+        request.raio_km,
+        current_user.id,
+        nome_servico=request.tipo_servico or "Vaga relampago",
+        mensagem=f"{barbearia.nome} anunciou uma vaga de cadeira perto de você.",
     )
+
+    if cadeira_bloqueada:
+        # Cadeira bloqueada nao recebe cliente: o evento vai so para os freelancers avisados.
+        for freelancer_id in avisados:
+            await broadcast_event(
+                "cadeira_acionada_aberta",
+                destinatario_id=freelancer_id,
+                vaga=_serializar_cadeira_acionada(vaga),
+            )
+    else:
+        await broadcast_event(
+            "cadeira_acionada_aberta",
+            autor_id=current_user.id,
+            vaga=_serializar_cadeira_acionada(vaga),
+        )
 
     return _serializar_cadeira_acionada(vaga)
 
@@ -971,6 +1138,19 @@ async def listar_cadeiras_acionadas_ativas(
         return []
 
     resultado = []
+    # Vaga diaria fica aberta o dia todo e a barbearia pode ter varias: uma rota por barbearia basta.
+    eta_por_barbearia = {}
+
+    def _eta_ate(barbearia_alvo, origem_lat, origem_lon):
+        if barbearia_alvo.id not in eta_por_barbearia:
+            eta_por_barbearia[barbearia_alvo.id] = _calcular_eta_minutos(
+                origem_lat,
+                origem_lon,
+                barbearia_alvo.latitude,
+                barbearia_alvo.longitude,
+            )
+        return eta_por_barbearia[barbearia_alvo.id]
+
     for vaga in vagas:
         barbearia = db.query(Barbearia).filter(Barbearia.id == vaga.barbearia_id).first()
         if not barbearia or barbearia.latitude is None or barbearia.longitude is None:
@@ -992,24 +1172,18 @@ async def listar_cadeiras_acionadas_ativas(
             origem_lon = radar.longitude if radar.longitude is not None else current_user.longitude
 
             if origem_lat is not None and origem_lon is not None:
-                eta_min = _calcular_eta_minutos(
-                    origem_lat,
-                    origem_lon,
-                    barbearia.latitude,
-                    barbearia.longitude,
-                )
+                eta_min = _eta_ate(barbearia, origem_lat, origem_lon)
                 if eta_min > 10:
                     continue
         elif current_user.tipo == "cliente":
+            # Vaga diaria e para freelancers, e cadeira bloqueada nao recebe cliente.
+            if vaga.tipo_servico == TIPO_VAGA_DIARIA or cadeira_esta_bloqueada(vaga.cadeira):
+                continue
+
             if current_user.latitude is None or current_user.longitude is None:
                 continue
 
-            eta_min = _calcular_eta_minutos(
-                current_user.latitude,
-                current_user.longitude,
-                barbearia.latitude,
-                barbearia.longitude,
-            )
+            eta_min = _eta_ate(barbearia, current_user.latitude, current_user.longitude)
             if eta_min > 10:
                 continue
         else:
@@ -1049,7 +1223,7 @@ async def cancelar_cadeira_acionada(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user)
 ):
-    """Barbearia cancela vaga relampago ainda disponivel."""
+    """Barbearia cancela vaga ainda disponivel ou dispensa o escolhido antes do desbloqueio."""
     if current_user.tipo != "barbearia":
         raise HTTPException(status_code=403, detail="Apenas barbearias podem cancelar vaga")
 
@@ -1064,10 +1238,19 @@ async def cancelar_cadeira_acionada(
     if vaga.barbearia_id != barbearia.id:
         raise HTTPException(status_code=403, detail="Vaga nao pertence a esta barbearia")
 
-    if vaga.status != "disponivel":
+    if vaga.status not in (STATUS_ABERTA, STATUS_AGUARDANDO_DESBLOQUEIO):
         raise HTTPException(status_code=409, detail=f"Vaga nao pode ser cancelada (status: {vaga.status})")
 
-    vaga.status = "cancelada"
+    if vaga.status == STATUS_AGUARDANDO_DESBLOQUEIO and vaga.barbeiro_id:
+        db.add(Notificacao(
+            usuario_id=vaga.barbeiro_id,
+            titulo="Vaga de cadeira cancelada",
+            mensagem=f"{barbearia.nome} cancelou a vaga para a qual você tinha sido escolhido.",
+            tipo="vaga_encerrada",
+            referencia_id=vaga.id,
+        ))
+
+    vaga.status = STATUS_CANCELADA
     vaga.atualizado_em = datetime.utcnow()
     db.commit()
     db.refresh(vaga)
@@ -1242,6 +1425,22 @@ async def escolher_freelancer_cadeira_acionada(
     if vaga.status != "disponivel":
         raise HTTPException(status_code=409, detail=f"Vaga indisponivel (status: {vaga.status})")
 
+    # A cadeira nao pode mudar de mao nem o freelancer ser escolhido duas vezes em paralelo.
+    travar_barbearia(db, barbearia.id)
+    cadeira_da_vaga = db.query(Cadeira).filter(Cadeira.id == vaga.cadeira_id).first() if vaga.cadeira_id else None
+    if cadeira_da_vaga and cadeira_da_vaga.freelancer_id not in (None, request.barbeiro_id):
+        raise HTTPException(status_code=409, detail="Esta cadeira ja esta com outro freelancer")
+
+    ja_escolhido = db.query(CadeiraAcionada).filter(
+        CadeiraAcionada.barbeiro_id == request.barbeiro_id,
+        CadeiraAcionada.status == STATUS_AGUARDANDO_DESBLOQUEIO,
+    ).first()
+    if ja_escolhido:
+        raise HTTPException(status_code=409, detail="Este freelancer ja foi escolhido para outra vaga")
+
+    # Cadeira bloqueada continua bloqueada: o freelancer so assume no desbloqueio manual.
+    aguardando_desbloqueio = cadeira_esta_bloqueada(cadeira_da_vaga)
+
     from app.pagamento_diario import fechamento_bloqueante
     if fechamento_bloqueante(db, request.barbeiro_id):
         raise HTTPException(status_code=409, detail="Este freelancer está indisponível no momento")
@@ -1258,10 +1457,10 @@ async def escolher_freelancer_cadeira_acionada(
         CadeiraAcionada.status == "disponivel",
     ).update(
         {
-            CadeiraAcionada.status: "ocupada_por_barbeiro",
+            CadeiraAcionada.status: STATUS_AGUARDANDO_DESBLOQUEIO if aguardando_desbloqueio else STATUS_OCUPADA,
             CadeiraAcionada.barbeiro_id: request.barbeiro_id,
             CadeiraAcionada.cliente_id: None,
-            CadeiraAcionada.limite_chegada: datetime.utcnow() + timedelta(minutes=10),
+            CadeiraAcionada.limite_chegada: None if aguardando_desbloqueio else datetime.utcnow() + timedelta(minutes=10),
             CadeiraAcionada.atualizado_em: datetime.utcnow(),
         },
         synchronize_session=False,
@@ -1270,30 +1469,21 @@ async def escolher_freelancer_cadeira_acionada(
     if atualizado == 0:
         raise HTTPException(status_code=409, detail="Esta vaga acabou de deixar de estar disponivel")
 
-    # Atualizar o registro da cadeira física também, se houver uma cadeira vinculada.
-    if vaga.cadeira_id:
-        cadeira_atual = db.query(Cadeira).filter(Cadeira.id == vaga.cadeira_id).first()
-        if cadeira_atual:
-            cadeira_atual.status = StatusCadeira.OCUPADA
-            cadeira_atual.freelancer_id = request.barbeiro_id
-            cadeira_atual.ocupada_em = datetime.utcnow()
-            cadeira_atual.liberada_em = None
-
     # Freelancer escolhido: mesmo comportamento ja existente de "assumir cadeira"
     # (Etapa 7 - fixa o local de atendimento, sai do "disponivel na regiao").
-    usuario_escolhido = db.query(Usuario).filter(Usuario.id == request.barbeiro_id).first()
-    if usuario_escolhido:
-        usuario_escolhido.presente_em_local = True
-        usuario_escolhido.online_regiao = False
-        usuario_escolhido.disponivel = True
-        usuario_escolhido.barbearia_atual_id = vaga.barbearia_id
-        usuario_escolhido.horario_chegada = datetime.utcnow()
-        usuario_escolhido.saida_pendente = None
+    if aguardando_desbloqueio:
+        usuario_escolhido = db.query(Usuario).filter(Usuario.id == request.barbeiro_id).first()
+    else:
+        usuario_escolhido = aplicar_freelancer_na_cadeira(db, vaga, request.barbeiro_id)
 
     db.add(Notificacao(
         usuario_id=request.barbeiro_id,
         titulo="Você foi escolhido para a vaga! 🎉",
-        mensagem=f"{barbearia.nome} escolheu você para a vaga de cadeira anunciada.",
+        mensagem=(
+            f"{barbearia.nome} escolheu você para a vaga. Combine pelo chat da vaga; a cadeira será liberada quando você chegar."
+            if aguardando_desbloqueio
+            else f"{barbearia.nome} escolheu você para a vaga de cadeira anunciada."
+        ),
         tipo="vaga_escolhido",
         referencia_id=vaga.id,
     ))
@@ -1325,7 +1515,11 @@ async def escolher_freelancer_cadeira_acionada(
             nome_servico=f"{barbearia.nome} selecionou você para a vaga",
             nome_barbearia=barbearia.nome,
             title="Você foi escolhido para a vaga! 🎉",
-            body="Dirija-se a barbearia para assumir a cadeira.",
+            body=(
+                "Combine a chegada pelo chat da vaga."
+                if aguardando_desbloqueio
+                else "Dirija-se a barbearia para assumir a cadeira."
+            ),
         )
 
     for _candidatura, freelancer_nao_escolhido in outros_candidatos:
@@ -1345,7 +1539,7 @@ async def escolher_freelancer_cadeira_acionada(
         vaga=_serializar_cadeira_acionada(vaga),
         accepted_by="barbearia_escolheu",
     )
-    if usuario_escolhido:
+    if usuario_escolhido and not aguardando_desbloqueio:
         await broadcast_event(
             "freelancer_status_changed",
             autor_id=current_user.id,
@@ -1381,6 +1575,9 @@ async def aceitar_cadeira_acionada_como_cliente(
 
     if vaga.status != "disponivel":
         raise HTTPException(status_code=409, detail=f"Vaga indisponivel (status: {vaga.status})")
+
+    if vaga.tipo_servico == TIPO_VAGA_DIARIA or cadeira_esta_bloqueada(vaga.cadeira):
+        raise HTTPException(status_code=409, detail="Esta vaga nao esta aberta para clientes")
 
     barbearia = db.query(Barbearia).filter(Barbearia.id == vaga.barbearia_id).first()
     if not barbearia or barbearia.latitude is None or barbearia.longitude is None:

@@ -3,7 +3,7 @@ Rotas para Cadeiras - BarberMovie
 Endpoints para gestão de cadeiras das barbearias
 """
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from typing import List
 from datetime import datetime, timedelta
@@ -20,6 +20,7 @@ from app.schemas import (
     CadeiraPresencaRequest,
     CadeiraPresencaEncerrarRequest,
 )
+from app.realtime import broadcast_event
 from app.routes import get_current_user
 
 router = APIRouter(prefix="/api/v1/cadeiras", tags=["Cadeiras"])
@@ -218,6 +219,9 @@ def marcar_presenca_freelancer(
     
     if not cadeira:
         raise HTTPException(status_code=404, detail="Cadeira não encontrada")
+
+    if cadeira.status == StatusCadeira.BLOQUEADA:
+        raise HTTPException(status_code=400, detail="Desbloqueie a cadeira antes de registrar a presença")
 
     freelancer = db.query(Usuario).filter(Usuario.id == payload.freelancer_id).first()
     if not freelancer or freelancer.tipo != "barbeiro":
@@ -448,6 +452,12 @@ def acionar_cadeira(
             detail="Cadeira não encontrada"
         )
 
+    if cadeira.status == StatusCadeira.BLOQUEADA:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Desbloqueie a cadeira antes de acioná-la"
+        )
+
     # Regra de negocio do plano: SEMPRE respeitar limite de cadeiras contratadas.
     cadeiras_contratadas, cadeiras_ativas_outros = _validar_limite_cadeiras_ativas(
         db=db,
@@ -486,6 +496,7 @@ def acionar_cadeira(
 def atualizar_status_cadeira(
     cadeira_id: int,
     dados: CadeiraUpdate,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     usuario_atual = Depends(get_current_user)
 ):
@@ -527,7 +538,10 @@ def atualizar_status_cadeira(
             detail="Status inválido. Use: disponivel, bloqueada ou ocupada"
         )
     
+    estava_bloqueada = cadeira.status == StatusCadeira.BLOQUEADA
     cadeira.status = dados.status
+    if estava_bloqueada and dados.status != StatusCadeira.BLOQUEADA:
+        _concluir_selecao_da_vaga(db, cadeira, usuario_atual.id, background_tasks)
     db.commit()
     db.refresh(cadeira)
 
@@ -928,9 +942,30 @@ def bloquear_cadeira(
     }
 
 
+def _concluir_selecao_da_vaga(db: Session, cadeira: Cadeira, dono_id: int, background_tasks: BackgroundTasks):
+    """Se a cadeira tinha freelancer escolhido aguardando o desbloqueio, efetiva a escolha."""
+    from app.vagas import concluir_selecao_no_desbloqueio
+
+    selecao = concluir_selecao_no_desbloqueio(db, cadeira)
+    if selecao and selecao["assumiu"]:
+        background_tasks.add_task(
+            broadcast_event,
+            "freelancer_status_changed",
+            autor_id=dono_id,
+            freelancer_id=selecao["freelancer_id"],
+            barbearia_id=cadeira.barbearia_id,
+            presente_em_local=True,
+            online_regiao=False,
+            disponivel=True,
+            saida_pendente=None,
+        )
+    return selecao
+
+
 @router.put("/{cadeira_id}/desbloquear")
 def desbloquear_cadeira(
     cadeira_id: int,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     usuario_atual = Depends(get_current_user)
 ):
@@ -971,17 +1006,26 @@ def desbloquear_cadeira(
     # Desbloquear cadeira
     cadeira.status = StatusCadeira.DISPONIVEL
     cadeira.bloqueada_em = None
+    selecao = _concluir_selecao_da_vaga(db, cadeira, usuario_atual.id, background_tasks)
     
     db.commit()
     db.refresh(cadeira)
+
+    mensagem = f"Cadeira '{cadeira.numero}' desbloqueada!"
+    if selecao:
+        mensagem = (
+            f"Cadeira '{cadeira.numero}' desbloqueada! {selecao['nome']} assumiu a cadeira."
+            if selecao["assumiu"]
+            else f"Cadeira '{cadeira.numero}' desbloqueada, mas o freelancer escolhido está indisponível e a vaga foi encerrada."
+        )
     
     return {
         "success": True,
-        "message": f"Cadeira '{cadeira.numero}' desbloqueada!",
+        "message": mensagem,
         "cadeira": {
             "id": cadeira.id,
             "numero": cadeira.numero,
-            "status": "disponível",
+            "status": cadeira.status,
             "bloqueada_em": None
         }
     }

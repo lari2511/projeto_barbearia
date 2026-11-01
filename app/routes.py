@@ -1505,6 +1505,17 @@ def criar_chamado(chamado: schemas.ChamadoCreate, token: str = Depends(oauth2_sc
                 nome = ocupadas[0].freelancer.nome if ocupadas[0].freelancer else "Freelancer"
                 raise HTTPException(status_code=400, detail=f"BRB ocupada por {nome}")
 
+    # ✅ GUARDIÃO: sem cadeira definida, não abre chamado se todas estão bloqueadas pelo dono
+    if not cadeira_id:
+        status_cadeiras = db.query(models.Cadeira.status).filter(
+            models.Cadeira.barbearia_id == barbearia.id
+        ).all()
+        if status_cadeiras and all(linha[0] == models.StatusCadeira.BLOQUEADA for linha in status_cadeiras):
+            raise HTTPException(
+                status_code=400,
+                detail="As cadeiras desta barbearia estão bloqueadas no momento. Tente novamente mais tarde."
+            )
+
     # Calcular split do pagamento (snapshot financeiro)
     split = calcular_split_pagamento(servico.valor)
     
@@ -2152,7 +2163,9 @@ def aceitar_chamado(id: int, token: str = Depends(oauth2_scheme), db: Session = 
         # Fila de espera: se a cadeira está ocupada pelo PRÓPRIO barbeiro que
         # está aceitando (ele está atendendo outro cliente nela agora), não é
         # conflito - é a fila dele. Só bloqueia se for outro freelancer.
-        cadeira_e_do_proprio_barbeiro_na_fila = bool(cadeira and cadeira.freelancer_id == user.id)
+        cadeira_e_do_proprio_barbeiro_na_fila = bool(
+            cadeira and cadeira.freelancer_id == user.id and cadeira.status != models.StatusCadeira.BLOQUEADA
+        )
         if cadeira and cadeira.status != models.StatusCadeira.DISPONIVEL and not cadeira_e_do_proprio_barbeiro_na_fila:
             raise HTTPException(
                 status_code=400,

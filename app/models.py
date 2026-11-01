@@ -1111,6 +1111,8 @@ class CadeiraAcionada(Base):
     Fluxo principal:
     - status='disponivel': vaga aberta para barbeiros/clientes elegiveis. Barbeiros
       podem se candidatar (CadeiraAcionadaCandidatura) sem mudar este status.
+    - status='aguardando_desbloqueio': a barbearia escolheu um candidato com a cadeira
+      bloqueada; ele so assume a cadeira quando o dono desbloquear (ver app/vagas.py).
     - status='ocupada_por_barbeiro': a barbearia escolheu um candidato, que assumiu
       a cadeira.
     - status='reservada_por_cliente': cliente reservou atendimento imediato.
@@ -1160,6 +1162,23 @@ class CadeiraAcionadaCandidatura(Base):
 
     vaga = relationship("CadeiraAcionada")
     barbeiro = relationship("Usuario", foreign_keys=[barbeiro_id])
+
+
+class MensagemVaga(Base):
+    """Chat privado da vaga: dono da barbearia e freelancer escolhido (ver routes_vaga_chat.py)."""
+
+    __tablename__ = "mensagens_vaga"
+
+    id = Column(Integer, primary_key=True, index=True)
+    vaga_id = Column(Integer, ForeignKey("cadeiras_acionadas.id"), nullable=False, index=True)
+    remetente_id = Column(Integer, ForeignKey("usuarios.id"), nullable=False, index=True)
+    mensagem = Column(String, nullable=False)
+    lida = Column(Boolean, default=False, nullable=False, index=True)
+    lida_em = Column(DateTime, nullable=True)
+    criado_em = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+
+    vaga = relationship("CadeiraAcionada")
+    remetente = relationship("Usuario", foreign_keys=[remetente_id])
 
 
 class NotificacaoBarbeiro(Base):

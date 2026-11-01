@@ -13,6 +13,7 @@ import TrackingPanel from './TrackingPanel';
 import ChatRoom from './ChatRoom';
 import ProfileCard from './ProfileCard';
 import { EstruturaDaVaga } from './EstruturaBarbearia';
+import MinhasVagasSelecionadas from './MinhasVagasSelecionadas';
 import CronometroAtendimento, { parseDataServidorUTC } from './CronometroAtendimento';
 import BotaoVoltar from './BotaoVoltar';
 import { useBackHandler } from '../utils/useBackHandler';
@@ -1053,6 +1054,8 @@ export default function PainelBarberMovePremium({ token: tokenProp, logout: logo
                   </div>
                 </div>
               )}
+
+              <MinhasVagasSelecionadas API_URL={API_URL} token={token} />
 
               <div className="grid grid-cols-2 gap-3">
                 <button onClick={() => setTab('chamados')} className="rounded-2xl border border-zinc-800 bg-zinc-900 p-4 flex flex-col items-center gap-2 hover:border-orange-500 transition-colors">

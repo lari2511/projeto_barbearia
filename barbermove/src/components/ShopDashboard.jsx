@@ -14,6 +14,7 @@ import ProfileCard from './ProfileCard';
 import CronometroAtendimento, { parseDataServidorUTC } from './CronometroAtendimento';
 import DeslocamentoAtendimento from './DeslocamentoAtendimento';
 import ChatRoom from './ChatRoom';
+import AnunciarVagas from './AnunciarVagas';
 
 function AvatarFreelancer({ nome, foto, API_URL, size = 32 }) {
     const url = foto ? resolveMediaUrl(foto, API_URL) : '';
@@ -654,7 +655,7 @@ export default function ShopDashboard({ token, logout, notify, API_URL }) {
             if (!res.ok) {
                 throw new Error(data?.detail || 'Não foi possível escolher este freelancer');
             }
-            notify('Freelancer escolhido! A cadeira foi vinculada a ele.', 'success');
+            notify('Freelancer escolhido! O chat privado da vaga foi liberado.', 'success');
             setCandidatosPorVaga((prev) => {
                 const proximo = { ...prev };
                 delete proximo[vagaId];
@@ -1127,6 +1128,14 @@ export default function ShopDashboard({ token, logout, notify, API_URL }) {
                                 </div>
                             )}
                         </div>
+
+                        <AnunciarVagas
+                            API_URL={API_URL}
+                            token={token}
+                            notify={notify}
+                            onVerPerfil={abrirPerfilFreelancer}
+                            onAbrirAssinatura={() => setTab('assinatura')}
+                        />
 
                         {totalFreelancersCadastrados != null && (
                             <div className="bm-card bg-zinc-900 rounded-2xl p-3 border border-zinc-800/60 flex items-center justify-between gap-3">
