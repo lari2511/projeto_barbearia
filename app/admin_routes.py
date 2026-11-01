@@ -14,7 +14,7 @@ from app.database import get_db
 from app.models import (
     Usuario, Foto, Freelancer, PortfolioFreelancer, FechamentoDiarioFreelancer,
     Barbearia, Cadeira, AssinaturaBarbearia, CadeiraContratada, FaturaAssinatura,
-    AvaliacaoFreelancer, AvaliacaoBarbearia,
+    AvaliacaoFreelancer, AvaliacaoBarbearia, ChamadoSuporte, MensagemSuporte,
 )
 from app.routes import get_current_user
 
@@ -306,6 +306,8 @@ _DADOS_DO_CADASTRO = {
     ("contas_pagamento_usuarios", "usuario_id"),
     ("carteiras", "barbeiro_id"),  # só sai se não tiver movimentação (historico_movimentacoes bloqueia)
     ("freelancers", "usuario_id"),  # portfólio/especialidades saem junto; avaliações/comissões bloqueiam
+    ("mensagens_suporte", "remetente_id"),  # conversa com o ADM não impede recusar o cadastro
+    ("chamados_suporte", "usuario_id"),
 }
 _FILHOS_DO_FREELANCER = {"portfolio_freelancer", "especialidades_freelancer"}
 # Campos preenchidos pelo próprio ADM ao decidir algo; não são histórico do usuário recusado.
@@ -350,6 +352,10 @@ def _historico_que_impede_exclusao(db: Session, usuario: Usuario):
 
 
 def _apagar_dados_do_cadastro(db: Session, usuario: Usuario):
+    # Inclui as respostas do ADM, cujo remetente_id não é o usuário apagado.
+    ids_chamados = [c.id for c in db.query(ChamadoSuporte).filter(ChamadoSuporte.usuario_id == usuario.id).all()]
+    if ids_chamados:
+        db.query(MensagemSuporte).filter(MensagemSuporte.chamado_suporte_id.in_(ids_chamados)).delete(synchronize_session=False)
     ids_freelancer = [f.id for f in db.query(Freelancer).filter(Freelancer.usuario_id == usuario.id).all()]
     if ids_freelancer:
         for tabela, coluna in _fks_para("freelancers"):
@@ -903,6 +909,21 @@ _DASHBOARD_HTML = r"""
                 border-radius: 10px; color: #fff; font-size: 15px;
             }
             .login .erro { color: var(--vermelho); text-align: center; margin-top: 14px; font-size: 14px; }
+
+            /* Atendimento */
+            .chat-msgs { display: flex; flex-direction: column; gap: 8px; margin: 14px 0; }
+            .balao { max-width: 85%; padding: 9px 12px; border-radius: 14px; font-size: 14px; white-space: pre-wrap; word-break: break-word; }
+            .balao small { display: block; margin-top: 4px; font-size: 11px; color: var(--cinza); text-align: right; white-space: normal; }
+            .balao.usuario { align-self: flex-start; background: var(--bloco-2); border: 1px solid var(--borda); }
+            .balao.adm { align-self: flex-end; background: rgba(249,115,22,0.18); border: 1px solid var(--laranja); }
+            .balao.nova { border-color: var(--amarelo); }
+            .chat-form { position: sticky; bottom: 0; display: flex; gap: 8px; align-items: flex-end; padding: 8px 0; background: var(--bg); }
+            .chat-form[hidden] { display: none; }
+            .chat-form textarea {
+                flex: 1; min-width: 0; resize: vertical; padding: 11px 12px; font: inherit; font-size: 15px;
+                background: var(--bloco); border: 1px solid var(--borda); border-radius: 12px; color: var(--texto);
+            }
+            .chat-form textarea:focus { outline: none; border-color: var(--laranja); }
         </style>
     </head>
     <body>
@@ -936,6 +957,16 @@ _DASHBOARD_HTML = r"""
                 if (!iso) return '—';
                 const [a, m, d] = String(iso).slice(0, 10).split('-');
                 return `${d}/${m}/${a}`;
+            }
+
+            // O backend devolve UTC sem fuso; exibe sempre em Brasília.
+            function dataHoraBR(iso) {
+                if (!iso) return '—';
+                const s = String(iso);
+                const d = new Date(/Z$|[+-]\d{2}:?\d{2}$/.test(s) ? s : s + 'Z');
+                return d.toLocaleString('pt-BR', {
+                    timeZone: 'America/Sao_Paulo', day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit'
+                });
             }
 
             function dinheiro(v) {
@@ -1011,9 +1042,12 @@ _DASHBOARD_HTML = r"""
             });
 
             const VIEWS = {};
+            // Recarrega só os dados da tela de atendimento aberta (socket e ciclo de 5s), sem apagar o que está sendo digitado.
+            let atualizarAtendimento = null;
 
             function render(view, params) {
                 viewAtual = view;
+                atualizarAtendimento = null;
                 (VIEWS[view] || VIEWS.home)(params || {});
             }
 
@@ -1096,7 +1130,18 @@ _DASHBOARD_HTML = r"""
                         ${linha('🏪', 'PROPRIETÁRIOS', '', "ir('proprietarios')", '', true)}
                         ${linha('👥', 'CLIENTES', '', "ir('clientes')", '', true)}
                         ${linha('💰', 'PAGAMENTOS DE FREELANCERS', '', "ir('pagamentos')", '', true)}
+                        <div id="linhaAtendimento"></div>
                     </div>`;
+                // A linha só aparece para quem o backend reconhece como ADM.
+                const carregarLinhaAtendimento = async () => {
+                    try {
+                        const r = await api('/suporte/resumo');
+                        const el = document.getElementById('linhaAtendimento');
+                        if (el) el.innerHTML = linha('🎧', 'ATENDIMENTO', 'Mensagens enviadas pelos usuários', "ir('atendimento')", r.total_nao_lidas, true);
+                    } catch (_) {}
+                };
+                atualizarAtendimento = carregarLinhaAtendimento;
+                carregarLinhaAtendimento();
                 try {
                     const s = await api('/estatisticas');
                     if (viewAtual !== 'home') return;
@@ -1597,6 +1642,129 @@ _DASHBOARD_HTML = r"""
             };
 
             // ---------------------------------------------------------------
+            // Atendimento (chat de suporte): um setor por perfil
+            // ---------------------------------------------------------------
+            const SETORES_SUPORTE = {
+                cliente: { ic: '👥', titulo: 'CHAMADOS DE CLIENTES', perfil: 'Cliente', vazio: 'Nenhum chamado de cliente.' },
+                barbeiro: { ic: '👤', titulo: 'CHAMADOS DE FREELANCERS', perfil: 'Freelancer', vazio: 'Nenhum chamado de freelancer.' },
+                barbearia: { ic: '🏪', titulo: 'CHAMADOS DE PROPRIETÁRIOS', perfil: 'Proprietário', vazio: 'Nenhum chamado de proprietário.' },
+            };
+
+            VIEWS.atendimento = async () => {
+                app.innerHTML = topo('🎧 ATENDIMENTO') + '<div class="rows" id="lista"><div class="carregando">Carregando...</div></div>';
+                const carregar = async () => {
+                    const r = await api('/suporte/resumo');
+                    const box = document.getElementById('lista');
+                    if (!box || atualizarAtendimento !== carregar) return;
+                    box.innerHTML = Object.keys(SETORES_SUPORTE).map(tipo => {
+                        const s = SETORES_SUPORTE[tipo], d = r.setores[tipo];
+                        const sub = `${d.conversas} conversa${d.conversas === 1 ? '' : 's'}` +
+                            (d.conversas_nao_lidas ? ` · ${d.conversas_nao_lidas} com mensagem nova` : '');
+                        return linha(s.ic, s.titulo, sub, `ir('atendimentoLista', {tipo:'${tipo}'})`, d.mensagens_nao_lidas);
+                    }).join('');
+                };
+                atualizarAtendimento = carregar;
+                try { await carregar(); }
+                catch (err) { const box = document.getElementById('lista'); if (box) box.innerHTML = erroHtml(err); }
+            };
+
+            VIEWS.atendimentoLista = async (p) => {
+                const setor = SETORES_SUPORTE[p.tipo];
+                app.innerHTML = topo(`${setor.ic} ${setor.titulo}`, 'Carregando...') + '<div class="rows" id="lista"></div>';
+                const carregar = async () => {
+                    const itens = await api(`/suporte/conversas?tipo=${p.tipo}`);
+                    const box = document.getElementById('lista');
+                    if (!box || atualizarAtendimento !== carregar) return;
+                    document.getElementById('tituloSub').textContent = `${itens.length} conversa${itens.length === 1 ? '' : 's'}`;
+                    box.innerHTML = itens.length ? itens.map(c => {
+                        const nome = c.nome_barbearia ? `${c.nome_barbearia} (${c.nome})` : c.nome;
+                        const previa = String(c.ultima_mensagem || '').slice(0, 80);
+                        return linha(setor.ic, esc(nome), `${esc(previa)}<br>${dataHoraBR(c.ultima_mensagem_em)}`, `ir('atendimentoConversa', {id:${c.id}})`, c.nao_lidas);
+                    }).join('') : `<div class="vazio">${setor.vazio}</div>`;
+                };
+                atualizarAtendimento = carregar;
+                try { await carregar(); }
+                catch (err) { const box = document.getElementById('lista'); if (box) box.innerHTML = erroHtml(err); }
+            };
+
+            function balaoSuporte(m) {
+                const autor = m.do_adm ? 'ADM' : (SETORES_SUPORTE[m.remetente_tipo] || {}).perfil || m.remetente_tipo;
+                const situacao = m.do_adm ? (m.lida ? ' · Lida pelo usuário' : '') : (m.lida ? '' : ' · Nova');
+                return `<div class="balao ${m.do_adm ? 'adm' : 'usuario'} ${!m.do_adm && !m.lida ? 'nova' : ''}">${esc(m.mensagem)}<small>${esc(autor)} · ${dataHoraBR(m.criado_em)}${situacao}</small></div>`;
+            }
+
+            VIEWS.atendimentoConversa = async (p) => {
+                const id = Number(p.id);
+                app.innerHTML = topo('💬 CONVERSA', 'Carregando...') + `
+                    <div class="chat-msgs" id="chatMsgs"><div class="carregando">Carregando...</div></div>
+                    <form class="chat-form" id="chatForm" hidden onsubmit="responderSuporte(event, ${id})">
+                        <textarea id="chatTexto" rows="2" maxlength="2000" placeholder="Escreva a resposta" required></textarea>
+                        <button class="btn btn-laranja" id="chatEnviar" type="submit">ENVIAR</button>
+                    </form>`;
+                let assinatura = null, totalAnterior = 0;
+                const carregar = async () => {
+                    const c = await api(`/suporte/conversas/${id}`);
+                    const box = document.getElementById('chatMsgs');
+                    if (!box || atualizarAtendimento !== carregar) return;
+                    const setor = SETORES_SUPORTE[c.tipo_perfil] || { perfil: c.tipo_perfil };
+                    document.querySelector('.titulo').textContent = `💬 ${c.nome}`;
+                    document.getElementById('tituloSub').textContent =
+                        `${setor.perfil}${c.nome_barbearia ? ` · ${c.nome_barbearia}` : ''} · ${c.email}${c.telefone ? ` · ${c.telefone}` : ''}`;
+                    document.getElementById('chatForm').hidden = false;
+
+                    const naoLidas = c.mensagens.filter(m => !m.do_adm && !m.lida).length;
+                    const novaAssinatura = c.mensagens.map(m => `${m.id}:${m.lida}`).join(',');
+                    if (novaAssinatura !== assinatura) {
+                        assinatura = novaAssinatura;
+                        box.innerHTML = c.mensagens.map(balaoSuporte).join('') || '<div class="vazio">Sem mensagens.</div>';
+                        if (c.mensagens.length > totalAnterior) window.scrollTo(0, document.body.scrollHeight);
+                        totalAnterior = c.mensagens.length;
+                    }
+                    if (naoLidas && document.visibilityState === 'visible') {
+                        await api(`/suporte/conversas/${id}/marcar-lidas`, { method: 'POST' });
+                    }
+                };
+                atualizarAtendimento = carregar;
+                try { await carregar(); }
+                catch (err) { const box = document.getElementById('chatMsgs'); if (box) box.innerHTML = erroHtml(err); }
+            };
+
+            async function responderSuporte(e, id) {
+                e.preventDefault();
+                const campoTexto = document.getElementById('chatTexto');
+                const botao = document.getElementById('chatEnviar');
+                const mensagem = campoTexto.value.trim();
+                if (!mensagem) return;
+                botao.disabled = true;
+                try {
+                    await api(`/suporte/conversas/${id}/mensagens`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ mensagem })
+                    });
+                    campoTexto.value = '';
+                    if (atualizarAtendimento) await atualizarAtendimento();
+                } catch (err) {
+                    if (err.message !== 'sessao') alert('❌ Não foi possível enviar a resposta. Tente novamente.');
+                } finally {
+                    botao.disabled = false;
+                }
+            }
+
+            function conectarSocketAtendimento() {
+                const url = `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws/notificacoes`;
+                const ws = new WebSocket(url);
+                ws.onopen = () => ws.send(JSON.stringify({ tipo: 'auth', token }));
+                ws.onmessage = (ev) => {
+                    if (ev.data === 'pong') return;
+                    try {
+                        if (JSON.parse(ev.data).type === 'suporte_mensagem' && atualizarAtendimento) atualizarAtendimento().catch(() => {});
+                    } catch (_) {}
+                };
+                ws.onclose = () => { if (token) setTimeout(conectarSocketAtendimento, 5000); };
+            }
+
+            // ---------------------------------------------------------------
             // Lightbox
             // ---------------------------------------------------------------
             let lbChave = null, lbIdx = 0;
@@ -1664,6 +1832,8 @@ _DASHBOARD_HTML = r"""
                 render('home', {});
                 // Só o resumo da tela principal se atualiza sozinho (as outras telas não perdem a rolagem).
                 setInterval(() => { if (viewAtual === 'home' && token) render('home', {}); }, 30000);
+                setInterval(() => { if (atualizarAtendimento && token) atualizarAtendimento().catch(() => {}); }, 5000);
+                conectarSocketAtendimento();
             }
         </script>
     </body>

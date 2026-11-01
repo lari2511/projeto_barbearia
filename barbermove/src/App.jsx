@@ -3,6 +3,7 @@ import './index.css'
 import ClientDashboard from './components/ClientDashboard'
 import BarberDashboard from './components/BarberDashboard'
 import ShopDashboard from './components/ShopDashboard'
+import { avisarMensagemSuporte, chatSuporteEstaAberto } from './utils/suporte'
 import Login from './components/Login'
 import GateCadastroPendente from './components/GateCadastroPendente'
 import GateTermos from './components/GateTermos'
@@ -215,6 +216,13 @@ export default function App() {
           title: 'Vaga relâmpago encerrada',
           body: `A vaga foi aceita por ${message?.accepted_by === 'barbeiro' ? 'um barbeiro' : 'um cliente'}.`,
         }
+      case 'suporte_mensagem':
+        // Com a conversa aberta a mensagem ja aparece na tela.
+        if (chatSuporteEstaAberto()) return null
+        return {
+          title: 'Resposta do ADM',
+          body: 'Você recebeu uma resposta do ADM. Veja em Perfil > Falar com o ADM.',
+        }
       default:
         return null
     }
@@ -230,6 +238,7 @@ export default function App() {
       vaga_id: message?.vaga?.id || message?.vaga_id,
       status: message?.status,
       accepted_by: message?.accepted_by,
+      mensagem_id: message?.mensagem_id,
     })
 
     if (notifiedEventsRef.current.has(eventKey)) return
@@ -467,6 +476,7 @@ export default function App() {
         ws.onmessage = async (event) => {
           try {
             const payload = JSON.parse(event.data)
+            if (payload?.type === 'suporte_mensagem') avisarMensagemSuporte()
             await emitRealtimeAlert(payload)
           } catch (_error) {
             // Mensagem não JSON ou inválida.

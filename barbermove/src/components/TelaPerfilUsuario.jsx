@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Camera, LogOut, Upload, Trash2, Loader } from 'lucide-react';
+import { Camera, ChevronRight, LogOut, MessageCircle, Upload, Trash2, Loader } from 'lucide-react';
 import ScreenWrapper from './ScreenWrapper';
 import AppCard from './AppCard';
 import Header from './Header';
@@ -8,6 +8,8 @@ import { getApiBaseUrl, resolveMediaUrl } from '../utils/api';
 import { formatarEndereco } from '../utils/address';
 import { useBackHandler } from '../utils/useBackHandler';
 import BotaoVoltar from './BotaoVoltar';
+import ChatSuporte from './ChatSuporte';
+import { useSuporteNaoLidas } from '../utils/suporte';
 import { AVISO_KIT_FREELANCER, ITENS_CONDICOES_ESTRUTURA, TEXTOS_CONDICOES_ESTRUTURA } from './EstruturaBarbearia';
 import { gerarQrDataUrl, salvarMetodoPreferidoCliente, validarCartaoBasico } from './checkout/core';
 import PagamentoPix, { usePixDisponivel } from './PagamentoPix';
@@ -335,6 +337,12 @@ export function TelaPerfilUsuario({
   // Perfil da barbearia: abre em modo visualizacao (limpo); o formulario so
   // aparece ao tocar "Editar perfil".
   const [editMode, setEditMode] = useState(false);
+  const [chatSuporteAberto, setChatSuporteAberto] = useState(false);
+  const [suporteNaoLidas, atualizarSuporteNaoLidas] = useSuporteNaoLidas(apiBase, token);
+  const fecharChatSuporte = useCallback(() => {
+    setChatSuporteAberto(false);
+    atualizarSuporteNaoLidas();
+  }, [atualizarSuporteNaoLidas]);
   const [mediaAvaliacao, setMediaAvaliacao] = useState(null); // { media, total } | null (avaliação de clientes)
   const [mediaAvaliacaoFreelancer, setMediaAvaliacaoFreelancer] = useState(null); // { media, total } | null (avaliação de freelancers)
   const [fotoMenuId, setFotoMenuId] = useState(null); // portfólio da barbearia: foto com menu aberto
@@ -1627,6 +1635,30 @@ export function TelaPerfilUsuario({
           </div>
         </div>
       </AppCard>
+
+      {!editMode && (
+        <button
+          type="button"
+          onClick={() => setChatSuporteAberto(true)}
+          data-testid="abrir-chat-suporte"
+          className="flex w-full items-center gap-3 rounded-2xl border border-zinc-800 bg-zinc-900/70 px-4 py-3 text-left hover:border-orange-500/60"
+        >
+          <MessageCircle size={20} className="flex-shrink-0 text-orange-400" />
+          <span className="min-w-0 flex-1">
+            <span className="block text-sm font-black text-white">Falar com o ADM</span>
+            <span className="block text-xs text-zinc-400">
+              {suporteNaoLidas > 0 ? 'Você tem resposta nova do ADM' : 'Tire dúvidas ou envie uma mensagem'}
+            </span>
+          </span>
+          {suporteNaoLidas > 0 && (
+            <span data-testid="badge-suporte" className="rounded-full bg-orange-500 px-2 py-0.5 text-xs font-black text-white">
+              {suporteNaoLidas}
+            </span>
+          )}
+          <ChevronRight size={18} className="flex-shrink-0 text-zinc-500" />
+        </button>
+      )}
+      {chatSuporteAberto && <ChatSuporte token={token} apiBase={apiBase} onFechar={fecharChatSuporte} />}
 
       {perfilTipo === 'barbeiro' && (
         <AppCard>

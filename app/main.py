@@ -40,6 +40,7 @@ from .routes_notificacoes import router as router_notificacoes  # 🔴 Rotas de 
 from .routes_precos import router as router_precos  # 🔴 Rotas de preços customizados
 from .routes_analytics import router as router_analytics  # 🔴 Rotas de analytics e avaliações
 from .admin_routes import router as router_admin  # Dashboard web do admin
+from .routes_suporte import router_usuario as router_suporte_usuario, router_admin as router_suporte_admin  # 💬 Chat de suporte
 from .routes_legais import router as router_legais  # Rotas de termos e privacidade
 from .routes_fixes import router as router_fixes  # Rotas de correções (email verification, cadeiras, avaliacoes)
 from .routes_aprovacoes import router as router_aprovacoes  # Rotas de aprovação bidirecional
@@ -159,6 +160,8 @@ app.include_router(router_cadastro)  # 📝 Cadastro rápido e completar perfil
 app.include_router(router_termos)  # 📜 Termos de Uso / Privacidade
 app.include_router(router_interesse)  # 👀 Interesse de clientes em atendimento (agregado, via sino de notificações)
 app.include_router(router_alteracao_servico)  # ✂️ Alteração de serviço (freelancer pede, cliente confirma)
+app.include_router(router_suporte_usuario)  # 💬 Chat de suporte: conversa do usuário com o ADM
+app.include_router(router_suporte_admin)  # 💬 Chat de suporte: setores e respostas no painel ADM
 # Rotas legais (Termos e Privacidade)
 app.include_router(router_legais, prefix="/api/v1")
 

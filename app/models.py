@@ -1361,3 +1361,48 @@ class AceiteDocumento(Base):
     registrado_em = Column(DateTime, default=datetime.utcnow, nullable=False)
 
     usuario = relationship("Usuario", foreign_keys=[usuario_id])
+
+
+class ChamadoSuporte(Base):
+    """
+    Conversa única de atendimento/suporte entre um usuário (cliente, freelancer
+    ou proprietário) e o ADM. Cada usuário possui no máximo uma conversa ativa
+    permanente (`usuario_id` único), preservando todo o histórico sem duplicar
+    chamados.
+    """
+    __tablename__ = "chamados_suporte"
+
+    id = Column(Integer, primary_key=True, index=True)
+    usuario_id = Column(Integer, ForeignKey("usuarios.id"), nullable=False, unique=True, index=True)
+    # Identificado automaticamente pela autenticação: 'cliente' | 'barbeiro' | 'barbearia'
+    tipo_perfil = Column(String(20), nullable=False, index=True)
+    criado_em = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+    atualizado_em = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False, index=True)
+    ultima_mensagem_em = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+
+    usuario = relationship("Usuario", foreign_keys=[usuario_id])
+    mensagens = relationship(
+        "MensagemSuporte",
+        back_populates="chamado_suporte",
+        order_by="MensagemSuporte.criado_em.asc(), MensagemSuporte.id.asc()",
+        cascade="all, delete-orphan",
+    )
+
+
+class MensagemSuporte(Base):
+    """Mensagem enviada em uma conversa de suporte entre usuário e ADM."""
+    __tablename__ = "mensagens_suporte"
+
+    id = Column(Integer, primary_key=True, index=True)
+    chamado_suporte_id = Column(Integer, ForeignKey("chamados_suporte.id"), nullable=False, index=True)
+    remetente_id = Column(Integer, ForeignKey("usuarios.id"), nullable=False, index=True)
+    # 'cliente' | 'barbeiro' | 'barbearia' | 'admin'
+    remetente_tipo = Column(String(20), nullable=False, index=True)
+    mensagem = Column(String, nullable=False)
+    lida = Column(Boolean, default=False, nullable=False, index=True)
+    lida_em = Column(DateTime, nullable=True)
+    criado_em = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+
+    chamado_suporte = relationship("ChamadoSuporte", back_populates="mensagens")
+    remetente = relationship("Usuario", foreign_keys=[remetente_id])
+

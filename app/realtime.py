@@ -9,9 +9,6 @@ from fastapi import WebSocket
 
 class RealtimeManager:
     def __init__(self) -> None:
-        # socket -> id do usuario autenticado ({tipo:'auth'}) ou None. So o socket
-        # de alertas do App.jsx se autentica; os sockets dos paineis (que so
-        # recarregam dados) ficam anonimos.
         self._connections: Dict[WebSocket, Optional[int]] = {}
 
     async def connect(self, websocket: WebSocket) -> None:
@@ -25,15 +22,21 @@ class RealtimeManager:
     def disconnect(self, websocket: WebSocket) -> None:
         self._connections.pop(websocket, None)
 
-    async def broadcast(self, payload: dict[str, Any], excluir_usuario_id: Optional[int] = None) -> None:
+    async def broadcast(
+        self,
+        payload: dict[str, Any],
+        excluir_usuario_id: Optional[int] = None,
+        destinatario_id: Optional[int] = None,
+    ) -> None:
         if not self._connections:
             return
 
         message = json.dumps(payload, ensure_ascii=False, default=_json_default)
-        dead: list[WebSocket] = []
+        dead = []
         for ws, usuario_id in list(self._connections.items()):
-            # Quem fez a acao nao recebe alerta da propria acao.
             if excluir_usuario_id is not None and usuario_id == excluir_usuario_id:
+                continue
+            if destinatario_id is not None and usuario_id != destinatario_id:
                 continue
             try:
                 await ws.send_text(message)
@@ -53,7 +56,15 @@ def _json_default(value: Any) -> Any:
     return str(value)
 
 
-async def broadcast_event(event_type: str, autor_id: Optional[int] = None, **data: Any) -> None:
-    """autor_id = usuario que realizou a acao; o socket de alertas dele nao recebe o evento."""
-    payload: dict[str, Any] = {"type": event_type, **data}
-    await realtime_manager.broadcast(payload, excluir_usuario_id=autor_id)
+async def broadcast_event(
+    event_type: str,
+    autor_id: Optional[int] = None,
+    destinatario_id: Optional[int] = None,
+    **data: Any,
+) -> None:
+    payload = {"type": event_type, **data}
+    await realtime_manager.broadcast(
+        payload,
+        excluir_usuario_id=autor_id,
+        destinatario_id=destinatario_id,
+    )
