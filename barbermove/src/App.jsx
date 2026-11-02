@@ -330,6 +330,9 @@ export default function App() {
         return
       }
 
+      // Ja esta na versao publicada: a assinatura muda com a data do arquivo e daria aviso falso.
+      if (installedBuild && latestVersionCode) return
+
       // Em alguns aparelhos o plugin App.getInfo() não retorna build/versionCode.
       // Nesses casos, no app nativo, ainda exibimos o aviso usando a assinatura
       // remota (respeitando apenas o "Depois" da mesma assinatura).

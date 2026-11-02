@@ -1,0 +1,269 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Baixar o BarberMove</title>
+<meta name="description" content="Baixe o BarberMove: clientes, barbeiros freelancers e barbearias da sua região no mesmo app.">
+<meta name="theme-color" content="#03224c">
+<link rel="icon" href="/pwa-192x192.png">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<meta property="og:type" content="website">
+<meta property="og:title" content="Baixe o BarberMove">
+<meta property="og:description" content="Clientes, barbeiros freelancers e barbearias da sua região no mesmo app.">
+<meta property="og:url" content="https://projetobarbearia-production.up.railway.app/baixar">
+<meta property="og:image" content="https://projetobarbearia-production.up.railway.app/brand-logo.png">
+<style>
+  :root {
+    --navy: #03224c;
+    --texto: #33445c;
+    --suave: #5d6b7e;
+    --linha: #dde3ea;
+    --fundo-alt: #f3f6f9;
+    --vermelho: #e8212e;
+    --azul: #0a66d0;
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0;
+    background: #fff;
+    color: var(--texto);
+    font: 17px/1.55 system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  }
+  h1, h2, h3 { color: var(--navy); line-height: 1.15; margin: 0; }
+  a { color: var(--azul); }
+  a:focus-visible, summary:focus-visible { outline: 3px solid var(--azul); outline-offset: 3px; }
+  .faixa {
+    height: 10px;
+    background: repeating-linear-gradient(135deg,
+      var(--vermelho) 0 22px, #fff 22px 44px, var(--azul) 44px 66px, #fff 66px 88px);
+    border-bottom: 1px solid var(--linha);
+  }
+  .largura { max-width: 1040px; margin: 0 auto; padding: 0 20px; }
+  header .largura { display: flex; align-items: center; justify-content: space-between; height: 68px; }
+  .marca { color: var(--navy); font-size: 22px; font-weight: 800; letter-spacing: -.02em; text-decoration: none; }
+  .link-entrar { font-weight: 600; text-decoration: none; }
+
+  .hero .largura {
+    display: grid;
+    grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr);
+    gap: 40px;
+    align-items: center;
+    padding-top: 24px;
+    padding-bottom: 64px;
+  }
+  h1 { font-size: clamp(36px, 6vw, 58px); font-weight: 800; letter-spacing: -.03em; }
+  .chamada { font-size: 19px; margin: 20px 0 28px; max-width: 34em; }
+  .botao {
+    display: inline-block;
+    min-height: 52px;
+    padding: 13px 28px;
+    border-radius: 8px;
+    background: var(--navy);
+    color: #fff;
+    font-size: 18px;
+    font-weight: 700;
+    text-align: center;
+    text-decoration: none;
+  }
+  .botao:hover { background: #0a3a78; }
+  .detalhe { margin: 12px 0 0; font-size: 15px; color: var(--suave); }
+  .arte { text-align: center; }
+  .arte img { width: 100%; max-width: 380px; height: auto; }
+  .qr { display: none; align-items: center; gap: 16px; margin-top: 28px; }
+  .qr svg { width: 112px; height: 112px; flex: none; }
+  .qr p { margin: 0; font-size: 15px; max-width: 16em; }
+
+  /* O script marca o aparelho; sem JavaScript fica o botão do APK. */
+  .so-iphone { display: none; }
+  [data-aparelho="iphone"] .so-android { display: none; }
+  [data-aparelho="iphone"] .so-iphone { display: inline-block; }
+  [data-aparelho="computador"] .qr { display: flex; }
+  [data-aparelho="iphone"] #instalar-iphone { order: -1; }
+
+  section { padding: 64px 0; }
+  .alt { background: var(--fundo-alt); }
+  h2 { font-size: clamp(28px, 4vw, 36px); font-weight: 800; letter-spacing: -.02em; margin-bottom: 32px; }
+  h3 { font-size: 21px; font-weight: 700; margin-bottom: 12px; }
+
+  .perfis { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 40px; }
+  .perfis > div { border-top: 4px solid var(--navy); padding-top: 18px; }
+  .perfis > div:nth-child(2) { border-color: var(--vermelho); }
+  .perfis > div:nth-child(3) { border-color: var(--azul); }
+  .perfis ul { margin: 0; padding-left: 20px; }
+  .perfis li { margin-bottom: 8px; }
+
+  .instalar { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 48px; }
+  .instalar ol { margin: 0 0 16px; padding-left: 22px; }
+  .instalar li { margin-bottom: 10px; }
+  .instalar li::marker { color: var(--navy); font-weight: 700; }
+  .nota { font-size: 15px; margin: 0; color: var(--suave); }
+
+  details { border-bottom: 1px solid var(--linha); padding: 16px 0; max-width: 720px; }
+  summary { color: var(--navy); font-weight: 700; cursor: pointer; }
+  details p { margin: 10px 0 0; }
+
+  footer { border-top: 1px solid var(--linha); padding: 28px 0 36px; font-size: 15px; color: var(--suave); }
+  footer nav { display: flex; flex-wrap: wrap; gap: 8px 20px; margin-bottom: 10px; }
+  footer p { margin: 0; }
+
+  @media (max-width: 760px) {
+    .hero .largura { grid-template-columns: 1fr; gap: 12px; padding-bottom: 48px; }
+    .arte { order: -1; }
+    .arte img { max-width: 190px; }
+    .botao { display: block; width: 100%; }
+    :root:not([data-aparelho="iphone"]) .so-iphone { display: none; }
+    section { padding: 48px 0; }
+    .perfis, .instalar { grid-template-columns: 1fr; gap: 32px; }
+  }
+  @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+</style>
+</head>
+<body>
+<div class="faixa"></div>
+<header>
+  <div class="largura">
+    <a class="marca" href="/baixar">BarberMove</a>
+    <a class="link-entrar" href="/">Abrir no navegador</a>
+  </div>
+</header>
+
+<main>
+  <div class="hero">
+    <div class="largura">
+      <div>
+        <h1>Cliente, barbeiro e barbearia no mesmo app.</h1>
+        <p class="chamada">Encontre uma barbearia, escolha quem vai te atender e acompanhe tudo pelo celular. Se você trabalha no ramo, encontre barbearias ou profissionais perto de você.</p>
+        <a class="botao so-android" href="/apk/latest" download="BarberMove.apk">Baixar para Android</a>
+        <a class="botao so-iphone" href="#instalar-iphone">Como usar no iPhone</a>
+        <p class="detalhe so-android" id="info-apk">Arquivo APK · Android 6 ou superior</p>
+        <p class="detalhe so-iphone">Ainda sem versão na App Store: no iPhone, o BarberMove é usado pelo Safari.</p>
+        <div class="qr">
+          <svg role="img" aria-label="QR code para abrir esta página no celular" version="1.1" viewBox="0 0 35 35" xmlns="http://www.w3.org/2000/svg"><path d="M1,1H2V2H1zM2,1H3V2H2zM3,1H4V2H3zM4,1H5V2H4zM5,1H6V2H5zM6,1H7V2H6zM7,1H8V2H7zM12,1H13V2H12zM15,1H16V2H15zM17,1H18V2H17zM20,1H21V2H20zM21,1H22V2H21zM22,1H23V2H22zM23,1H24V2H23zM24,1H25V2H24zM27,1H28V2H27zM28,1H29V2H28zM29,1H30V2H29zM30,1H31V2H30zM31,1H32V2H31zM32,1H33V2H32zM33,1H34V2H33zM1,2H2V3H1zM7,2H8V3H7zM10,2H11V3H10zM11,2H12V3H11zM16,2H17V3H16zM19,2H20V3H19zM21,2H22V3H21zM22,2H23V3H22zM27,2H28V3H27zM33,2H34V3H33zM1,3H2V4H1zM3,3H4V4H3zM4,3H5V4H4zM5,3H6V4H5zM7,3H8V4H7zM9,3H10V4H9zM11,3H12V4H11zM15,3H16V4H15zM16,3H17V4H16zM17,3H18V4H17zM22,3H23V4H22zM23,3H24V4H23zM27,3H28V4H27zM29,3H30V4H29zM30,3H31V4H30zM31,3H32V4H31zM33,3H34V4H33zM1,4H2V5H1zM3,4H4V5H3zM4,4H5V5H4zM5,4H6V5H5zM7,4H8V5H7zM9,4H10V5H9zM10,4H11V5H10zM11,4H12V5H11zM16,4H17V5H16zM18,4H19V5H18zM23,4H24V5H23zM25,4H26V5H25zM27,4H28V5H27zM29,4H30V5H29zM30,4H31V5H30zM31,4H32V5H31zM33,4H34V5H33zM1,5H2V6H1zM3,5H4V6H3zM4,5H5V6H4zM5,5H6V6H5zM7,5H8V6H7zM9,5H10V6H9zM15,5H16V6H15zM16,5H17V6H16zM17,5H18V6H17zM19,5H20V6H19zM20,5H21V6H20zM21,5H22V6H21zM22,5H23V6H22zM23,5H24V6H23zM24,5H25V6H24zM27,5H28V6H27zM29,5H30V6H29zM30,5H31V6H30zM31,5H32V6H31zM33,5H34V6H33zM1,6H2V7H1zM7,6H8V7H7zM9,6H10V7H9zM10,6H11V7H10zM11,6H12V7H11zM13,6H14V7H13zM15,6H16V7H15zM18,6H19V7H18zM19,6H20V7H19zM22,6H23V7H22zM23,6H24V7H23zM27,6H28V7H27zM33,6H34V7H33zM1,7H2V8H1zM2,7H3V8H2zM3,7H4V8H3zM4,7H5V8H4zM5,7H6V8H5zM6,7H7V8H6zM7,7H8V8H7zM9,7H10V8H9zM11,7H12V8H11zM13,7H14V8H13zM15,7H16V8H15zM17,7H18V8H17zM19,7H20V8H19zM21,7H22V8H21zM23,7H24V8H23zM25,7H26V8H25zM27,7H28V8H27zM28,7H29V8H28zM29,7H30V8H29zM30,7H31V8H30zM31,7H32V8H31zM32,7H33V8H32zM33,7H34V8H33zM9,8H10V9H9zM10,8H11V9H10zM11,8H12V9H11zM13,8H14V9H13zM15,8H16V9H15zM17,8H18V9H17zM19,8H20V9H19zM20,8H21V9H20zM22,8H23V9H22zM24,8H25V9H24zM1,9H2V10H1zM3,9H4V10H3zM4,9H5V10H4zM5,9H6V10H5zM6,9H7V10H6zM7,9H8V10H7zM11,9H12V10H11zM12,9H13V10H12zM13,9H14V10H13zM14,9H15V10H14zM15,9H16V10H15zM18,9H19V10H18zM23,9H24V10H23zM25,9H26V10H25zM27,9H28V10H27zM28,9H29V10H28zM29,9H30V10H29zM30,9H31V10H30zM31,9H32V10H31zM1,10H2V11H1zM2,10H3V11H2zM3,10H4V11H3zM4,10H5V11H4zM6,10H7V11H6zM9,10H10V11H9zM11,10H12V11H11zM12,10H13V11H12zM13,10H14V11H13zM14,10H15V11H14zM17,10H18V11H17zM18,10H19V11H18zM19,10H20V11H19zM20,10H21V11H20zM21,10H22V11H21zM24,10H25V11H24zM27,10H28V11H27zM28,10H29V11H28zM30,10H31V11H30zM31,10H32V11H31zM33,10H34V11H33zM1,11H2V12H1zM3,11H4V12H3zM4,11H5V12H4zM5,11H6V12H5zM7,11H8V12H7zM9,11H10V12H9zM11,11H12V12H11zM14,11H15V12H14zM15,11H16V12H15zM16,11H17V12H16zM17,11H18V12H17zM19,11H20V12H19zM21,11H22V12H21zM22,11H23V12H22zM25,11H26V12H25zM26,11H27V12H26zM27,11H28V12H27zM29,11H30V12H29zM31,11H32V12H31zM32,11H33V12H32zM1,12H2V13H1zM2,12H3V13H2zM8,12H9V13H8zM10,12H11V13H10zM12,12H13V13H12zM14,12H15V13H14zM17,12H18V13H17zM21,12H22V13H21zM22,12H23V13H22zM23,12H24V13H23zM24,12H25V13H24zM25,12H26V13H25zM27,12H28V13H27zM29,12H30V13H29zM30,12H31V13H30zM31,12H32V13H31zM32,12H33V13H32zM2,13H3V14H2zM3,13H4V14H3zM4,13H5V14H4zM5,13H6V14H5zM7,13H8V14H7zM15,13H16V14H15zM17,13H18V14H17zM18,13H19V14H18zM24,13H25V14H24zM26,13H27V14H26zM28,13H29V14H28zM29,13H30V14H29zM30,13H31V14H30zM33,13H34V14H33zM1,14H2V15H1zM2,14H3V15H2zM3,14H4V15H3zM6,14H7V15H6zM10,14H11V15H10zM11,14H12V15H11zM13,14H14V15H13zM14,14H15V15H14zM16,14H17V15H16zM18,14H19V15H18zM20,14H21V15H20zM21,14H22V15H21zM24,14H25V15H24zM26,14H27V15H26zM27,14H28V15H27zM28,14H29V15H28zM30,14H31V15H30zM32,14H33V15H32zM33,14H34V15H33zM1,15H2V16H1zM7,15H8V16H7zM8,15H9V16H8zM9,15H10V16H9zM13,15H14V16H13zM16,15H17V16H16zM17,15H18V16H17zM19,15H20V16H19zM21,15H22V16H21zM23,15H24V16H23zM25,15H26V16H25zM26,15H27V16H26zM27,15H28V16H27zM28,15H29V16H28zM30,15H31V16H30zM32,15H33V16H32zM1,16H2V17H1zM2,16H3V17H2zM3,16H4V17H3zM4,16H5V17H4zM8,16H9V17H8zM10,16H11V17H10zM11,16H12V17H11zM12,16H13V17H12zM14,16H15V17H14zM15,16H16V17H15zM16,16H17V17H16zM20,16H21V17H20zM21,16H22V17H21zM22,16H23V17H22zM23,16H24V17H23zM26,16H27V17H26zM27,16H28V17H27zM28,16H29V17H28zM30,16H31V17H30zM31,16H32V17H31zM3,17H4V18H3zM5,17H6V18H5zM6,17H7V18H6zM7,17H8V18H7zM8,17H9V18H8zM11,17H12V18H11zM12,17H13V18H12zM13,17H14V18H13zM15,17H16V18H15zM16,17H17V18H16zM18,17H19V18H18zM20,17H21V18H20zM23,17H24V18H23zM24,17H25V18H24zM25,17H26V18H25zM26,17H27V18H26zM28,17H29V18H28zM29,17H30V18H29zM33,17H34V18H33zM4,18H5V19H4zM5,18H6V19H5zM6,18H7V19H6zM9,18H10V19H9zM12,18H13V19H12zM17,18H18V19H17zM18,18H19V19H18zM19,18H20V19H19zM20,18H21V19H20zM21,18H22V19H21zM24,18H25V19H24zM26,18H27V19H26zM27,18H28V19H27zM28,18H29V19H28zM30,18H31V19H30zM31,18H32V19H31zM33,18H34V19H33zM5,19H6V20H5zM6,19H7V20H6zM7,19H8V20H7zM8,19H9V20H8zM9,19H10V20H9zM10,19H11V20H10zM11,19H12V20H11zM13,19H14V20H13zM14,19H15V20H14zM16,19H17V20H16zM19,19H20V20H19zM23,19H24V20H23zM28,19H29V20H28zM29,19H30V20H29zM31,19H32V20H31zM32,19H33V20H32zM1,20H2V21H1zM2,20H3V21H2zM8,20H9V21H8zM10,20H11V21H10zM11,20H12V21H11zM13,20H14V21H13zM19,20H20V21H19zM20,20H21V21H20zM22,20H23V21H22zM24,20H25V21H24zM27,20H28V21H27zM28,20H29V21H28zM29,20H30V21H29zM30,20H31V21H30zM31,20H32V21H31zM3,21H4V22H3zM5,21H6V22H5zM6,21H7V22H6zM7,21H8V22H7zM9,21H10V22H9zM13,21H14V22H13zM14,21H15V22H14zM15,21H16V22H15zM16,21H17V22H16zM18,21H19V22H18zM23,21H24V22H23zM24,21H25V22H24zM25,21H26V22H25zM26,21H27V22H26zM29,21H30V22H29zM30,21H31V22H30zM32,21H33V22H32zM1,22H2V23H1zM2,22H3V23H2zM3,22H4V23H3zM4,22H5V23H4zM8,22H9V23H8zM9,22H10V23H9zM10,22H11V23H10zM11,22H12V23H11zM14,22H15V23H14zM16,22H17V23H16zM17,22H18V23H17zM19,22H20V23H19zM20,22H21V23H20zM22,22H23V23H22zM24,22H25V23H24zM27,22H28V23H27zM30,22H31V23H30zM33,22H34V23H33zM1,23H2V24H1zM3,23H4V24H3zM4,23H5V24H4zM6,23H7V24H6zM7,23H8V24H7zM8,23H9V24H8zM11,23H12V24H11zM12,23H13V24H12zM14,23H15V24H14zM19,23H20V24H19zM32,23H33V24H32zM1,24H2V25H1zM4,24H5V25H4zM5,24H6V25H5zM6,24H7V25H6zM8,24H9V25H8zM9,24H10V25H9zM10,24H11V25H10zM11,24H12V25H11zM12,24H13V25H12zM13,24H14V25H13zM14,24H15V25H14zM15,24H16V25H15zM17,24H18V25H17zM22,24H23V25H22zM25,24H26V25H25zM31,24H32V25H31zM32,24H33V25H32zM1,25H2V26H1zM4,25H5V26H4zM5,25H6V26H5zM6,25H7V26H6zM7,25H8V26H7zM9,25H10V26H9zM10,25H11V26H10zM12,25H13V26H12zM13,25H14V26H13zM17,25H18V26H17zM18,25H19V26H18zM19,25H20V26H19zM23,25H24V26H23zM24,25H25V26H24zM25,25H26V26H25zM26,25H27V26H26zM27,25H28V26H27zM28,25H29V26H28zM29,25H30V26H29zM33,25H34V26H33zM9,26H10V27H9zM12,26H13V27H12zM14,26H15V27H14zM17,26H18V27H17zM19,26H20V27H19zM20,26H21V27H20zM21,26H22V27H21zM22,26H23V27H22zM25,26H26V27H25zM29,26H30V27H29zM31,26H32V27H31zM32,26H33V27H32zM33,26H34V27H33zM1,27H2V28H1zM2,27H3V28H2zM3,27H4V28H3zM4,27H5V28H4zM5,27H6V28H5zM6,27H7V28H6zM7,27H8V28H7zM13,27H14V28H13zM14,27H15V28H14zM15,27H16V28H15zM16,27H17V28H16zM19,27H20V28H19zM22,27H23V28H22zM24,27H25V28H24zM25,27H26V28H25zM27,27H28V28H27zM29,27H30V28H29zM31,27H32V28H31zM32,27H33V28H32zM1,28H2V29H1zM7,28H8V29H7zM9,28H10V29H9zM10,28H11V29H10zM12,28H13V29H12zM13,28H14V29H13zM16,28H17V29H16zM20,28H21V29H20zM22,28H23V29H22zM23,28H24V29H23zM24,28H25V29H24zM25,28H26V29H25zM29,28H30V29H29zM30,28H31V29H30zM31,28H32V29H31zM32,28H33V29H32zM33,28H34V29H33zM1,29H2V30H1zM3,29H4V30H3zM4,29H5V30H4zM5,29H6V30H5zM7,29H8V30H7zM9,29H10V30H9zM10,29H11V30H10zM11,29H12V30H11zM13,29H14V30H13zM14,29H15V30H14zM16,29H17V30H16zM18,29H19V30H18zM21,29H22V30H21zM23,29H24V30H23zM25,29H26V30H25zM26,29H27V30H26zM27,29H28V30H27zM28,29H29V30H28zM29,29H30V30H29zM30,29H31V30H30zM1,30H2V31H1zM3,30H4V31H3zM4,30H5V31H4zM5,30H6V31H5zM7,30H8V31H7zM9,30H10V31H9zM10,30H11V31H10zM11,30H12V31H11zM12,30H13V31H12zM13,30H14V31H13zM16,30H17V31H16zM18,30H19V31H18zM20,30H21V31H20zM21,30H22V31H21zM22,30H23V31H22zM23,30H24V31H23zM26,30H27V31H26zM29,30H30V31H29zM30,30H31V31H30zM32,30H33V31H32zM33,30H34V31H33zM1,31H2V32H1zM3,31H4V32H3zM4,31H5V32H4zM5,31H6V32H5zM7,31H8V32H7zM9,31H10V32H9zM15,31H16V32H15zM16,31H17V32H16zM22,31H23V32H22zM25,31H26V32H25zM26,31H27V32H26zM27,31H28V32H27zM28,31H29V32H28zM1,32H2V33H1zM7,32H8V33H7zM10,32H11V33H10zM11,32H12V33H11zM13,32H14V33H13zM14,32H15V33H14zM22,32H23V33H22zM23,32H24V33H23zM29,32H30V33H29zM30,32H31V33H30zM31,32H32V33H31zM1,33H2V34H1zM2,33H3V34H2zM3,33H4V34H3zM4,33H5V34H4zM5,33H6V34H5zM6,33H7V34H6zM7,33H8V34H7zM9,33H10V34H9zM10,33H11V34H10zM11,33H12V34H11zM12,33H13V34H12zM13,33H14V34H13zM16,33H17V34H16zM17,33H18V34H17zM18,33H19V34H18zM21,33H22V34H21zM23,33H24V34H23zM24,33H25V34H24zM25,33H26V34H25zM26,33H27V34H26zM28,33H29V34H28zM30,33H31V34H30zM32,33H33V34H32z" id="qr-path" fill="#000000" fill-opacity="1" fill-rule="nonzero" stroke="none" /></svg>
+          <p>Está no computador? Aponte a câmera do celular para abrir esta página nele.</p>
+        </div>
+      </div>
+      <div class="arte">
+        <img src="/brand-logo.png" alt="Logotipo do BarberMove" width="1024" height="1024">
+      </div>
+    </div>
+  </div>
+
+  <section class="alt" id="para-quem">
+    <div class="largura">
+      <h2>Feito para os três lados da cadeira</h2>
+      <div class="perfis">
+        <div>
+          <h3>Para quem quer cortar</h3>
+          <ul>
+            <li>Escolha a barbearia e o profissional</li>
+            <li>Acompanhe a chegada e o tempo do atendimento</li>
+            <li>Avalie o serviço quando terminar</li>
+          </ul>
+        </div>
+        <div>
+          <h3>Para barbeiros freelancers</h3>
+          <ul>
+            <li>Veja as barbearias próximas</li>
+            <li>Encontre vagas e converse com o dono pelo app</li>
+            <li>Organize seus atendimentos do dia</li>
+          </ul>
+        </div>
+        <div>
+          <h3>Para donos de barbearia</h3>
+          <ul>
+            <li>Encontre freelancers perto de você</li>
+            <li>Anuncie vagas para as suas cadeiras</li>
+            <li>Mostre o perfil e as fotos da barbearia</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="instalar">
+    <div class="largura">
+      <h2>Como instalar</h2>
+      <div class="instalar">
+        <div id="instalar-android">
+          <h3>Android</h3>
+          <ol>
+            <li>Toque em <strong>Baixar para Android</strong> e aguarde o download.</li>
+            <li>Abra o arquivo <strong>BarberMove.apk</strong> pela notificação ou pela pasta Downloads.</li>
+            <li>Se o celular pedir, permita instalar apps vindos do navegador.</li>
+            <li>Toque em <strong>Instalar</strong> e depois em <strong>Abrir</strong>.</li>
+          </ol>
+          <p class="nota">O BarberMove é instalado direto por este site, fora da Play Store, por isso o Android pode mostrar um aviso antes de instalar.</p>
+        </div>
+        <div id="instalar-iphone">
+          <h3>iPhone</h3>
+          <ol>
+            <li>No <strong>Safari</strong>, abra <a href="/">o BarberMove</a>.</li>
+            <li>Toque no botão <strong>Compartilhar</strong>.</li>
+            <li>Escolha <strong>Adicionar à Tela de Início</strong>.</li>
+            <li>Toque em <strong>Adicionar</strong>. O ícone aparece junto com seus apps.</li>
+          </ol>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="alt" id="duvidas">
+    <div class="largura">
+      <h2>Dúvidas comuns</h2>
+      <details>
+        <summary>Quanto custa baixar?</summary>
+        <p>Baixar é gratuito. Os valores de serviços e taxas aparecem dentro do app.</p>
+      </details>
+      <details>
+        <summary>Como recebo as atualizações?</summary>
+        <p>O próprio app avisa quando existe uma versão nova para baixar.</p>
+      </details>
+      <details>
+        <summary>Já tenho o app e a instalação deu erro. O que faço?</summary>
+        <p>Desinstale o BarberMove do celular e abra novamente o arquivo baixado. Sua conta continua salva, é só entrar de novo.</p>
+      </details>
+      <details>
+        <summary>Já sou profissional. Posso começar a trabalhar na hora?</summary>
+        <p>Depois do cadastro, o perfil de freelancer passa por uma análise antes de ser liberado.</p>
+      </details>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="largura">
+    <nav aria-label="Documentos legais">
+      <a href="/api/v1/termos-de-uso?perfil=cliente">Termos para clientes</a>
+      <a href="/api/v1/termos-de-uso?perfil=freelancer">Termos para freelancers</a>
+      <a href="/api/v1/termos-de-uso?perfil=proprietario">Termos para barbearias</a>
+      <a href="/api/v1/politica-privacidade">Política de Privacidade</a>
+    </nav>
+    <p>© BarberMove</p>
+  </div>
+</footer>
+
+<script>
+  (function () {
+    var ua = navigator.userAgent;
+    // iPadOS moderno se identifica como Mac, mas tem tela de toque.
+    var iphone = /iPhone|iPad|iPod/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1);
+    var aparelho = iphone ? 'iphone' : /Android/.test(ua) ? 'android' : 'computador';
+    document.documentElement.setAttribute('data-aparelho', aparelho);
+
+    fetch('/apk/info', { cache: 'no-store' })
+      .then(function (r) { return r.json(); })
+      .then(function (info) {
+        if (info.status !== 'ok') return;
+        var partes = ['Arquivo APK'];
+        if (info.latest_version_name) partes.push('versão ' + info.latest_version_name);
+        if (info.latest_size_bytes) partes.push((info.latest_size_bytes / 1048576).toFixed(1).replace('.', ',') + ' MB');
+        partes.push('Android 6 ou superior');
+        document.getElementById('info-apk').textContent = partes.join(' · ');
+      })
+      .catch(function () { /* mantém o texto padrão */ });
+  })();
+</script>
+</body>
+</html>

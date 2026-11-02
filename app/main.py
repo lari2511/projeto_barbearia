@@ -411,6 +411,14 @@ def read_root():
     return {"status": "BarberMove API Online", "docs": "/docs"}
 
 
+@app.api_route("/baixar", methods=["GET", "HEAD"], include_in_schema=False)
+def pagina_baixar_app():
+    # Site publico de download. Fica fora de `/` porque o app Android abre a raiz
+    # no WebView, e fora de app/static porque o build do frontend sobrescreve a pasta.
+    pagina = pathlib.Path(__file__).resolve().parent / "site" / "baixar.html"
+    return FileResponse(str(pagina), media_type="text/html", headers=_INDEX_NO_CACHE_HEADERS)
+
+
 @app.get("/sw.js")
 @app.get("/registerSW.js")
 @app.get("/manifest.webmanifest")

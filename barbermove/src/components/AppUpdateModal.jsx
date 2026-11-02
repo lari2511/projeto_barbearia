@@ -9,6 +9,9 @@ export default function AppUpdateModal({ updateInfo, onUpdateNow, onLater, onClo
     ? 'Uma nova versão do aplicativo está pronta para instalar no seu Android.'
     : 'Uma nova versão do app está pronta para ser baixada.'
 
+  // Ate a versao 13 o APK era assinado com a chave de debug; o Android recusa instalar por cima.
+  const precisaReinstalar = updateInfo.isNative && !(Number(updateInfo.installedVersionCode) >= 14)
+
   return (
     <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/75 px-4 py-6 backdrop-blur-md">
       <div className="relative w-full max-w-md overflow-hidden rounded-[28px] border border-orange-400/25 bg-[#0b0b0f] shadow-[0_30px_120px_rgba(0,0,0,0.75)]">
@@ -59,6 +62,12 @@ export default function AppUpdateModal({ updateInfo, onUpdateNow, onLater, onClo
               </div>
             </div>
           </div>
+
+          {precisaReinstalar && (
+            <p className="mt-4 rounded-2xl border border-orange-400/30 bg-orange-500/10 p-3 text-xs leading-relaxed text-orange-100">
+              Se o Android disser que o app não foi instalado, desinstale o BarberMove atual e abra novamente o arquivo baixado. Sua conta continua salva, é só entrar de novo.
+            </p>
+          )}
 
           <div className="mt-5 flex gap-2">
             <button
