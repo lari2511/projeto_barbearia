@@ -343,6 +343,95 @@ def test_perfil_da_barbearia_traz_endereco_completo_e_cep_cadastrados(http):
     assert http.get(f"/api/v1/usuario/{fid}").json()["cep"] is None
 
 
+def test_telefone_do_freelancer_nao_vai_para_o_proprietario(http):
+    fid, f_headers = _usuario("barbeiro", "f@t.com", telefone="11911112222", tempo_experiencia="2 anos")
+    _, dono_headers = _usuario("barbearia", "d@t.com")
+    _, cliente_headers = _usuario("cliente", "c@t.com")
+    url = f"/api/v1/usuario/{fid}"
+
+    perfil_dono = http.get(url, headers=dono_headers).json()
+    assert perfil_dono["telefone"] is None
+    assert "11911112222" not in http.get(url, headers=dono_headers).text
+    assert perfil_dono["tempo_experiencia"] == "2 anos"
+    # Sem token (ou com token invalido) nao serve de atalho para pegar o numero.
+    assert http.get(url).json()["telefone"] is None
+    assert http.get(url, headers={"Authorization": "Bearer invalido"}).json()["telefone"] is None
+
+    assert http.get(url, headers=cliente_headers).json()["telefone"] == "11911112222"
+    assert http.get(url, headers=f_headers).json()["telefone"] == "11911112222"
+    db = SessionLocal()
+    try:
+        assert db.get(models.Usuario, fid).telefone == "11911112222"
+    finally:
+        db.close()
+
+
+def test_telefone_de_barbearia_e_cliente_segue_igual_no_perfil(http):
+    dono_id, dono_headers = _usuario("barbearia", "d@t.com", telefone="11933334444")
+    cliente_id, _ = _usuario("cliente", "c@t.com", telefone="11955556666")
+    _, f_headers = _usuario("barbeiro", "f@t.com")
+    assert http.get(f"/api/v1/usuario/{dono_id}", headers=f_headers).json()["telefone"] == "11933334444"
+    assert http.get(f"/api/v1/usuario/{dono_id}").json()["telefone"] == "11933334444"
+    assert http.get(f"/api/v1/usuario/{cliente_id}", headers=dono_headers).json()["telefone"] == "11955556666"
+
+
+def _rotas_que_listam_freelancers(http, headers, barbearia_id):
+    return {
+        "todos": http.get("/api/v1/barbeiros/todos", headers=headers),
+        "alias": http.get("/api/v1/freelancer/todos", headers=headers),
+        "proximos": http.get("/api/v1/barbeiros/proximos", params={"latitude": LAT, "longitude": LON}, headers=headers),
+        "proximos_post": http.post("/api/v1/barbeiros/proximos", json={"latitude": LAT, "longitude": LON, "raio_km": 10}, headers=headers),
+        "presentes": http.get(f"/api/v1/barbearia/{barbearia_id}/barbeiros-presentes", headers=headers),
+        "priorizados": http.get(f"/api/v1/barbearia/{barbearia_id}/barbeiros-priorizados", params={"latitude": LAT, "longitude": LON}, headers=headers),
+    }
+
+
+def test_listas_de_freelancers_so_entregam_telefone_a_quem_pode(http):
+    loja = _barbearia("dono@t.com", 1)
+    fid, f_headers = _freelancer("f1@t.com")
+    # presentes/priorizados precisam do freelancer presente; as demais, online e aprovado.
+    db = SessionLocal()
+    try:
+        u = db.get(models.Usuario, fid)
+        u.telefone, u.disponivel, u.documento_verificado = "11911112222", True, True
+        u.presente_em_local, u.barbearia_atual_id = True, loja["id"]
+        db.commit()
+    finally:
+        db.close()
+    _, cliente_headers = _usuario("cliente", "c@t.com")
+
+    for nome, r in _rotas_que_listam_freelancers(http, loja["headers"], loja["id"]).items():
+        assert r.status_code == 200, nome
+        assert "11911112222" not in r.text, f"dono: {nome}"
+    for nome, r in _rotas_que_listam_freelancers(http, {}, loja["id"]).items():
+        assert r.status_code == 200, nome
+        assert "11911112222" not in r.text, f"sem login: {nome}"
+    para_cliente = _rotas_que_listam_freelancers(http, cliente_headers, loja["id"])
+    for nome in ("todos", "alias", "presentes"):
+        assert "11911112222" in para_cliente[nome].text, f"cliente: {nome}"
+    # A lista segue trazendo o freelancer para o dono, so sem o numero.
+    do_dono = http.get("/api/v1/barbeiros/todos", headers=loja["headers"]).json()
+    assert [b["id"] for b in do_dono] == [fid] and do_dono[0]["telefone"] is None
+
+
+def test_email_do_perfil_so_para_o_proprio_usuario(http):
+    fid, f_headers = _usuario("barbeiro", "f@t.com")
+    _, dono_headers = _usuario("barbearia", "d@t.com")
+    _, cliente_headers = _usuario("cliente", "c@t.com")
+    url = f"/api/v1/usuario/{fid}"
+    assert http.get(url, headers=f_headers).json()["email"] == "f@t.com"
+    for headers in ({}, dono_headers, cliente_headers):
+        r = http.get(url, headers=headers)
+        assert r.json()["email"] is None and "f@t.com" not in r.text
+
+
+def test_telefone_de_cliente_nao_sai_sem_login(http):
+    cid, _ = _usuario("cliente", "c@t.com", telefone="11955556666")
+    _, f_headers = _usuario("barbeiro", "f@t.com")
+    assert http.get(f"/api/v1/usuario/{cid}").json()["telefone"] is None
+    assert http.get(f"/api/v1/usuario/{cid}", headers=f_headers).json()["telefone"] == "11955556666"
+
+
 def test_vaga_informa_o_dono_para_abrir_o_perfil_e_os_mesmos_servicos(http):
     loja = _barbearia("dono@t.com", 1)
     _publicar(http, loja, 1)

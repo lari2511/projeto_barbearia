@@ -762,6 +762,32 @@ def verify_email_token(token: str) -> str | None:
         return None
 
 
+oauth2_scheme_opcional = OAuth2PasswordBearer(tokenUrl="/api/v1/login/cliente/", auto_error=False)
+
+
+def usuario_opcional(
+    token: str | None = Depends(oauth2_scheme_opcional),
+    db: Session = Depends(get_db),
+) -> models.Usuario | None:
+    # Identifica quem esta pedindo em rotas publicas; sem token valido, retorna None.
+    if not token:
+        return None
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        user_id = int(payload.get("sub"))
+    except (JWTError, ValueError, TypeError):
+        return None
+    return db.query(models.Usuario).filter(models.Usuario.id == user_id).first()
+
+
+def telefone_freelancer_para(freelancer: models.Usuario, visitante: models.Usuario | None) -> str | None:
+    # Privacidade: proprietario nao recebe o telefone do freelancer. Sem login tambem
+    # nao, senao bastaria chamar a rota sem token. O numero segue salvo no cadastro.
+    if visitante is None or visitante.tipo == "barbearia":
+        return None
+    return freelancer.telefone
+
+
 def dispatch_verification_email(user: models.Usuario) -> None:
     # Send email verification link if SMTP is configured.
     if not user.token_verificacao:
@@ -3190,7 +3216,8 @@ def listar_barbeiros_proximos(
     latitude: float,
     longitude: float,
     raio_km: float = 10.0,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    visitante: models.Usuario | None = Depends(usuario_opcional),
 ):
     # Lista barbeiros próximos à localização do cliente.
     # Usa fórmula de Haversine para calcular distância.
@@ -3250,7 +3277,7 @@ def listar_barbeiros_proximos(
             barbeiros_proximos.append({
                 "id": b.id,
                 "nome": b.nome,
-                "telefone": b.telefone,
+                "telefone": telefone_freelancer_para(b, visitante),
                 "endereco": b.endereco,
                 "latitude": b.latitude,
                 "longitude": b.longitude,
@@ -3273,7 +3300,10 @@ def listar_barbeiros_proximos(
     return barbeiros_proximos
 
 @router.get("/barbeiros/todos")
-def listar_todos_barbeiros(db: Session = Depends(get_db)):
+def listar_todos_barbeiros(
+    db: Session = Depends(get_db),
+    visitante: models.Usuario | None = Depends(usuario_opcional),
+):
     # Listar todos os barbeiros cadastrados, incluindo os presentes em barbearias.
     # ✅ INCLUIR barbeiros presentes - eles também podem receber agendamentos
     barbeiros = db.query(models.Usuario).filter(
@@ -3294,7 +3324,7 @@ def listar_todos_barbeiros(db: Session = Depends(get_db)):
         resultado.append({
             "id": b.id,
             "nome": b.nome,
-            "telefone": b.telefone,
+            "telefone": telefone_freelancer_para(b, visitante),
             "endereco": b.endereco,
             "documento_verificado": b.documento_verificado,
             "disponivel": disponivel_real,  # ✅ Disponibilidade dinâmica
@@ -3313,9 +3343,12 @@ def listar_todos_barbeiros(db: Session = Depends(get_db)):
 
 
 @router.get("/freelancer/todos")
-def listar_todos_freelancers_alias(db: Session = Depends(get_db)):
+def listar_todos_freelancers_alias(
+    db: Session = Depends(get_db),
+    visitante: models.Usuario | None = Depends(usuario_opcional),
+):
     # Alias legada para manter compatibilidade com clientes antigos.
-    return listar_todos_barbeiros(db=db)
+    return listar_todos_barbeiros(db=db, visitante=visitante)
 
 
 @router.get("/barbeiro/{barbeiro_id}/disponibilidade-imediata")
@@ -3829,7 +3862,8 @@ async def atualizar_localizacao_compat(
 @router.get("/barbearia/{barbearia_id}/barbeiros-presentes")
 def listar_barbeiros_presentes(
     barbearia_id: int,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    visitante: models.Usuario | None = Depends(usuario_opcional),
 ):
     # Lista barbeiros que estão presentes fisicamente na barbearia.
     # Buscar todos os barbeiros que estão presentes nesta barbearia
@@ -3881,7 +3915,7 @@ def listar_barbeiros_presentes(
         resultado.append({
             "id": barbeiro.id,
             "nome": barbeiro.nome,
-            "telefone": barbeiro.telefone,
+            "telefone": telefone_freelancer_para(barbeiro, visitante),
             "foto_perfil": barbeiro.foto_perfil,
             "cadeira_numero": cadeira.numero if cadeira else None,
             "horario_chegada": barbeiro.horario_chegada,
@@ -3907,6 +3941,7 @@ def listar_barbeiros_priorizados_barbearia(
     raio_km: float = 10.0,
     incluir_indisponiveis: bool = False,
     db: Session = Depends(get_db),
+    visitante: models.Usuario | None = Depends(usuario_opcional),
 ):
     """
     Lista barbeiros para uma barbearia com prioridade:
@@ -3974,7 +4009,7 @@ def listar_barbeiros_priorizados_barbearia(
         resultado.append({
             "id": barbeiro.id,
             "nome": barbeiro.nome,
-            "telefone": barbeiro.telefone,
+            "telefone": telefone_freelancer_para(barbeiro, visitante),
             "endereco": barbeiro.endereco,
             "foto_perfil": barbeiro.foto_perfil,
             "latitude": barbeiro.latitude,

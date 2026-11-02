@@ -22,6 +22,7 @@ from .database import get_db
 from .email_utils import send_email
 from .email_send import send_verification_email, send_welcome_email
 from .routes import get_current_user, oauth2_scheme, get_password_hash, create_email_verification_token, verify_email_token, _validar_acesso_tracking
+from .routes import telefone_freelancer_para, usuario_opcional
 from fastapi import Body
 
 router = APIRouter()
@@ -761,11 +762,24 @@ def listar_fotos_usuario(usuario_id: int, db: Session = Depends(get_db)):
 
 
 @router.get("/usuario/{usuario_id}")
-def obter_usuario_publico(usuario_id: int, db: Session = Depends(get_db)):
+def obter_usuario_publico(
+    usuario_id: int,
+    db: Session = Depends(get_db),
+    visitante: Optional[models.Usuario] = Depends(usuario_opcional),
+):
     """Retorna dados publicos de um usuario para exibicao de perfil."""
     usuario = db.query(models.Usuario).filter(models.Usuario.id == usuario_id).first()
     if not usuario:
         raise HTTPException(status_code=404, detail="Usuário não encontrado")
+
+    # Privacidade: telefone de pessoa fisica nao sai sem login, e o e-mail so para o proprio usuario ou admin.
+    if usuario.tipo == 'barbeiro':
+        telefone = telefone_freelancer_para(usuario, visitante)
+    elif usuario.tipo == 'cliente' and visitante is None:
+        telefone = None
+    else:
+        telefone = usuario.telefone
+    ver_email = visitante is not None and (visitante.id == usuario.id or visitante.tipo == 'admin')
 
     fotos = db.query(models.Foto).filter(models.Foto.usuario_id == usuario.id).all()
 
@@ -801,11 +815,11 @@ def obter_usuario_publico(usuario_id: int, db: Session = Depends(get_db)):
         "id": usuario.id,
         "nome": nome_publico,
         "tipo": usuario.tipo,
-        "telefone": usuario.telefone,
+        "telefone": telefone,
         "endereco": barbearia_atual_endereco or usuario.endereco,
         "latitude": barbearia_atual_latitude if barbearia_atual_latitude is not None else usuario.latitude,
         "longitude": barbearia_atual_longitude if barbearia_atual_longitude is not None else usuario.longitude,
-        "email": usuario.email,
+        "email": usuario.email if ver_email else None,
         "foto_perfil": usuario.foto_perfil,
         "disponivel": usuario.disponivel,
         "presente_em_local": usuario.presente_em_local or False,
@@ -999,7 +1013,11 @@ def calcular_distancia(lat1: float, lon1: float, lat2: float, lon2: float) -> fl
 
 
 @router.post("/barbeiros/proximos")
-def buscar_barbeiros_proximos(localizacao: schemas.BarbeariasProximasRequest, db: Session = Depends(get_db)):
+def buscar_barbeiros_proximos(
+    localizacao: schemas.BarbeariasProximasRequest,
+    db: Session = Depends(get_db),
+    visitante: Optional[models.Usuario] = Depends(usuario_opcional),
+):
     """Buscar barbeiros próximos à localização do cliente"""
     barbeiros = db.query(models.Usuario).filter(
         and_(
@@ -1025,7 +1043,7 @@ def buscar_barbeiros_proximos(localizacao: schemas.BarbeariasProximasRequest, db
                 "nome": barbeiro.nome,
                 "endereco": barbeiro.endereco or "Atende em barbearias parceiras",
                 "distancia_km": round(distancia, 2),
-                "telefone": barbeiro.telefone,
+                "telefone": telefone_freelancer_para(barbeiro, visitante),
                 "usuario_id": barbeiro.id
             })
     

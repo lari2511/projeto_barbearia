@@ -439,7 +439,9 @@ export default function ClientDashboard({ token, logout, API_URL: apiUrlProp, no
     const loadDefaultShops = useCallback(async ({ mostrarErro = false } = {}) => {
         // Carrega todos os barbeiros sem filtro de localização.
         try {
-            const res = await fetch(`${API_URL}/api/v1/barbeiros/todos`);
+            const res = await fetch(`${API_URL}/api/v1/barbeiros/todos`, {
+                headers: token ? { Authorization: `Bearer ${token}` } : {},
+            });
             const rawText = await res.text();
 
             if (!res.ok) {
@@ -467,13 +469,15 @@ export default function ClientDashboard({ token, logout, API_URL: apiUrlProp, no
                 notifySafe(`Erro ao carregar barbeiros: ${err?.message || 'falha de conexão'}`, 'error');
             }
         }
-    }, [API_URL, notify]);
+    }, [API_URL, notify, token]);
         // Versão com filtro de localização
         const loadShopsByLocation = useCallback(async (latitude, longitude, { mostrarErro = false } = {}) => {
             try {
                 const raio_km = 15; // Raio padrão de busca
                 let data = [];
-                const resBarbeiros = await fetch(`${API_URL}/api/v1/barbeiros/proximos?latitude=${latitude}&longitude=${longitude}&raio_km=${raio_km}`);
+                const resBarbeiros = await fetch(`${API_URL}/api/v1/barbeiros/proximos?latitude=${latitude}&longitude=${longitude}&raio_km=${raio_km}`, {
+                    headers: token ? { Authorization: `Bearer ${token}` } : {},
+                });
 
                 if (resBarbeiros.ok) {
                     data = await resBarbeiros.json();
@@ -509,7 +513,7 @@ export default function ClientDashboard({ token, logout, API_URL: apiUrlProp, no
                     notifySafe(`Erro ao carregar barbeiros por localização: ${err?.message || 'falha de conexão'}`, 'error');
                 }
             }
-        }, [API_URL, notify]);
+        }, [API_URL, notify, token]);
 
     const loadDefaultBarbearias = useCallback(async ({ mostrarErro = false } = {}) => {
         try {

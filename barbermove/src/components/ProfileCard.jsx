@@ -670,27 +670,7 @@ export default function ProfileCard({ usuarioId, userType, token, isOwnProfile: 
           )}
         </div>
 
-        {/* 3. TELEFONE/CONTATO */}
-        {profile.telefone && (
-          <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-4 flex items-start gap-3">
-            <Phone size={18} className="text-green-400 shrink-0 mt-1" />
-            <div>
-              <p className="text-xs text-zinc-400">Telefone</p>
-              <p className="text-sm text-white">{profile.telefone}</p>
-            </div>
-          </div>
-        )}
-        {profile.telefone && (
-          <a
-            href={`https://wa.me/55${profile.telefone.replace(/\D/g, '')}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="w-full bg-green-600 text-white px-4 py-3 rounded-lg font-bold flex items-center justify-center gap-2 hover:bg-green-700 active:scale-95 transition-all"
-          >
-            <MessageCircle size={20} />
-            Entrar em Contato via WhatsApp
-          </a>
-        )}
+        {/* 3. CONTATO: telefone/WhatsApp do freelancer nao aparecem para o dono (privacidade). */}
         {token && (
           <button
             onClick={async () => {
