@@ -375,6 +375,81 @@ def test_telefone_de_barbearia_e_cliente_segue_igual_no_perfil(http):
     assert http.get(f"/api/v1/usuario/{cliente_id}", headers=dono_headers).json()["telefone"] == "11955556666"
 
 
+def _loja_com_ids_de_cadeira_altos(http):
+    """Duas cadeiras (numeros 1 e 2) com ids altos, como quando outras barbearias ja cadastraram antes."""
+    outra = _barbearia("outra@t.com", 10)
+    loja = _barbearia("dono@t.com", 2)
+    db = SessionLocal()
+    try:
+        linhas = db.query(models.Cadeira).filter(models.Cadeira.barbearia_id == loja["id"]).order_by(models.Cadeira.numero).all()
+        ids = [c.id for c in linhas]
+        assert [c.numero for c in linhas] == [1, 2] and min(ids) > 2 and outra["id"] != loja["id"]
+    finally:
+        db.close()
+    return loja, ids
+
+
+def test_vaga_mostra_o_numero_da_cadeira_e_nao_o_id(http):
+    loja, ids = _loja_com_ids_de_cadeira_altos(http)
+    _, headers = _freelancer("f1@t.com")
+    _publicar(http, loja, 2)
+
+    ativas = http.get(f"{BASE}/ativas", headers=headers).json()
+    assert sorted(v["cadeira_numero"] for v in ativas) == [1, 2]
+    assert sorted(v["cadeira_id"] for v in ativas) == ids
+    assert all(v["cadeira_numero"] != v["cadeira_id"] for v in ativas)
+
+    resumo = http.get(f"{BASE}/resumo", headers=loja["headers"]).json()
+    assert [(v["cadeira_id"], v["cadeira_numero"]) for v in resumo["vagas"]] == [(ids[0], 1), (ids[1], 2)]
+
+
+def test_anuncios_repetidos_nao_aumentam_a_numeracao_nem_duplicam_cadeira(http):
+    loja, ids = _loja_com_ids_de_cadeira_altos(http)
+    _, headers = _freelancer("f1@t.com")
+    db = SessionLocal()
+    try:
+        total_de_cadeiras = db.query(models.Cadeira).count()
+    finally:
+        db.close()
+
+    for _ in range(6):
+        primeira = _publicar(http, loja, 1)[0]
+        segunda = _publicar(http, loja, 1)[0]
+        ativas = {v["id"]: v for v in http.get(f"{BASE}/ativas", headers=headers).json()}
+        # Cadeira 1 tem vaga ativa: a proxima usa a 2. Nunca a mesma cadeira em duas vagas.
+        assert (ativas[primeira]["cadeira_numero"], ativas[segunda]["cadeira_numero"]) == (1, 2)
+        assert ativas[primeira]["cadeira_id"] != ativas[segunda]["cadeira_id"]
+        # Sem cadeira livre, nao ha terceira vaga nem numero inexistente.
+        extra = http.post(f"{BASE}/anunciar", json={"quantidade": 1}, headers=loja["headers"])
+        assert extra.status_code == 409
+        for vaga in (primeira, segunda):
+            assert http.post(f"{BASE}/{vaga}/cancelar", headers=loja["headers"]).status_code == 200
+
+    db = SessionLocal()
+    try:
+        assert db.query(models.Cadeira).count() == total_de_cadeiras
+        assert db.query(models.AssinaturaBarbearia).filter_by(barbearia_id=loja["id"]).one().quantidade_cadeiras == 2
+    finally:
+        db.close()
+
+
+def test_numero_da_cadeira_e_fixo_mesmo_com_outra_cadeira_removida(http):
+    loja, ids = _loja_com_ids_de_cadeira_altos(http)
+    db = SessionLocal()
+    try:
+        db.delete(db.get(models.Cadeira, ids[0]))
+        db.commit()
+    finally:
+        db.close()
+    resumo = http.get(f"{BASE}/resumo", headers=loja["headers"]).json()
+    assert [c["numero"] for c in resumo["cadeiras_livres"]] == [2]
+    vaga = _publicar(http, loja, 1)[0]
+    _, headers = _freelancer("f1@t.com")
+    assert http.get(f"{BASE}/ativas", headers=headers).json()[0]["cadeira_numero"] == 2
+    resumo = http.get(f"{BASE}/resumo", headers=loja["headers"]).json()
+    assert [(v["id"], v["cadeira_numero"]) for v in resumo["vagas"]] == [(vaga, 2)]
+
+
 def _rotas_que_listam_freelancers(http, headers, barbearia_id):
     return {
         "todos": http.get("/api/v1/barbeiros/todos", headers=headers),

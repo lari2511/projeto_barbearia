@@ -646,7 +646,7 @@ export default function PainelBarberMovePremium({ token: tokenProp, logout: logo
           {vaga.tipo_servico === TIPO_VAGA_DIARIA && (
             <p className="text-[11px] font-black uppercase tracking-wide text-emerald-300">Vaga de diária</p>
           )}
-          <p className="text-sm font-bold text-white">{vaga.barbearia_nome || 'Barbearia'} {vaga.cadeira_id ? `• Cadeira ${vaga.cadeira_id}` : ''}</p>
+          <p className="text-sm font-bold text-white">{vaga.barbearia_nome || 'Barbearia'} {vaga.cadeira_numero ? `• Cadeira ${vaga.cadeira_numero}` : ''}</p>
           <p className="text-xs text-zinc-400">ETA atual: {vaga.eta_min_usuario_atual ?? '-'} min</p>
           {vaga.barbearia_usuario_id && (
             <p className="text-[11px] font-semibold text-orange-300 mt-1">Ver perfil da barbearia ›</p>

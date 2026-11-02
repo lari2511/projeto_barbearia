@@ -272,6 +272,7 @@ class CadeiraAcionadaResponse(BaseModel):
     id: int
     barbearia_id: int
     cadeira_id: Optional[int] = None
+    cadeira_numero: Optional[int] = None
     status: str
     barbeiro_id: Optional[int] = None
     cliente_id: Optional[int] = None
@@ -368,6 +369,8 @@ def _serializar_cadeira_acionada(vaga: CadeiraAcionada, eta_min_usuario_atual: O
         "id": vaga.id,
         "barbearia_id": vaga.barbearia_id,
         "cadeira_id": vaga.cadeira_id,
+        # Numero que identifica a cadeira na barbearia; cadeira_id e o id global da tabela.
+        "cadeira_numero": vaga.cadeira.numero if vaga.cadeira else None,
         "status": vaga.status,
         "barbeiro_id": vaga.barbeiro_id,
         "cliente_id": vaga.cliente_id,
@@ -958,17 +961,16 @@ def _barbearia_do_dono(db: Session, current_user: Usuario) -> Barbearia:
 def _resumo_de_vagas(db: Session, barbearia: Barbearia, usuario_id: int) -> dict:
     limites = limites_de_anuncio(db, barbearia)
     ativas = limites["ativas"]
-    posicao_cadeira = {cadeira.id: indice + 1 for indice, cadeira in enumerate(limites["cadeiras"])}
+    numero_cadeira = {cadeira.id: cadeira.numero for cadeira in limites["cadeiras"]}
     nao_lidas = nao_lidas_por_vaga(db, [vaga.id for vaga in ativas], usuario_id)
 
     vagas = []
-    for vaga in sorted(ativas, key=lambda item: (posicao_cadeira.get(item.cadeira_id, 9999), item.id)):
+    for vaga in sorted(ativas, key=lambda item: (numero_cadeira.get(item.cadeira_id, 9999), item.id)):
         total_candidatos = db.query(CadeiraAcionadaCandidatura).filter(
             CadeiraAcionadaCandidatura.vaga_id == vaga.id
         ).count()
         vagas.append({
             **_serializar_cadeira_acionada(vaga),
-            "cadeira_numero": posicao_cadeira.get(vaga.cadeira_id),
             "cadeira_bloqueada": cadeira_esta_bloqueada(vaga.cadeira),
             "barbeiro_nome": vaga.barbeiro.nome if vaga.barbeiro else None,
             "total_candidatos": total_candidatos,
@@ -983,7 +985,7 @@ def _resumo_de_vagas(db: Session, barbearia: Barbearia, usuario_id: int) -> dict
         "cadeiras_livres": [
             {
                 "id": cadeira.id,
-                "numero": posicao_cadeira[cadeira.id],
+                "numero": cadeira.numero,
                 "bloqueada": cadeira_esta_bloqueada(cadeira),
             }
             for cadeira in limites["livres"]
