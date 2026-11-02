@@ -710,3 +710,81 @@ def test_mensalidade_sem_nada_vencido_antecipa_o_total(http):
 def test_mensalidade_de_assinatura_sem_cadeiras_contratadas_cobra_o_total(http):
     loja = _barbearia("legado@t.com", 2, vencida=True)
     assert _devida_e_datas(loja)[0] == (50.0, 2)
+
+
+# ---------- Dono escolhe a cadeira da vaga ----------
+
+def test_resumo_lista_cadeiras_livres_com_situacao_de_bloqueio(http):
+    loja = _barbearia("lista@t.com", 2)
+    ids = [c[0] for c in _cadeiras(loja["id"])]
+    db = SessionLocal()
+    try:
+        db.query(models.Cadeira).filter_by(id=ids[1]).update({"status": models.StatusCadeira.DISPONIVEL})
+        db.commit()
+    finally:
+        db.close()
+
+    assert _resumo(http, loja)["cadeiras_livres"] == [
+        {"id": ids[0], "numero": 1, "bloqueada": True},
+        {"id": ids[1], "numero": 2, "bloqueada": False},
+    ]
+
+
+def test_dono_anuncia_na_cadeira_escolhida_mesmo_com_outra_bloqueada(http):
+    loja = _barbearia("escolhe@t.com", 2)
+    ids = [c[0] for c in _cadeiras(loja["id"])]
+    db = SessionLocal()
+    try:
+        db.query(models.Cadeira).filter_by(id=ids[1]).update({"status": models.StatusCadeira.DISPONIVEL})
+        db.commit()
+    finally:
+        db.close()
+
+    r = http.post(f"{BASE}/anunciar", json={"cadeira_ids": [ids[1]]}, headers=loja["headers"])
+    assert r.status_code == 201, r.text
+    assert [v["cadeira_id"] for v in r.json()["vagas"]] == [ids[1]]
+    assert [c["id"] for c in r.json()["cadeiras_livres"]] == [ids[0]]
+
+
+def test_escolher_as_duas_cadeiras_publica_duas_vagas(http):
+    loja = _barbearia("ambas@t.com", 2)
+    ids = [c[0] for c in _cadeiras(loja["id"])]
+    r = http.post(f"{BASE}/anunciar", json={"cadeira_ids": ids}, headers=loja["headers"])
+    assert r.status_code == 201, r.text
+    assert sorted(v["cadeira_id"] for v in r.json()["vagas"]) == sorted(ids)
+    assert r.json()["cadeiras_livres"] == []
+
+
+def test_cadeira_repetida_vira_uma_vaga_so(http):
+    loja = _barbearia("repetida@t.com", 2)
+    ids = [c[0] for c in _cadeiras(loja["id"])]
+    r = http.post(f"{BASE}/anunciar", json={"cadeira_ids": [ids[0], ids[0]]}, headers=loja["headers"])
+    assert r.status_code == 201, r.text
+    assert len(r.json()["publicadas"]) == 1
+
+
+def test_escolha_invalida_nao_publica_nada(http):
+    loja = _barbearia("invalida@t.com", 2)
+    outra = _barbearia("alheia@t.com", 1)
+    ids = [c[0] for c in _cadeiras(loja["id"])]
+    alheia = _cadeiras(outra["id"])[0][0]
+
+    assert http.post(f"{BASE}/anunciar", json={"cadeira_ids": [ids[0], alheia]}, headers=loja["headers"]).status_code == 404
+    assert _resumo(http, loja)["vagas_anunciadas"] == 0
+
+    assert http.post(f"{BASE}/anunciar", json={"cadeira_ids": [ids[0]]}, headers=loja["headers"]).status_code == 201
+    assert http.post(f"{BASE}/anunciar", json={"cadeira_ids": [ids[0], ids[1]]}, headers=loja["headers"]).status_code == 409
+    assert _resumo(http, loja)["vagas_anunciadas"] == 1
+
+
+def test_escolha_acima_das_pagas_e_recusada(http):
+    loja = _barbearia("acima@t.com", 1, linhas=2)
+    ids = [c[0] for c in _cadeiras(loja["id"])]
+    assert http.post(f"{BASE}/anunciar", json={"cadeira_ids": ids}, headers=loja["headers"]).status_code == 409
+    assert _resumo(http, loja)["vagas_anunciadas"] == 0
+
+
+def test_anunciar_sem_cadeira_nem_quantidade_e_recusado(http):
+    loja = _barbearia("vazio@t.com", 1)
+    assert http.post(f"{BASE}/anunciar", json={}, headers=loja["headers"]).status_code == 400
+    assert http.post(f"{BASE}/anunciar", json={"cadeira_ids": []}, headers=loja["headers"]).status_code == 422

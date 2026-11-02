@@ -172,12 +172,14 @@ def reservar_cadeiras(
     barbearia: Barbearia,
     quantidade: int,
     cadeira_id: Optional[int] = None,
+    cadeira_ids: Optional[List[int]] = None,
 ) -> List[Optional[Cadeira]]:
     """
     Valida o limite já sob a trava e devolve uma cadeira para cada vaga. O chamador cria as
-    vagas e faz o commit, liberando a trava. Cadeiras bloqueadas vêm primeiro, para não
-    tirar de quem está atendendo uma cadeira que já está em uso.
+    vagas e faz o commit, liberando a trava. Sem escolha do dono, cadeiras bloqueadas vêm
+    primeiro, para não tirar de quem está atendendo uma cadeira que já está em uso.
     """
+    escolhidas = [cadeira_id] if cadeira_id is not None else list(dict.fromkeys(cadeira_ids or []))
     travar_barbearia(db, barbearia.id)
     limites = limites_de_anuncio(db, barbearia)
 
@@ -196,13 +198,14 @@ def reservar_cadeiras(
         )
 
     livres = limites["livres"]
-    if cadeira_id is not None:
-        cadeira = next((c for c in limites["cadeiras"] if c.id == cadeira_id), None)
-        if not cadeira:
-            raise HTTPException(status_code=404, detail="Cadeira não encontrada")
-        if cadeira not in livres:
-            raise HTTPException(status_code=409, detail="Esta cadeira já está em uso ou com vaga anunciada")
-        return [cadeira]
+    if escolhidas:
+        cadeiras = {c.id: c for c in limites["cadeiras"]}
+        for escolhida in escolhidas:
+            if escolhida not in cadeiras:
+                raise HTTPException(status_code=404, detail="Cadeira não encontrada")
+            if cadeiras[escolhida] not in livres:
+                raise HTTPException(status_code=409, detail="Esta cadeira já está em uso ou com vaga anunciada")
+        return [cadeiras[escolhida] for escolhida in escolhidas]
 
     livres = sorted(livres, key=lambda c: (c.status != StatusCadeira.BLOQUEADA, c.numero, c.id))
     return livres[:quantidade]

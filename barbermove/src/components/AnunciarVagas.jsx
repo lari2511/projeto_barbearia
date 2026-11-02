@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { ChevronDown, ChevronUp, MessageCircle, Minus, Plus } from 'lucide-react';
+import { Check, ChevronDown, ChevronUp, MessageCircle, Plus } from 'lucide-react';
 import ChatVaga from './ChatVaga';
 import {
   anunciarVagas,
@@ -9,7 +9,6 @@ import {
   cancelarVaga,
   desbloquearCadeiraDaVaga,
   escolherCandidatoVaga,
-  limitarQuantidadeVagas,
 } from '../utils/vagas';
 
 const INTERVALO_ATUALIZACAO_MS = 10000;
@@ -36,7 +35,7 @@ const descreverVaga = (vaga) => {
 export default function AnunciarVagas({ API_URL, token, notify, onVerPerfil, onAbrirAssinatura }) {
   const [resumo, setResumo] = useState(null);
   const [seletorAberto, setSeletorAberto] = useState(false);
-  const [quantidade, setQuantidade] = useState(1);
+  const [cadeirasEscolhidas, setCadeirasEscolhidas] = useState([]);
   const [publicando, setPublicando] = useState(false);
   const [listaAberta, setListaAberta] = useState(false);
   const [vagaExpandidaId, setVagaExpandidaId] = useState(null);
@@ -69,15 +68,34 @@ export default function AnunciarVagas({ API_URL, token, notify, onVerPerfil, onA
   const cadeirasVencidas = resumo?.cadeiras_vencidas ?? 0;
   const vagasAnunciadas = resumo?.vagas_anunciadas ?? 0;
   const vagas = resumo?.vagas || [];
+  const cadeirasLivres = resumo?.cadeiras_livres;
 
+  // O resumo atualiza sozinho: tira da escolha a cadeira que deixou de estar livre.
   useEffect(() => {
     if (maximo <= 0) {
       setSeletorAberto(false);
-      setQuantidade(1);
-    } else {
-      setQuantidade((atual) => limitarQuantidadeVagas(atual, maximo));
+      setCadeirasEscolhidas([]);
+      return;
     }
-  }, [maximo]);
+    const idsLivres = (cadeirasLivres || []).map((cadeira) => cadeira.id);
+    setCadeirasEscolhidas((atual) => {
+      const validas = atual.filter((id) => idsLivres.includes(id)).slice(0, maximo);
+      return validas.length === atual.length ? atual : validas;
+    });
+  }, [maximo, cadeirasLivres]);
+
+  const alternarCadeira = (cadeiraId) => {
+    setCadeirasEscolhidas((atual) => {
+      if (atual.includes(cadeiraId)) return atual.filter((id) => id !== cadeiraId);
+      return atual.length < maximo ? [...atual, cadeiraId] : atual;
+    });
+  };
+
+  const abrirSeletor = () => {
+    // Com uma cadeira só não há o que escolher: já vem marcada.
+    setCadeirasEscolhidas(cadeirasLivres?.length === 1 ? [cadeirasLivres[0].id] : []);
+    setSeletorAberto(true);
+  };
 
   const carregarCandidatos = useCallback(async (vagaId) => {
     try {
@@ -112,10 +130,10 @@ export default function AnunciarVagas({ API_URL, token, notify, onVerPerfil, onA
   const confirmarAnuncio = async () => {
     setPublicando(true);
     try {
-      const dados = await anunciarVagas(API_URL, token, quantidade);
+      const dados = await anunciarVagas(API_URL, token, cadeirasEscolhidas);
       setResumo(dados);
       setSeletorAberto(false);
-      setQuantidade(1);
+      setCadeirasEscolhidas([]);
       notify(`${textoVagas(dados.publicadas.length)} ${dados.publicadas.length === 1 ? 'anunciada' : 'anunciadas'}!`, 'success');
     } catch (error) {
       notify(error?.message || 'Não foi possível anunciar as vagas', 'error');
@@ -191,7 +209,7 @@ export default function AnunciarVagas({ API_URL, token, notify, onVerPerfil, onA
           </p>
           <button
             type="button"
-            onClick={() => setSeletorAberto(true)}
+            onClick={abrirSeletor}
             disabled={maximo <= 0}
             className="w-full inline-flex items-center justify-center gap-1.5 rounded-xl bg-orange-500 px-3 py-3 text-sm font-black uppercase tracking-wide text-white hover:bg-orange-600 disabled:bg-zinc-800 disabled:text-zinc-500"
           >
@@ -200,39 +218,44 @@ export default function AnunciarVagas({ API_URL, token, notify, onVerPerfil, onA
         </>
       ) : (
         <div className="rounded-xl border border-zinc-800 bg-black/30 p-3 space-y-3">
-          <div className="flex items-center justify-center gap-5">
-            <button
-              type="button"
-              aria-label="Diminuir quantidade de vagas"
-              onClick={() => setQuantidade((atual) => limitarQuantidadeVagas(atual - 1, maximo))}
-              disabled={quantidade <= 1 || publicando}
-              className="h-11 w-11 rounded-full border border-zinc-700 bg-zinc-800 text-white flex items-center justify-center disabled:opacity-30"
-            >
-              <Minus size={18} />
-            </button>
-            <span data-testid="quantidade-vagas" aria-live="polite" className="min-w-[2ch] text-center text-3xl font-black text-white">{quantidade}</span>
-            <button
-              type="button"
-              aria-label="Aumentar quantidade de vagas"
-              onClick={() => setQuantidade((atual) => limitarQuantidadeVagas(atual + 1, maximo))}
-              disabled={quantidade >= maximo || publicando}
-              className="h-11 w-11 rounded-full border border-orange-500/60 bg-orange-500/15 text-orange-300 flex items-center justify-center disabled:opacity-30"
-            >
-              <Plus size={18} />
-            </button>
+          <p className="text-xs font-bold text-white">Escolha a cadeira da vaga</p>
+          <div className="grid grid-cols-2 gap-2" data-testid="seletor-cadeiras">
+            {(cadeirasLivres || []).map((cadeira) => {
+              const marcada = cadeirasEscolhidas.includes(cadeira.id);
+              return (
+                <button
+                  key={cadeira.id}
+                  type="button"
+                  aria-pressed={marcada}
+                  onClick={() => alternarCadeira(cadeira.id)}
+                  disabled={publicando || (!marcada && cadeirasEscolhidas.length >= maximo)}
+                  className={`min-h-[44px] rounded-xl border px-3 py-2 text-left disabled:opacity-40 ${marcada ? 'border-orange-500 bg-orange-500/15' : 'border-zinc-700 bg-zinc-800'}`}
+                >
+                  <span className="flex items-center justify-between gap-1 text-xs font-black text-white">
+                    Cadeira {cadeira.numero}
+                    {marcada && <Check size={14} className="shrink-0 text-orange-300" />}
+                  </span>
+                  <span className="block text-[11px] text-zinc-400">{cadeira.bloqueada ? '🔒 Bloqueada' : 'Liberada'}</span>
+                </button>
+              );
+            })}
           </div>
           <p className="text-center text-[11px] text-zinc-400">Você pode anunciar até {textoVagas(maximo)}</p>
           <button
             type="button"
             onClick={confirmarAnuncio}
-            disabled={publicando}
+            disabled={publicando || cadeirasEscolhidas.length === 0}
             className="w-full rounded-xl bg-orange-500 px-3 py-2.5 text-sm font-black uppercase tracking-wide text-white hover:bg-orange-600 disabled:opacity-50"
           >
-            {publicando ? 'Anunciando...' : 'Confirmar anúncio'}
+            {publicando
+              ? 'Anunciando...'
+              : cadeirasEscolhidas.length > 1
+                ? `Anunciar ${cadeirasEscolhidas.length} vagas`
+                : 'Confirmar anúncio'}
           </button>
           <button
             type="button"
-            onClick={() => { setSeletorAberto(false); setQuantidade(1); }}
+            onClick={() => { setSeletorAberto(false); setCadeirasEscolhidas([]); }}
             disabled={publicando}
             className="w-full text-xs font-semibold text-zinc-400 hover:text-white"
           >

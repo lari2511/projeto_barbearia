@@ -15,9 +15,6 @@ export const aoReceberMensagemVaga = (callback) => {
   return () => window.removeEventListener(EVENTO_CHAT_VAGA, callback);
 };
 
-// O + para no maximo permitido pelo backend e o - nunca desce de 1.
-export const limitarQuantidadeVagas = (quantidade, maximo) => Math.max(1, Math.min(quantidade, Math.max(1, maximo)));
-
 async function requisitar(apiBase, token, caminho, opcoes = {}) {
   const res = await fetch(`${apiBase}/api/v1${caminho}`, {
     ...opcoes,
@@ -38,8 +35,8 @@ const enviarJson = (dados) => ({
 
 export const buscarResumoVagas = (apiBase, token) => requisitar(apiBase, token, '/on-demand/cadeiras-acionadas/resumo');
 
-export const anunciarVagas = (apiBase, token, quantidade) =>
-  requisitar(apiBase, token, '/on-demand/cadeiras-acionadas/anunciar', enviarJson({ quantidade }));
+export const anunciarVagas = (apiBase, token, cadeiraIds) =>
+  requisitar(apiBase, token, '/on-demand/cadeiras-acionadas/anunciar', enviarJson({ cadeira_ids: cadeiraIds }));
 
 export const buscarCandidatosVaga = (apiBase, token, vagaId) =>
   requisitar(apiBase, token, `/on-demand/cadeiras-acionadas/${vagaId}/candidatos`);

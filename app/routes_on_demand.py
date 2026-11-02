@@ -262,7 +262,9 @@ class AcionarCadeiraRequest(BaseModel):
 
 
 class AnunciarVagasRequest(BaseModel):
-    quantidade: int = Field(ge=1)
+    # Cadeiras escolhidas pelo dono; sem elas, o backend escolhe `quantidade` cadeiras livres.
+    cadeira_ids: Optional[List[int]] = Field(default=None, min_length=1)
+    quantidade: Optional[int] = Field(default=None, ge=1)
     raio_km: float = Field(default=5.0, gt=0)
 
 
@@ -976,6 +978,14 @@ def _resumo_de_vagas(db: Session, barbearia: Barbearia, usuario_id: int) -> dict
         "cadeiras_vencidas": cadeiras_vencidas(db, barbearia),
         "vagas_anunciadas": len(ativas),
         "vagas_disponiveis_para_anunciar": limites["disponiveis"],
+        "cadeiras_livres": [
+            {
+                "id": cadeira.id,
+                "numero": posicao_cadeira[cadeira.id],
+                "bloqueada": cadeira_esta_bloqueada(cadeira),
+            }
+            for cadeira in limites["livres"]
+        ],
         "vagas": vagas,
     }
 
@@ -1001,13 +1011,19 @@ async def anunciar_vagas(
     Publica a quantidade pedida de vagas diarias, cada uma com a propria cadeira e as proprias
     candidaturas. Podem ser cadeiras bloqueadas; o status delas nao muda aqui.
     """
+    if not request.cadeira_ids and not request.quantidade:
+        raise HTTPException(status_code=400, detail="Escolha ao menos uma cadeira para anunciar")
+
     barbearia = _barbearia_do_dono(db, current_user)
     if barbearia.latitude is None or barbearia.longitude is None:
         raise HTTPException(status_code=400, detail="Barbearia sem coordenadas para validar ETA")
 
     _expirar_vagas_vencidas(db)
 
-    cadeiras = reservar_cadeiras(db, barbearia, request.quantidade)
+    if request.cadeira_ids:
+        cadeiras = reservar_cadeiras(db, barbearia, len(set(request.cadeira_ids)), cadeira_ids=request.cadeira_ids)
+    else:
+        cadeiras = reservar_cadeiras(db, barbearia, request.quantidade)
     expira_em = fim_do_dia_utc()
     vagas = [
         CadeiraAcionada(
