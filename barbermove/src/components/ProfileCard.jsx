@@ -1045,6 +1045,34 @@ export default function ProfileCard({ usuarioId, userType, token, isOwnProfile: 
         </div>
       )}
 
+      {/* Servicos e valores para o freelancer: mesmos registros que o cliente ve
+          (carregados em carregarPerfil), somente leitura. */}
+      {userType === 'barbearia' && visitanteEhFreelancer && (
+        <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6">
+          <h3 className="text-lg font-bold text-white mb-4 flex items-center gap-2">
+            <Scissors size={18} className="text-orange-400" /> Serviços e valores
+          </h3>
+          {servicosBarbearia.length > 0 ? (
+            <div className="space-y-2">
+              {servicosBarbearia.map((servico) => (
+                <div key={servico.id} className="rounded-lg border border-zinc-800 bg-black/30 px-3 py-2">
+                  <div className="flex items-start justify-between gap-3">
+                    <span className="text-sm text-white min-w-0 break-words">{servico.nome}</span>
+                    <span className="text-sm font-bold text-green-400 shrink-0">R$ {Number(servico.valor).toFixed(2)}</span>
+                  </div>
+                  {servico.descricao && <p className="text-xs text-zinc-400 mt-1">{servico.descricao}</p>}
+                  <p className="text-[11px] text-zinc-500 mt-1">
+                    {[servico.categoria, servico.duracao_minutos ? `${servico.duracao_minutos} min` : null].filter(Boolean).join(' · ')}
+                  </p>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-sm text-zinc-500">Esta barbearia ainda não cadastrou serviços.</p>
+          )}
+        </div>
+      )}
+
       {/* Portfólio (se houver fotos) */}
       {fotosPortfolioExibicao.length > 0 ? (
         <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6">
