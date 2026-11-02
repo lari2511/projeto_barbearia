@@ -2,6 +2,8 @@
 // Usado na tela de cadastro e, se algo falhar lá, na tela de completar perfil.
 
 export const TEMPOS_PROFISSAO = ['Menos de 1 ano', '1 ano', '2 anos', '3 anos', '4 anos', '5 anos ou mais']
+// Opções do perfil, para o freelancer atualizar depois do cadastro (schemas.TEMPOS_EXPERIENCIA_PERFIL).
+export const TEMPOS_EXPERIENCIA_PERFIL = ['1 ano', '2 anos', '3 anos', '4 anos ou mais']
 export const MAX_FOTOS_TRABALHOS = 5
 export const IDADE_MINIMA_FREELANCER = 18
 

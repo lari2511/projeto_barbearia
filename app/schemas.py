@@ -96,6 +96,9 @@ TEMPOS_EXPERIENCIA = [
     "5 anos", "6 anos ou mais",
 ]
 
+# Opções que o próprio freelancer pode escolher no perfil depois do cadastro.
+TEMPOS_EXPERIENCIA_PERFIL = ["1 ano", "2 anos", "3 anos", "4 anos ou mais"]
+
 
 class BarbeiroCreate(UsuarioBase):
     cpf: str  # Agora obrigatório

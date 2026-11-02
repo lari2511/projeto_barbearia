@@ -222,6 +222,14 @@ def atualizar_perfil_usuario(
     if "foto_perfil" in payload:
         u.foto_perfil = _normalizar_path_upload(payload.get("foto_perfil"))
 
+    # Tempo de experiência: só muda quando o próprio freelancer escolhe outra opção.
+    if "tempo_experiencia" in payload:
+        if u.tipo != "barbeiro":
+            raise HTTPException(status_code=403, detail="Apenas freelancers têm tempo de experiência")
+        if payload.get("tempo_experiencia") not in schemas.TEMPOS_EXPERIENCIA_PERFIL:
+            raise HTTPException(status_code=400, detail="Tempo de experiência inválido")
+        u.tempo_experiencia = payload.get("tempo_experiencia")
+
     # Nome público da barbearia: entidade separada do nome pessoal do dono.
     nome_barbearia = None
     if u.tipo == "barbearia" and payload.get("nome_barbearia") is not None:
@@ -258,6 +266,7 @@ def atualizar_perfil_usuario(
         "cnpj": u.cnpj,
         "foto_perfil": _normalizar_path_upload(u.foto_perfil),
         "disponivel": u.disponivel,
+        "tempo_experiencia": u.tempo_experiencia,
     }
 
 # ==================== 1.5. PRESENÇA - MARCAR BARBEIRO NO LOCAL ====================

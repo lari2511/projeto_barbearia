@@ -300,6 +300,32 @@ def test_perfil_do_freelancer_traz_o_tempo_de_experiencia_cadastrado(http):
     assert http.get(f"/api/v1/usuario/{sem_tempo}").json()["tempo_experiencia"] is None
 
 
+def test_freelancer_altera_o_tempo_de_experiencia_no_proprio_perfil(http):
+    fid, headers = _usuario("barbeiro", "f@t.com", tempo_experiencia="Menos de 1 ano")
+    for opcao in ("1 ano", "2 anos", "3 anos", "4 anos ou mais"):
+        assert http.patch("/api/v1/usuarios/me", json={"tempo_experiencia": opcao}, headers=headers).status_code == 200
+        assert http.get(f"/api/v1/usuario/{fid}").json()["tempo_experiencia"] == opcao
+
+    for invalido in ("9 anos", "", None, "5 anos ou mais"):
+        assert http.patch("/api/v1/usuarios/me", json={"tempo_experiencia": invalido}, headers=headers).status_code == 400
+    assert http.get(f"/api/v1/usuario/{fid}").json()["tempo_experiencia"] == "4 anos ou mais"
+
+    # Outros campos do perfil não mexem no tempo.
+    assert http.patch("/api/v1/usuarios/me", json={"nome": "Outro Nome"}, headers=headers).status_code == 200
+    assert http.get(f"/api/v1/usuario/{fid}").json()["tempo_experiencia"] == "4 anos ou mais"
+
+
+def test_so_freelancer_altera_tempo_de_experiencia(http):
+    for tipo, email in (("cliente", "c@t.com"), ("barbearia", "b@t.com")):
+        uid, headers = _usuario(tipo, email)
+        assert http.patch("/api/v1/usuarios/me", json={"tempo_experiencia": "2 anos"}, headers=headers).status_code == 403
+        db = SessionLocal()
+        try:
+            assert db.get(models.Usuario, uid).tempo_experiencia is None
+        finally:
+            db.close()
+
+
 def test_vaga_informa_o_dono_para_abrir_o_perfil_e_os_mesmos_servicos(http):
     loja = _barbearia("dono@t.com", 1)
     _publicar(http, loja, 1)

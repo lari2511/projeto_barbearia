@@ -10,6 +10,7 @@ import { useBackHandler } from '../utils/useBackHandler';
 import BotaoVoltar from './BotaoVoltar';
 import ChatSuporte from './ChatSuporte';
 import { useSuporteNaoLidas } from '../utils/suporte';
+import { TEMPOS_EXPERIENCIA_PERFIL } from '../utils/cadastroFreelancer';
 import { AVISO_KIT_FREELANCER, ITENS_CONDICOES_ESTRUTURA, TEXTOS_CONDICOES_ESTRUTURA } from './EstruturaBarbearia';
 import { gerarQrDataUrl, salvarMetodoPreferidoCliente, validarCartaoBasico } from './checkout/core';
 import PagamentoPix, { usePixDisponivel } from './PagamentoPix';
@@ -394,6 +395,8 @@ export function TelaPerfilUsuario({
   // Etapa 7: freelancer presente pediu para sair mas ainda tem atendimentos pendentes.
   const [saidaPendente, setSaidaPendente] = useState(null); // 'online' | 'offline' | null
   const [tempoExperiencia, setTempoExperiencia] = useState('');
+  const [tempoSelecionado, setTempoSelecionado] = useState('');
+  const [salvandoTempo, setSalvandoTempo] = useState(false);
   const [perfilEmAnalise, setPerfilEmAnalise] = useState(false);
   const [atendimentosPendentes, setAtendimentosPendentes] = useState(0);
   const [barbeariaPresencaId, setBarbeariaPresencaId] = useState('');
@@ -518,6 +521,7 @@ export function TelaPerfilUsuario({
           setBarbeariaAtualEndereco(data?.barbearia_atual_endereco || '');
           setSaidaPendente(data?.saida_pendente || null);
           setTempoExperiencia(data?.tempo_experiencia || '');
+          setTempoSelecionado(data?.tempo_experiencia || '');
           setPerfilEmAnalise(data?.perfil_aprovado === false);
           if (data?.presente_em_local && data?.barbearia_atual_id) {
             setBarberStatus('presente');
@@ -1102,6 +1106,27 @@ export function TelaPerfilUsuario({
     }
   };
 
+  const salvarTempoExperiencia = async () => {
+    if (!token || !apiBase || perfilTipo !== 'barbeiro') return;
+    setSalvandoTempo(true);
+    try {
+      const res = await fetch(`${apiBase}/api/v1/usuarios/me`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ tempo_experiencia: tempoSelecionado }),
+      });
+      const data = await safeReadJson(res, {});
+      if (!res.ok) throw new Error(typeof data?.detail === 'string' ? data.detail : 'Não foi possível salvar');
+      setTempoExperiencia(data?.tempo_experiencia || '');
+      setTempoSelecionado(data?.tempo_experiencia || '');
+      onNotify?.('Tempo de experiência atualizado', 'success');
+    } catch (e) {
+      onNotify?.(e?.message || 'Não foi possível salvar', 'error');
+    } finally {
+      setSalvandoTempo(false);
+    }
+  };
+
   const statusAtualTexto = useMemo(() => {
     if (barberStatus === 'presente') {
       const base = barbeariaAtualNome
@@ -1674,6 +1699,39 @@ export function TelaPerfilUsuario({
         </button>
       )}
       {chatSuporteAberto && <ChatSuporte token={token} apiBase={apiBase} onFechar={fecharChatSuporte} />}
+
+      {perfilTipo === 'barbeiro' && (
+        <AppCard>
+          <div className="space-y-3" data-testid="tempo-experiencia">
+            <p className={styles.labelStrong}>Tempo de experiência</p>
+            <p className="text-xs text-zinc-400">
+              Atual: <span className="font-bold text-white">{tempoExperiencia || 'Não informado'}</span>
+            </p>
+            <div className="grid grid-cols-2 gap-2">
+              {TEMPOS_EXPERIENCIA_PERFIL.map((opcao) => (
+                <button
+                  key={opcao}
+                  type="button"
+                  aria-pressed={tempoSelecionado === opcao}
+                  onClick={() => setTempoSelecionado(opcao)}
+                  className={`${styles.statusBtn} ${tempoSelecionado === opcao ? styles.statusBtnActive : ''}`}
+                  disabled={salvandoTempo}
+                >
+                  {opcao}
+                </button>
+              ))}
+            </div>
+            <button
+              type="button"
+              onClick={salvarTempoExperiencia}
+              className={styles.saveBtn}
+              disabled={salvandoTempo || !TEMPOS_EXPERIENCIA_PERFIL.includes(tempoSelecionado) || tempoSelecionado === tempoExperiencia}
+            >
+              {salvandoTempo ? 'Salvando...' : 'Salvar tempo de experiência'}
+            </button>
+          </div>
+        </AppCard>
+      )}
 
       {perfilTipo === 'barbeiro' && (
         <AppCard>
