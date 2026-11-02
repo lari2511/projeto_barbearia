@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { MapPin, Clock, Phone, MessageCircle, AlertCircle, X } from 'lucide-react';
+import { MapPin, Clock, MessageCircle, AlertCircle, X } from 'lucide-react';
 
 const TelaRotasAtivos = ({ chamado, userType, userLocation, clienteLocation, barbeiroLocation, barbearia, barbeiro, onNotify, onClose }) => {
   const [rotaInfo, setRotaInfo] = useState(null);
@@ -125,9 +125,6 @@ const TelaRotasAtivos = ({ chamado, userType, userLocation, clienteLocation, bar
             <div>
               <p className="text-white font-bold">{barbearia.nome}</p>
               <p className="text-zinc-400 text-sm">{barbearia.endereco || 'Localização não definida'}</p>
-              {barbearia.telefone && (
-                <p className="text-zinc-400 text-sm mt-2">{barbearia.telefone}</p>
-              )}
             </div>
           </div>
         </div>
@@ -158,15 +155,6 @@ const TelaRotasAtivos = ({ chamado, userType, userLocation, clienteLocation, bar
 
         {/* Contato Rápido */}
         <div className="flex gap-3">
-          {barbeiro?.telefone && userType === 'cliente' && (
-            <a
-              href={`tel:${barbeiro.telefone}`}
-              className="flex-1 bg-green-600 hover:bg-green-700 text-white font-bold py-3 rounded-xl transition flex items-center justify-center gap-2"
-            >
-              <Phone className="w-5 h-5" />
-              Ligar
-            </a>
-          )}
           {userType === 'cliente' && (
             <button
               onClick={() => onNotify && onNotify('Mensagem enviada para o barbeiro', 'info')}

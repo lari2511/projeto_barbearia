@@ -1,6 +1,6 @@
 import { formatarDataSP } from '../utils/dataHora';
 import React, { useState, useEffect, useCallback, useContext } from 'react';
-import { Star, MapPin, Phone, Award, TrendingUp, MessageCircle, Navigation, Scissors, Clock } from 'lucide-react';
+import { Star, MapPin, Award, TrendingUp, MessageCircle, Navigation, Scissors, Clock } from 'lucide-react';
 import ChatRoom from './ChatRoom';
 import ListaAvaliacoes from './ListaAvaliacoes';
 import { EstruturaDaVaga } from './EstruturaBarbearia';
@@ -543,14 +543,6 @@ export default function ProfileCard({ usuarioId, userType, token, isOwnProfile: 
           )}
         </div>
 
-        {/* 6. TELEFONE/CONTATO discreto */}
-        {profile.telefone && (
-          <div className="flex items-center gap-2 text-xs text-zinc-500 px-1">
-            <Phone size={14} />
-            <span>{profile.telefone}</span>
-          </div>
-        )}
-
         {token && (
           <button
             onClick={async () => {
@@ -968,15 +960,6 @@ export default function ProfileCard({ usuarioId, userType, token, isOwnProfile: 
               </div>
             )}
 
-            {profile.telefone && (
-              <div className="flex items-start gap-3">
-                <Phone size={18} className="text-green-400 shrink-0 mt-1" />
-                <div>
-                  <p className="text-xs text-zinc-400">Telefone</p>
-                  <p className="text-sm text-white">{profile.telefone}</p>
-                </div>
-              </div>
-            )}
             {/* E-mail nao e exibido no perfil publico (continua existindo no cadastro/login). */}
           </div>
 
@@ -1016,19 +999,6 @@ export default function ProfileCard({ usuarioId, userType, token, isOwnProfile: 
           {userType === 'barbearia' && visitanteEhFreelancer && token && (
             <div className="mt-4">
               <EstruturaDaVaga API_URL={API_URL} token={token} barbeariaId={barbeariaProfile?.id} />
-            </div>
-          )}
-          {profile.telefone && userType === 'barbeiro' && (
-            <div className="mt-6 pt-6 border-t border-zinc-800">
-              <a
-                href={`https://wa.me/55${profile.telefone.replace(/\D/g, '')}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="w-full bg-green-600 text-white px-4 py-3 rounded-lg font-bold flex items-center justify-center gap-2 hover:bg-green-700 active:scale-95 transition-all"
-              >
-                <MessageCircle size={20} />
-                Entrar em Contato via WhatsApp
-              </a>
             </div>
           )}
 

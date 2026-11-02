@@ -22,7 +22,7 @@ from .database import get_db
 from .email_utils import send_email
 from .email_send import send_verification_email, send_welcome_email
 from .routes import get_current_user, oauth2_scheme, get_password_hash, create_email_verification_token, verify_email_token, _validar_acesso_tracking
-from .routes import telefone_freelancer_para, usuario_opcional
+from .routes import telefone_visivel_para, usuario_opcional
 from .pagamento_diario import freelancer_bloqueado
 from fastapi import Body
 
@@ -774,8 +774,8 @@ def obter_usuario_publico(
         raise HTTPException(status_code=404, detail="Usuário não encontrado")
 
     # Privacidade: telefone de pessoa fisica nao sai sem login, e o e-mail so para o proprio usuario ou admin.
-    if usuario.tipo == 'barbeiro':
-        telefone = telefone_freelancer_para(usuario, visitante)
+    if usuario.tipo in ('barbeiro', 'barbearia'):
+        telefone = telefone_visivel_para(usuario, visitante)
     elif usuario.tipo == 'cliente' and visitante is None:
         telefone = None
     else:
@@ -1047,7 +1047,7 @@ def buscar_barbeiros_proximos(
                 "nome": barbeiro.nome,
                 "endereco": barbeiro.endereco or "Atende em barbearias parceiras",
                 "distancia_km": round(distancia, 2),
-                "telefone": telefone_freelancer_para(barbeiro, visitante),
+                "telefone": telefone_visivel_para(barbeiro, visitante),
                 "usuario_id": barbeiro.id
             })
     

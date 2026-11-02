@@ -25,7 +25,6 @@ from .email_utils import send_email
 from .email_send import send_verification_email
 from . import firebase_config
 from .realtime import broadcast_event
-from sqlalchemy.orm import object_session
 from .pagamento_diario import exigir_freelancer_liberado, freelancer_bloqueado, freelancers_com_taxa_vencida
 
 # Carrega variáveis do arquivo .env
@@ -538,7 +537,6 @@ def _montar_payload_tracking(db: Session, chamado: models.Chamado, ativo: models
             "id": barbearia.id if barbearia else chamado.barbearia_id,
             "nome": barbearia.nome if barbearia else None,
             "endereco": barbearia.endereco if barbearia else None,
-            "telefone": barbearia.telefone if barbearia else None,
             "latitude": barbearia.latitude if barbearia else None,
             "longitude": barbearia.longitude if barbearia else None,
         },
@@ -791,19 +789,12 @@ def usuario_opcional(
     return db.query(models.Usuario).filter(models.Usuario.id == user_id).first()
 
 
-def telefone_freelancer_para(freelancer: models.Usuario, visitante: models.Usuario | None) -> str | None:
-    # Privacidade: proprietario nao recebe o telefone do freelancer. Sem login tambem
-    # nao, senao bastaria chamar a rota sem token. O numero segue salvo no cadastro.
-    if visitante is None or visitante.tipo == "barbearia":
-        return None
-    # Taxa pendente: sem contato direto, para o atendimento nao ser combinado por fora do app.
-    if (
-        visitante.id != freelancer.id
-        and visitante.tipo != "admin"
-        and freelancer_bloqueado(object_session(freelancer), freelancer.id)
-    ):
-        return None
-    return freelancer.telefone
+def telefone_visivel_para(usuario: models.Usuario, visitante: models.Usuario | None) -> str | None:
+    # Privacidade: telefone de freelancer e de proprietario so para o proprio usuario e o ADM.
+    # O contato entre eles e o cliente acontece pelo chat interno; o numero segue no cadastro.
+    if visitante is not None and (visitante.id == usuario.id or visitante.tipo == "admin"):
+        return usuario.telefone
+    return None
 
 
 def dispatch_verification_email(user: models.Usuario) -> None:
@@ -1275,7 +1266,8 @@ def login_admin(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = 
 def listar_todas_barbearias(db: Session = Depends(get_db)):
     # Listar todas as barbearias cadastradas.
     barbearias = db.query(models.Barbearia).all()
-    return barbearias
+    colunas = [c.name for c in models.Barbearia.__table__.columns if c.name != "telefone"]
+    return [{coluna: getattr(b, coluna) for coluna in colunas} for b in barbearias]
 
 @router.get("/barbearia/{id}/servicos")
 def listar_servicos_barbearia(id: int, db: Session = Depends(get_db)):
@@ -1793,7 +1785,6 @@ def listar_chamados_abertos(token: str = Depends(oauth2_scheme), db: Session = D
             "endereco_barbearia": barbearia.endereco if barbearia else "",
             "barbearia_latitude": barbearia.latitude if barbearia else None,
             "barbearia_longitude": barbearia.longitude if barbearia else None,
-            "barbearia_telefone": barbearia.telefone if barbearia else "",
             "status": c.status,
             "data_hora_inicio": c.data_hora_inicio.isoformat() if c.data_hora_inicio else None,
             "data_hora_fim": c.data_hora_fim.isoformat() if c.data_hora_fim else None,
@@ -1867,7 +1858,6 @@ def listar_agendamentos_barbeiro(barbeiro_id: int, db: Session = Depends(get_db)
             "barbearia_endereco": barbearia.endereco if barbearia else "",
             "barbearia_latitude": barbearia.latitude if barbearia else None,
             "barbearia_longitude": barbearia.longitude if barbearia else None,
-            "barbearia_telefone": barbearia.telefone if barbearia else "",
             "cliente_latitude": cliente.latitude if cliente else None,
             "cliente_longitude": cliente.longitude if cliente else None,
             "cliente_endereco": cliente.endereco if cliente else "",
@@ -3306,7 +3296,7 @@ def listar_barbeiros_proximos(
                 "id": b.id,
                 "nome": b.nome,
                 "indisponivel": indisponivel,
-                "telefone": telefone_freelancer_para(b, visitante),
+                "telefone": telefone_visivel_para(b, visitante),
                 "endereco": b.endereco,
                 "latitude": b.latitude,
                 "longitude": b.longitude,
@@ -3358,7 +3348,7 @@ def listar_todos_barbeiros(
             "id": b.id,
             "nome": b.nome,
             "indisponivel": indisponivel,
-            "telefone": telefone_freelancer_para(b, visitante),
+            "telefone": telefone_visivel_para(b, visitante),
             "endereco": b.endereco,
             "documento_verificado": b.documento_verificado,
             "disponivel": disponivel_real,  # ✅ Disponibilidade dinâmica
@@ -3439,7 +3429,6 @@ def listar_barbearias_do_barbeiro(barbeiro_id: int, db: Session = Depends(get_db
                 "usuario_id": barbearia_atual.usuario_id,
                 "nome": barbearia_atual.nome,
                 "endereco": barbearia_atual.endereco,
-                "telefone": barbearia_atual.telefone,
                 "latitude": barbearia_atual.latitude,
                 "longitude": barbearia_atual.longitude,
                 "cadeira_livre": cadeira_disponivel is not None,
@@ -3476,7 +3465,6 @@ def listar_barbearias_do_barbeiro(barbeiro_id: int, db: Session = Depends(get_db
             "usuario_id": b.usuario_id,
             "nome": b.nome,
             "endereco": b.endereco,
-            "telefone": b.telefone,
             "latitude": b.latitude,
             "longitude": b.longitude,
             "cadeira_livre": True,
@@ -3949,7 +3937,7 @@ def listar_barbeiros_presentes(
         resultado.append({
             "id": barbeiro.id,
             "nome": barbeiro.nome,
-            "telefone": telefone_freelancer_para(barbeiro, visitante),
+            "telefone": telefone_visivel_para(barbeiro, visitante),
             "foto_perfil": barbeiro.foto_perfil,
             "cadeira_numero": cadeira.numero if cadeira else None,
             "horario_chegada": barbeiro.horario_chegada,
@@ -4024,7 +4012,7 @@ def listar_barbeiros_priorizados_barbearia(
                 "id": barbeiro.id,
                 "nome": barbeiro.nome,
                 "indisponivel": True,
-                "telefone": telefone_freelancer_para(barbeiro, visitante),
+                "telefone": telefone_visivel_para(barbeiro, visitante),
                 "endereco": barbeiro.endereco,
                 "foto_perfil": barbeiro.foto_perfil,
                 "distancia_km": round(distancia_km, 2) if distancia_km is not None else None,
@@ -4074,7 +4062,7 @@ def listar_barbeiros_priorizados_barbearia(
             "id": barbeiro.id,
             "nome": barbeiro.nome,
             "indisponivel": False,
-            "telefone": telefone_freelancer_para(barbeiro, visitante),
+            "telefone": telefone_visivel_para(barbeiro, visitante),
             "endereco": barbeiro.endereco,
             "foto_perfil": barbeiro.foto_perfil,
             "latitude": barbeiro.latitude,

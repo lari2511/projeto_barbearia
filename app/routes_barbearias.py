@@ -88,7 +88,6 @@ def listar_barbearias_proximas(
                     "usuario_id": user.id,
                     "nome": barbearia.nome or user.nome,  # nome público do estabelecimento
                     "email": user.email,
-                    "telefone": user.telefone,
                     "endereco": barbearia.endereco,
                     "cidade": getattr(barbearia, "cidade", None),
                     "bairro": getattr(barbearia, "bairro", None),
@@ -179,7 +178,6 @@ def listar_todas_barbearias_aprovadas(
                 "usuario_id": user.id,
                 "nome": barbearia.nome or user.nome,  # nome público do estabelecimento
                 "email": user.email,
-                "telefone": user.telefone,
                 "endereco": barbearia.endereco,
                 "cidade": getattr(barbearia, "cidade", None),
                 "bairro": getattr(barbearia, "bairro", None),
@@ -254,7 +252,6 @@ def obter_detalhes_barbearia(
         "usuario_id": user.id,
         "nome": barbearia.nome or user.nome,  # nome público do estabelecimento
         "email": user.email,
-        "telefone": user.telefone,
         "endereco": barbearia.endereco,
         "cidade": getattr(barbearia, "cidade", None),
         "bairro": getattr(barbearia, "bairro", None),

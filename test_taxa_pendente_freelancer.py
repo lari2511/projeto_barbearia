@@ -219,7 +219,7 @@ def test_perfil_abre_como_indisponivel(http):
 
 
 # Sem contato direto enquanto houver taxa: o atendimento não pode ser combinado por fora.
-def test_telefone_some_com_taxa_pendente_e_volta_ao_quitar(http):
+def test_telefone_nao_sai_com_taxa_pendente_nem_depois_de_quitar(http):
     loja = _barbearia()
     fid, f_headers = _freelancer("f@t.com")
     db = SessionLocal()
@@ -248,7 +248,8 @@ def test_telefone_some_com_taxa_pendente_e_volta_ao_quitar(http):
         db.close()
 
     _quitar(fechamento)
-    assert http.get(f"{V1}/usuario/{fid}", headers=cliente).json()["telefone"] == "11911112222"
+    assert http.get(f"{V1}/usuario/{fid}", headers=cliente).json()["telefone"] is None
+    assert http.get(f"{V1}/usuario/{fid}", headers=f_headers).json()["telefone"] == "11911112222"
 
 
 # 3. Interesse

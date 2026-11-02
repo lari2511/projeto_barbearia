@@ -1166,7 +1166,6 @@ def barbeiro_aceitar_cadeira(
             "barbearia_id": barbearia.id,
             "barbearia_nome": barbearia.nome,
             "barbearia_endereco": barbearia.endereco,
-            "barbearia_telefone": barbearia.telefone
         }
     }
 
@@ -1241,7 +1240,6 @@ def listar_cadeiras_disponiveis_barbeiro(
                     "id": cadeira.barbearia_id,
                     "nome": cadeira.barbearia.nome,
                     "endereco": cadeira.barbearia.endereco,
-                    "telefone": cadeira.barbearia.telefone,
                     "latitude": cadeira.barbearia.latitude,
                     "longitude": cadeira.barbearia.longitude
                 }
