@@ -215,6 +215,10 @@ def atualizar_perfil_usuario(
             raise HTTPException(status_code=400, detail="Email já está em uso")
         u.email = novo_email
 
+    if u.tipo == "barbeiro" and payload.get("disponivel"):
+        from app.pagamento_diario import exigir_freelancer_liberado
+        exigir_freelancer_liberado(db, u.id)
+
     for field in ["nome", "telefone", "endereco", "cpf", "cnpj", "foto_perfil", "disponivel"]:
         if field in payload:
             setattr(u, field, payload.get(field))
@@ -291,6 +295,9 @@ def marcar_presenca_barbeiro(
     
     # Atualizar presença
     presente = payload.get("presente_em_local", False)
+    if presente and u.tipo == "barbeiro":
+        from app.pagamento_diario import exigir_freelancer_liberado
+        exigir_freelancer_liberado(db, u.id)
     u.presente_em_local = presente
     
     # Se está marcando como presente, registrar horário de chegada

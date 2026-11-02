@@ -23,6 +23,7 @@ from .email_utils import send_email
 from .email_send import send_verification_email, send_welcome_email
 from .routes import get_current_user, oauth2_scheme, get_password_hash, create_email_verification_token, verify_email_token, _validar_acesso_tracking
 from .routes import telefone_freelancer_para, usuario_opcional
+from .pagamento_diario import freelancer_bloqueado
 from fastapi import Body
 
 router = APIRouter()
@@ -780,6 +781,8 @@ def obter_usuario_publico(
     else:
         telefone = usuario.telefone
     ver_email = visitante is not None and (visitante.id == usuario.id or visitante.tipo == 'admin')
+    # Taxa pendente: o perfil segue aberto, so como indisponivel (o motivo nao e exposto).
+    indisponivel = usuario.tipo == 'barbeiro' and freelancer_bloqueado(db, usuario.id)
 
     fotos = db.query(models.Foto).filter(models.Foto.usuario_id == usuario.id).all()
 
@@ -821,9 +824,10 @@ def obter_usuario_publico(
         "longitude": barbearia_atual_longitude if barbearia_atual_longitude is not None else usuario.longitude,
         "email": usuario.email if ver_email else None,
         "foto_perfil": usuario.foto_perfil,
-        "disponivel": usuario.disponivel,
+        "disponivel": False if indisponivel else usuario.disponivel,
+        "indisponivel": indisponivel,
         "presente_em_local": usuario.presente_em_local or False,
-        "online_regiao": usuario.online_regiao or False,
+        "online_regiao": False if indisponivel else (usuario.online_regiao or False),
         "barbearia_id": barbearia_id,
         "barbearia_atual_id": usuario.barbearia_atual_id,
         "barbearia_atual_nome": barbearia_atual_nome,

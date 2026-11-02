@@ -67,6 +67,7 @@ const mapearBarbeiroProximo = (item) => ({
     presente_em_local: Boolean(item?.presente_em_local),
     barbearia_atual_id: item?.barbearia_atual_id ?? null,
     barbearia_atual_nome: item?.barbearia_atual_nome ?? null,
+    indisponivel: Boolean(item?.indisponivel),
 });
 
 const lerBarbeirosCache = () => {
@@ -1156,7 +1157,8 @@ export default function ClientDashboard({ token, logout, API_URL: apiUrlProp, no
             }
             const data = await res.json();
             const lista = normalizarListaBarbeiros(data);
-            if (lista.length > 0) {
+            // So indisponiveis contam como lista vazia: segue para a lista geral, que tambem os mostra.
+            if (lista.some((item) => !item?.indisponivel)) {
                 setShops(lista);
                 const totalCasa = lista.filter((item) => item?.profissional_da_casa).length;
                 if (totalCasa > 0) {
@@ -2087,10 +2089,13 @@ export default function ClientDashboard({ token, logout, API_URL: apiUrlProp, no
                                             <div className="min-w-0">
                                                 <p className="font-bold text-sm text-white truncate">{barber.nome}</p>
                                                 <div className="mt-1 flex items-center gap-1.5 sm:gap-2 flex-wrap">
+                                                    {/* Indisponivel so aparece ao abrir o perfil; o card nao indica disponibilidade. */}
+                                                    {!barber.indisponivel && (
                                                     <div className={`${statusInfo.cor} px-1.5 py-0.5 sm:px-2 sm:py-1 rounded text-[9px] sm:text-[10px] leading-none font-bold flex items-center gap-1 max-w-full`}>
                                                         <span>{statusInfo.icone}</span>
                                                         <span className="truncate">{statusInfo.texto}</span>
                                                     </div>
+                                                    )}
                                                     {barber.liberacao_antecipada && (
                                                         <div className="bg-amber-500/15 border border-amber-500/40 text-amber-300 px-1.5 py-0.5 sm:px-2 sm:py-1 rounded text-[9px] sm:text-[10px] leading-none font-bold">
                                                             Pode receber o proximo
@@ -2110,7 +2115,8 @@ export default function ClientDashboard({ token, logout, API_URL: apiUrlProp, no
                                                 <div className="text-xs text-zinc-400 truncate mt-1">{barber.servico_principal || ''}</div>
                                             </div>
                                             <div className="relative z-10">
-                                                <div className="actions grid grid-cols-2 gap-2" onClick={(e) => e.stopPropagation()}>
+                                                <div className={`actions grid ${barber.indisponivel ? 'grid-cols-1' : 'grid-cols-2'} gap-2`} onClick={(e) => e.stopPropagation()}>
+                                                    {!barber.indisponivel && (
                                                     <button
                                                         onClick={() => handleSelectShop(barber)}
                                                         disabled={!barbeiroDeTeste && (statusInfo.texto === 'INDISPONÍVEL' || statusInfo.texto === 'OFFLINE')}
@@ -2118,6 +2124,7 @@ export default function ClientDashboard({ token, logout, API_URL: apiUrlProp, no
                                                     >
                                                         {(!barbeiroDeTeste && (statusInfo.texto === 'INDISPONÍVEL' || statusInfo.texto === 'OFFLINE')) ? 'Indisponível' : 'Escolher'}
                                                     </button>
+                                                    )}
                                                     <button
                                                         onClick={() => setPerfilModal({ id: barber.id, tipo: 'barbeiro' })}
                                                         className="w-full py-2 px-2 bg-zinc-800 hover:bg-zinc-700 text-white rounded-lg text-xs font-bold"

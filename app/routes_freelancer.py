@@ -450,6 +450,10 @@ def solicitar_freelancer(
     if not freelancer:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Freelancer não encontrado")
 
+    from app.pagamento_diario import freelancer_bloqueado
+    if freelancer_bloqueado(db, freelancer.usuario_id):
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Este freelancer está indisponível no momento")
+
     # Determinar barbearia
     barbearia = None
     if usuario_atual.tipo == "barbearia":

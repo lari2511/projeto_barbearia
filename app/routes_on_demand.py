@@ -891,6 +891,15 @@ async def obter_status_radar(
     return RadarFreelancerResponse.from_orm(radar)
 
 
+def _posicao_do_freelancer(db: Session, freelancer_id: int) -> tuple:
+    """Ultima posicao conhecida: a do radar (mesmo desligado) ou a salva no perfil."""
+    radar = db.query(RadarFreelancer).filter(RadarFreelancer.freelancer_id == freelancer_id).first()
+    if radar and radar.latitude is not None and radar.longitude is not None:
+        return radar.latitude, radar.longitude
+    usuario = db.query(Usuario).filter(Usuario.id == freelancer_id).first()
+    return (usuario.latitude, usuario.longitude) if usuario else (None, None)
+
+
 def _avisar_freelancers_da_vaga(
     db: Session,
     barbearia: Barbearia,
@@ -899,6 +908,7 @@ def _avisar_freelancers_da_vaga(
     autor_id: int,
     nome_servico: str,
     mensagem: str,
+    incluir_com_taxa_pendente: bool = False,
 ) -> List[int]:
     """Avisa os freelancers online no raio (sino + push) e devolve os ids avisados."""
     barbeiros_online = db.query(RadarFreelancer).filter(
@@ -908,18 +918,28 @@ def _avisar_freelancers_da_vaga(
         RadarFreelancer.longitude.isnot(None),
     ).all()
 
+    destinos = [(radar.freelancer_id, radar.latitude, radar.longitude) for radar in barbeiros_online]
+    if incluir_com_taxa_pendente:
+        # Taxa pendente deixa o freelancer offline, mas ele ainda pode ver os anuncios.
+        from app.pagamento_diario import freelancers_com_taxa_vencida
+        ja_incluidos = {destino[0] for destino in destinos}
+        for freelancer_id in freelancers_com_taxa_vencida(db) - ja_incluidos:
+            latitude, longitude = _posicao_do_freelancer(db, freelancer_id)
+            if latitude is not None and longitude is not None:
+                destinos.append((freelancer_id, latitude, longitude))
+
     avisados = []
-    for radar in barbeiros_online:
+    for freelancer_id, latitude, longitude in destinos:
         distancia = calcular_distancia_haversine(
             barbearia.latitude,
             barbearia.longitude,
-            radar.latitude,
-            radar.longitude,
+            latitude,
+            longitude,
         )
         if distancia > raio_km:
             continue
 
-        barbeiro = db.query(Usuario).filter(Usuario.id == radar.freelancer_id).first()
+        barbeiro = db.query(Usuario).filter(Usuario.id == freelancer_id).first()
         # Quem anunciou a vaga nao e notificado do proprio anuncio.
         if not barbeiro or barbeiro.id == autor_id:
             continue
@@ -1050,6 +1070,7 @@ async def anunciar_vagas(
         float(request.raio_km),
         current_user.id,
         nome_servico="Vaga de cadeira",
+        incluir_com_taxa_pendente=True,
         mensagem=(
             f"{barbearia.nome} anunciou {len(vagas)} vagas de cadeira perto de você."
             if len(vagas) > 1
@@ -1159,6 +1180,9 @@ async def listar_cadeiras_acionadas_ativas(
     if not vagas:
         return []
 
+    from app.pagamento_diario import freelancer_bloqueado
+    com_taxa_pendente = current_user.tipo == "barbeiro" and freelancer_bloqueado(db, current_user.id)
+
     resultado = []
     # Vaga diaria fica aberta o dia todo e a barbearia pode ter varias: uma rota por barbearia basta.
     eta_por_barbearia = {}
@@ -1178,7 +1202,18 @@ async def listar_cadeiras_acionadas_ativas(
         if not barbearia or barbearia.latitude is None or barbearia.longitude is None:
             continue
 
-        if current_user.tipo == "barbeiro":
+        if com_taxa_pendente:
+            # So consulta: ve as vagas de diaria no raio em que e avisado, sem precisar estar online.
+            if vaga.tipo_servico != TIPO_VAGA_DIARIA:
+                continue
+            eta_min = None
+            origem_lat, origem_lon = _posicao_do_freelancer(db, current_user.id)
+            if origem_lat is not None and origem_lon is not None:
+                distancia_km = calcular_distancia_haversine(barbearia.latitude, barbearia.longitude, origem_lat, origem_lon)
+                if distancia_km > vaga.raio_km:
+                    continue
+                eta_min = _estimar_eta_minutos_por_distancia(distancia_km)
+        elif current_user.tipo == "barbeiro":
             radar = db.query(RadarFreelancer).filter(
                 RadarFreelancer.freelancer_id == current_user.id,
                 RadarFreelancer.is_online == True,
@@ -1301,8 +1336,9 @@ async def candidatar_se_cadeira_acionada(
     if current_user.tipo != "barbeiro":
         raise HTTPException(status_code=403, detail="Apenas barbeiros podem se candidatar a essa vaga")
 
-    from app.pagamento_diario import exigir_freelancer_liberado
-    exigir_freelancer_liberado(db, current_user.id)
+    from app.pagamento_diario import MENSAGEM_TAXA_PENDENTE, freelancer_bloqueado
+    if freelancer_bloqueado(db, current_user.id):
+        raise HTTPException(status_code=403, detail=MENSAGEM_TAXA_PENDENTE)
 
     if current_user.latitude is None or current_user.longitude is None:
         raise HTTPException(status_code=400, detail="Localizacao obrigatoria para se candidatar a vaga")

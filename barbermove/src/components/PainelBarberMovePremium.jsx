@@ -595,7 +595,7 @@ export default function PainelBarberMovePremium({ token: tokenProp, logout: logo
   // Nao assume a cadeira nem muda o status pra PRESENTE - isso so acontece
   // quando o proprietario escolhe o freelancer entre os candidatos.
   const candidatarSeVagaRelampago = async (vagaId) => {
-    if (!vagaId || bloqueadoFinanceiro) return;
+    if (!vagaId || candidaturaTravadaPorSaldo) return;
     try {
       setAceitandoVagaId(vagaId);
       const res = await fetch(`${API_URL}/api/v1/on-demand/cadeiras-acionadas/${vagaId}/candidatar-se`, {
@@ -656,11 +656,11 @@ export default function PainelBarberMovePremium({ token: tokenProp, logout: logo
         <div className="shrink-0" onClick={(e) => e.stopPropagation()}>
           <button
             type="button"
-            onClick={() => !bloqueadoFinanceiro && candidatarSeVagaRelampago(vaga.id)}
-            disabled={aceitandoVagaId === vaga.id || bloqueadoFinanceiro || jaCandidatado}
+            onClick={() => !candidaturaTravadaPorSaldo && candidatarSeVagaRelampago(vaga.id)}
+            disabled={aceitandoVagaId === vaga.id || candidaturaTravadaPorSaldo || jaCandidatado}
             className="rounded-lg bg-red-600 hover:bg-red-500 disabled:bg-red-800/50 disabled:text-red-200/80 text-white px-3 py-2 text-xs font-bold"
           >
-            {bloqueadoFinanceiro ? '⛔ Bloqueado' : jaCandidatado ? 'Candidatura enviada' : (aceitandoVagaId === vaga.id ? 'Candidatando...' : 'Candidatar-se')}
+            {candidaturaTravadaPorSaldo ? '⛔ Bloqueado' : jaCandidatado ? 'Candidatura enviada' : (aceitandoVagaId === vaga.id ? 'Candidatando...' : 'Candidatar-se')}
           </button>
         </div>
       </div>
@@ -1010,6 +1010,9 @@ export default function PainelBarberMovePremium({ token: tokenProp, logout: logo
   };
 
   const bloqueadoFinanceiro = Boolean(ganhos?.bloqueado_financeiro);
+  const taxaPendente = Boolean(pagamentoDiario?.bloqueado ?? ganhos?.pagamento_diario?.bloqueado);
+  // Com taxa pendente o botao segue ativo: o backend recusa e a mensagem explica como voltar a trabalhar.
+  const candidaturaTravadaPorSaldo = bloqueadoFinanceiro && !taxaPendente;
   const saldoCarteiraAtual = Number(ganhos?.saldo_carteira || 0);
   const historicoChamados = chamados.filter((c) => ['concluido', 'concluído', 'cancelado'].includes((c.status || '').toLowerCase()));
   const filaEspera = chamados
@@ -1774,7 +1777,14 @@ export default function PainelBarberMovePremium({ token: tokenProp, logout: logo
                   <button
                     key={n.id}
                     type="button"
-                    onClick={() => !n.lido && marcarNotificacaoLida(n.id)}
+                    onClick={() => {
+                      if (!n.lido) marcarNotificacaoLida(n.id);
+                      // Offline por taxa pendente: leva ate o anuncio, que so pode ser consultado.
+                      if (taxaPendente && n.tipo === 'vaga_disponivel') {
+                        setNotificacoesAbertas(false);
+                        setTab('chamados');
+                      }
+                    }}
                     className={`w-full text-left rounded-xl border p-3 space-y-0.5 ${n.lido ? 'bg-black/20 border-zinc-800/60' : 'bg-orange-500/10 border-orange-500/30'}`}
                   >
                     <div className="flex items-center justify-between gap-2">

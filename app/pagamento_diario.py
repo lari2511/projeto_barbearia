@@ -166,6 +166,11 @@ def mensagem_bloqueio(f: models.FechamentoDiarioFreelancer) -> str:
             f"não realizado até as {prazo_do_fechamento(f).strftime('%H:%M')}.")
 
 
+MENSAGEM_TAXA_PENDENTE = (
+    "Você precisa quitar a taxa pendente do BarberMove para voltar a utilizar as funcionalidades de trabalho."
+)
+
+
 def freelancer_bloqueado(db: Session, freelancer_id: Optional[int]) -> bool:
     return bool(freelancer_id) and fechamento_bloqueante(db, freelancer_id) is not None
 

@@ -25,7 +25,8 @@ from .email_utils import send_email
 from .email_send import send_verification_email
 from . import firebase_config
 from .realtime import broadcast_event
-from .pagamento_diario import freelancer_bloqueado
+from sqlalchemy.orm import object_session
+from .pagamento_diario import exigir_freelancer_liberado, freelancer_bloqueado, freelancers_com_taxa_vencida
 
 # Carrega variáveis do arquivo .env
 load_dotenv()
@@ -290,6 +291,16 @@ def _finalizar_chamado_e_avancar_fila(db: Session, chamado: models.Chamado, barb
         barber.ocupado_ate = None
 
     proximo = _buscar_proximo_chamado_fila(db, barbeiro.id, chamado.barbearia_id, exclude_id=chamado.id)
+    # Taxa pendente: conclui o atendimento atual, mas nao inicia o proximo da fila.
+    if proximo and freelancer_bloqueado(db, barbeiro.id):
+        db.add(models.Notificacao(
+            usuario_id=proximo.cliente_id,
+            titulo="Atendimento aguardando",
+            mensagem="O profissional está indisponível no momento. Você pode aguardar ou cancelar o chamado.",
+            tipo="chamado",
+            referencia_id=proximo.id
+        ))
+        proximo = None
     if proximo:
         if not proximo.cadeira_id and cadeira_liberada_id:
             proximo.cadeira_id = cadeira_liberada_id
@@ -784,6 +795,13 @@ def telefone_freelancer_para(freelancer: models.Usuario, visitante: models.Usuar
     # Privacidade: proprietario nao recebe o telefone do freelancer. Sem login tambem
     # nao, senao bastaria chamar a rota sem token. O numero segue salvo no cadastro.
     if visitante is None or visitante.tipo == "barbearia":
+        return None
+    # Taxa pendente: sem contato direto, para o atendimento nao ser combinado por fora do app.
+    if (
+        visitante.id != freelancer.id
+        and visitante.tipo != "admin"
+        and freelancer_bloqueado(object_session(freelancer), freelancer.id)
+    ):
         return None
     return freelancer.telefone
 
@@ -2424,6 +2442,8 @@ async def chegar_chamado(id: int, token: str = Depends(oauth2_scheme), db: Sessi
         raise HTTPException(status_code=403, detail="Você não está associado a este chamado")
     if user.tipo == "barbeiro" and chamado.barbeiro_id != user.id:
         raise HTTPException(status_code=403, detail="Você não está associado a este chamado")
+    if user.tipo == "barbeiro":
+        exigir_freelancer_liberado(db, user.id)
 
     status_normalizado = _normalizar_status_chamado(chamado.status)
     if status_normalizado in {models.StatusAgendamento.CANCELADO.value, models.StatusAgendamento.CONCLUIDO.value}:
@@ -2506,6 +2526,7 @@ async def chegar_chamado(id: int, token: str = Depends(oauth2_scheme), db: Sessi
         and barbeiro_chegou
         and status_normalizado != models.StatusAgendamento.EM_ATENDIMENTO.value
         and not barbeiro_ocupado_em_outro_atendimento
+        and not freelancer_bloqueado(db, chamado.barbeiro_id)
     ):
         agora_inicio = datetime.utcnow()
 
@@ -2794,6 +2815,7 @@ def iniciar_corte(id: int, token: str = Depends(oauth2_scheme), db: Session = De
     user = get_current_user(token=token, db=db)
     if user.tipo != "barbeiro":
         raise HTTPException(status_code=403, detail="Apenas barbeiros podem iniciar cortes")
+    exigir_freelancer_liberado(db, user.id)
 
     chamado = db.query(models.Chamado).filter(models.Chamado.id == id).first()
     if not chamado:
@@ -3238,12 +3260,15 @@ def listar_barbeiros_proximos(
     # Inclui também quem está na janela final (<=10 min) para liberar o próximo atendimento.
     agora_filtro = datetime.now()
     limite_liberacao = agora_filtro + timedelta(minutes=10)
+    # Taxa pendente: continua na lista de clientes, marcado so como indisponivel.
+    com_taxa_pendente = freelancers_com_taxa_vencida(db)
     barbeiros = db.query(models.Usuario).filter(
         models.Usuario.tipo == "barbeiro",
         models.Usuario.perfil_aprovado == True,  # Apenas aprovados
         models.Usuario.latitude.isnot(None),
         models.Usuario.longitude.isnot(None),
         or_(
+            models.Usuario.id.in_(com_taxa_pendente),
             models.Usuario.disponivel == True,
             # EM_ATENDIMENTO continua visivel para outro cliente entrar na fila de espera.
             models.Usuario.em_atendimento == True,
@@ -3263,6 +3288,9 @@ def listar_barbeiros_proximos(
             na_janela_liberacao = _esta_na_janela_liberacao_antecipada(b, agora=agora_filtro, janela_min=10)
             disponivel_real = (b.disponivel and not esta_em_servico_agora(db, b.id)) or na_janela_liberacao
             online_regiao_real = bool(b.online_regiao) or na_janela_liberacao
+            indisponivel = b.id in com_taxa_pendente
+            if indisponivel:
+                na_janela_liberacao = disponivel_real = online_regiao_real = False
             
             # Calcular tempo estimado: velocidade média 40 km/h em zona urbana
             tempo_minutos = int((distancia / 40) * 60)
@@ -3277,6 +3305,7 @@ def listar_barbeiros_proximos(
             barbeiros_proximos.append({
                 "id": b.id,
                 "nome": b.nome,
+                "indisponivel": indisponivel,
                 "telefone": telefone_freelancer_para(b, visitante),
                 "endereco": b.endereco,
                 "latitude": b.latitude,
@@ -3310,11 +3339,15 @@ def listar_todos_barbeiros(
         models.Usuario.tipo == "barbeiro"
     ).all()
     
+    com_taxa_pendente = freelancers_com_taxa_vencida(db)
     resultado = []
     for b in barbeiros:
         na_janela_liberacao = _esta_na_janela_liberacao_antecipada(b, janela_min=10)
         disponivel_real = (b.disponivel and not esta_em_servico_agora(db, b.id)) or na_janela_liberacao
         online_regiao_real = bool(b.online_regiao) or na_janela_liberacao
+        indisponivel = b.id in com_taxa_pendente
+        if indisponivel:
+            na_janela_liberacao = disponivel_real = online_regiao_real = False
         barbearia_nome = None
         if b.barbearia_atual_id:
             barbearia = db.query(models.Barbearia).filter(models.Barbearia.id == b.barbearia_atual_id).first()
@@ -3324,6 +3357,7 @@ def listar_todos_barbeiros(
         resultado.append({
             "id": b.id,
             "nome": b.nome,
+            "indisponivel": indisponivel,
             "telefone": telefone_freelancer_para(b, visitante),
             "endereco": b.endereco,
             "documento_verificado": b.documento_verificado,
@@ -3958,6 +3992,8 @@ def listar_barbeiros_priorizados_barbearia(
     )
 
     prioridade_sql = case((criterio_profissional_da_casa, 1), else_=2)
+    # Taxa pendente: continua na lista do cliente, depois dos demais, so como indisponivel.
+    com_taxa_pendente = freelancers_com_taxa_vencida(db)
 
     barbeiros = db.query(models.Usuario).filter(
         models.Usuario.tipo == 'barbeiro',
@@ -3965,6 +4001,7 @@ def listar_barbeiros_priorizados_barbearia(
         or_(
             criterio_profissional_da_casa,
             models.Usuario.online_regiao == True,
+            models.Usuario.id.in_(com_taxa_pendente),
         )
     ).order_by(
         prioridade_sql.asc(),
@@ -3975,6 +4012,33 @@ def listar_barbeiros_priorizados_barbearia(
 
     resultado = []
     for barbeiro in barbeiros:
+        if barbeiro.id in com_taxa_pendente:
+            distancia_km = None
+            if usar_filtro_distancia:
+                if barbeiro.latitude is None or barbeiro.longitude is None:
+                    continue
+                distancia_km = calcular_distancia_km(latitude, longitude, barbeiro.latitude, barbeiro.longitude)
+                if distancia_km is not None and distancia_km > raio_km:
+                    continue
+            resultado.append({
+                "id": barbeiro.id,
+                "nome": barbeiro.nome,
+                "indisponivel": True,
+                "telefone": telefone_freelancer_para(barbeiro, visitante),
+                "endereco": barbeiro.endereco,
+                "foto_perfil": barbeiro.foto_perfil,
+                "distancia_km": round(distancia_km, 2) if distancia_km is not None else None,
+                "disponivel": False,
+                "presente_em_local": False,
+                "barbearia_atual_id": None,
+                "online_regiao": False,
+                "profissional_da_casa": False,
+                "prioridade": 3,
+                "pode_receber_chamado_agora": False,
+                "liberacao_antecipada": False,
+            })
+            continue
+
         na_janela_liberacao = _esta_na_janela_liberacao_antecipada(barbeiro, janela_min=10)
         online_regiao_real = bool(barbeiro.online_regiao) or na_janela_liberacao
         profissional_da_casa = bool(
@@ -4009,6 +4073,7 @@ def listar_barbeiros_priorizados_barbearia(
         resultado.append({
             "id": barbeiro.id,
             "nome": barbeiro.nome,
+            "indisponivel": False,
             "telefone": telefone_freelancer_para(barbeiro, visitante),
             "endereco": barbeiro.endereco,
             "foto_perfil": barbeiro.foto_perfil,
