@@ -646,6 +646,13 @@ export default function ProfileCard({ usuarioId, userType, token, isOwnProfile: 
           <div className="min-w-0">
             <h1 className="text-xl font-bold text-white truncate">{profile.nome}</h1>
             <p className="text-zinc-400 text-xs capitalize">{userType}</p>
+            {/* Sem tempo cadastrado a linha nao aparece (nada de valor inventado). */}
+            {profile.tempo_experiencia && (
+              <p className="mt-1 flex items-center gap-1.5 text-sm font-bold text-orange-300">
+                <Award size={15} className="shrink-0" />
+                Experiência: {profile.tempo_experiencia}
+              </p>
+            )}
           </div>
           {profile.disponivel && (
             <span className="ml-auto shrink-0 px-3 py-1 bg-green-500/20 border border-green-500/50 rounded-full text-xs text-green-400 font-bold">
@@ -1036,7 +1043,7 @@ export default function ProfileCard({ usuarioId, userType, token, isOwnProfile: 
       </div>
 
       {/* Estatísticas */}
-      {(profile.total_agendamentos || profile.tempo_experiencia) && (
+      {profile.total_agendamentos && (
         <div className="grid grid-cols-2 gap-4">
           {profile.total_agendamentos !== undefined && (
             <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-4">
@@ -1045,16 +1052,6 @@ export default function ProfileCard({ usuarioId, userType, token, isOwnProfile: 
                 <p className="text-xs text-zinc-400 font-bold">Total Atendimentos</p>
               </div>
               <p className="text-2xl font-bold text-white">{profile.total_agendamentos || 0}</p>
-            </div>
-          )}
-
-          {profile.tempo_experiencia && (
-            <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-4">
-              <div className="flex items-center gap-2 mb-2">
-                <Award size={18} className="text-purple-500" />
-                <p className="text-xs text-zinc-400 font-bold">Experiência</p>
-              </div>
-              <p className="text-2xl font-bold text-white">{profile.tempo_experiencia}</p>
             </div>
           )}
         </div>

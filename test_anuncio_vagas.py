@@ -293,6 +293,13 @@ def test_freelancer_ve_vaga_de_cadeira_bloqueada(http):
     assert [v["id"] for v in http.get(f"{BASE}/ativas", headers=headers).json()] == [vaga]
 
 
+def test_perfil_do_freelancer_traz_o_tempo_de_experiencia_cadastrado(http):
+    com_tempo, _ = _usuario("barbeiro", "com@t.com", tempo_experiencia="2 anos")
+    sem_tempo, _ = _usuario("barbeiro", "sem@t.com")
+    assert http.get(f"/api/v1/usuario/{com_tempo}").json()["tempo_experiencia"] == "2 anos"
+    assert http.get(f"/api/v1/usuario/{sem_tempo}").json()["tempo_experiencia"] is None
+
+
 def test_vaga_informa_o_dono_para_abrir_o_perfil_e_os_mesmos_servicos(http):
     loja = _barbearia("dono@t.com", 1)
     _publicar(http, loja, 1)
