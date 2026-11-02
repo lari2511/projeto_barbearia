@@ -139,7 +139,7 @@ def completar_cadastro(
         u.cpf = cpf
         u.cnpj = cnpj
         u.endereco = dados.endereco
-        barbearia = db.query(models.Barbearia).filter(models.Barbearia.usuario_id == u.id).first()
+        barbearia = db.query(models.Barbearia).filter(models.Barbearia.usuario_id == u.id).order_by(models.Barbearia.id.asc()).first()
         if not barbearia:
             barbearia = models.Barbearia(usuario_id=u.id)
             db.add(barbearia)

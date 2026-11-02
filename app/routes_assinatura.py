@@ -307,6 +307,12 @@ def obter_assinatura_barbearia(
             detail=f"Barbearia {barbearia_id} não encontrada"
         )
     
+    if barbearia.usuario_id != usuario_atual.id and usuario_atual.tipo != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Você não tem acesso a essa barbearia"
+        )
+
     # Buscar assinatura
     assinatura = db.query(Assinatura).filter(Assinatura.barbearia_id == barbearia_id).first()
     

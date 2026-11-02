@@ -130,7 +130,7 @@ def criar_cadeira(
     # Buscar barbearia do usuário
     barbearia = db.query(Barbearia).filter(
         Barbearia.usuario_id == usuario_atual.id
-    ).first()
+    ).order_by(Barbearia.id.asc()).first()
     
     if not barbearia:
         raise HTTPException(
@@ -171,7 +171,7 @@ def listar_cadeiras(
     """Lista todas as cadeiras da barbearia"""
     barbearia = db.query(Barbearia).filter(
         Barbearia.usuario_id == usuario_atual.id
-    ).first()
+    ).order_by(Barbearia.id.asc()).first()
     
     if not barbearia:
         raise HTTPException(
@@ -198,6 +198,32 @@ def listar_cadeiras(
     return resultado
 
 
+@router.get("/resumo", response_model=dict)
+def resumo_cadeiras(
+    db: Session = Depends(get_db),
+    usuario_atual = Depends(get_current_user)
+):
+    """Contagem de cadeiras da barbearia do dono: cadastro, pagamento e bloqueio são independentes."""
+    from app.vagas import barbearia_do_dono, cadeiras_pagas
+
+    if usuario_atual.tipo != "barbearia":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Apenas donos de barbearia")
+
+    barbearia = barbearia_do_dono(db, usuario_atual.id)
+    if not barbearia:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Barbearia não encontrada")
+
+    cadeiras = db.query(Cadeira).filter(Cadeira.barbearia_id == barbearia.id).all()
+    bloqueadas = sum(1 for cadeira in cadeiras if cadeira.status == StatusCadeira.BLOQUEADA)
+    return {
+        "barbearia_id": barbearia.id,
+        "cadastradas": len(cadeiras),
+        "pagas": cadeiras_pagas(db, barbearia),
+        "desbloqueadas": len(cadeiras) - bloqueadas,
+        "bloqueadas": bloqueadas,
+    }
+
+
 @router.post("/presenca", response_model=dict)
 def marcar_presenca_freelancer(
     payload: CadeiraPresencaRequest,
@@ -207,7 +233,7 @@ def marcar_presenca_freelancer(
     """Marca freelancer como presente e ocupa a BRB"""
     barbearia = db.query(Barbearia).filter(
         Barbearia.usuario_id == usuario_atual.id
-    ).first()
+    ).order_by(Barbearia.id.asc()).first()
     
     if not barbearia:
         raise HTTPException(status_code=404, detail="Barbearia não encontrada")
@@ -274,7 +300,7 @@ def encerrar_presenca_freelancer(
     """Encerra presenca e libera a BRB"""
     barbearia = db.query(Barbearia).filter(
         Barbearia.usuario_id == usuario_atual.id
-    ).first()
+    ).order_by(Barbearia.id.asc()).first()
     
     if not barbearia:
         raise HTTPException(status_code=404, detail="Barbearia não encontrada")
@@ -432,7 +458,7 @@ def acionar_cadeira(
     # Buscar barbearia do usuário
     barbearia = db.query(Barbearia).filter(
         Barbearia.usuario_id == usuario_atual.id
-    ).first()
+    ).order_by(Barbearia.id.asc()).first()
     
     if not barbearia:
         raise HTTPException(
@@ -504,7 +530,7 @@ def atualizar_status_cadeira(
     # Buscar barbearia do usuário
     barbearia = db.query(Barbearia).filter(
         Barbearia.usuario_id == usuario_atual.id
-    ).first()
+    ).order_by(Barbearia.id.asc()).first()
     
     if not barbearia:
         raise HTTPException(
@@ -566,7 +592,7 @@ def excluir_cadeira(
     # Buscar barbearia do usuário
     barbearia = db.query(Barbearia).filter(
         Barbearia.usuario_id == usuario_atual.id
-    ).first()
+    ).order_by(Barbearia.id.asc()).first()
     
     if not barbearia:
         raise HTTPException(
@@ -608,7 +634,7 @@ def alterar_status_barbearia(
     """Altera status online/offline da barbearia"""
     barbearia = db.query(Barbearia).filter(
         Barbearia.usuario_id == usuario_atual.id
-    ).first()
+    ).order_by(Barbearia.id.asc()).first()
     
     if not barbearia:
         raise HTTPException(
@@ -640,7 +666,7 @@ def verificar_status_assinatura(
     """Verifica status da assinatura da barbearia"""
     barbearia = db.query(Barbearia).filter(
         Barbearia.usuario_id == usuario_atual.id
-    ).first()
+    ).order_by(Barbearia.id.asc()).first()
     
     if not barbearia:
         raise HTTPException(
@@ -833,7 +859,7 @@ def liberar_cadeira_para_barbeiros(
     # Buscar barbearia do usuário
     barbearia = db.query(Barbearia).filter(
         Barbearia.usuario_id == usuario_atual.id
-    ).first()
+    ).order_by(Barbearia.id.asc()).first()
     
     if not barbearia:
         raise HTTPException(
@@ -903,7 +929,7 @@ def bloquear_cadeira(
     # Buscar barbearia do usuário
     barbearia = db.query(Barbearia).filter(
         Barbearia.usuario_id == usuario_atual.id
-    ).first()
+    ).order_by(Barbearia.id.asc()).first()
     
     if not barbearia:
         raise HTTPException(
@@ -983,7 +1009,7 @@ def desbloquear_cadeira(
     # Buscar barbearia do usuário
     barbearia = db.query(Barbearia).filter(
         Barbearia.usuario_id == usuario_atual.id
-    ).first()
+    ).order_by(Barbearia.id.asc()).first()
     
     if not barbearia:
         raise HTTPException(

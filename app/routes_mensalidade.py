@@ -7,7 +7,7 @@ from pydantic import BaseModel
 from typing import List, Dict
 
 from .database import get_db
-from .models import Usuario, Cadeira
+from .models import Barbearia, Usuario, Cadeira
 from .routes import get_current_user, oauth2_scheme
 
 router = APIRouter(prefix="/api/v1/mensalidade", tags=["Mensalidade"])
@@ -125,8 +125,11 @@ def get_mensalidade_barbearia(
     """
     user = get_current_user(token=token, db=db)
     
-    # Verificar se o usuário é a barbearia ou admin
-    if user.tipo != "barbearia" and user.id != barbearia_id:
+    # Só o dono desta barbearia ou o admin (o id aqui é o da barbearia, não o do usuário)
+    barbearia = db.query(Barbearia).filter(Barbearia.id == barbearia_id).first()
+    if not barbearia:
+        raise HTTPException(status_code=404, detail="Barbearia não encontrada")
+    if user.tipo != "admin" and barbearia.usuario_id != user.id:
         raise HTTPException(status_code=403, detail="Você não tem acesso a essa barbearia")
     
     # Contar cadeiras ativas da barbearia
@@ -135,11 +138,8 @@ def get_mensalidade_barbearia(
         Cadeira.status != "inativa"
     ).count()
     
-    if quantidade_cadeiras == 0:
-        quantidade_cadeiras = 1  # Mínimo 1 cadeira
-    
     try:
-        total, _, economia = calcular_mensalidade_total(quantidade_cadeiras)
+        total = calcular_mensalidade_total(quantidade_cadeiras)[0] if quantidade_cadeiras > 0 else 0
         
         # Calcular preço da próxima cadeira
         proxima_cadeira_numero = quantidade_cadeiras + 1

@@ -111,7 +111,7 @@ def get_perfil_completo(db: Session = Depends(get_db), usuario = Depends(get_cur
     if usuario.tipo == "barbearia":
         minha_barbearia = db.query(models.Barbearia).filter(
             models.Barbearia.usuario_id == usuario.id
-        ).first()
+        ).order_by(models.Barbearia.id.asc()).first()
         if minha_barbearia:
             nome_barbearia = minha_barbearia.nome
             horario_funcionamento = minha_barbearia.horario_funcionamento
@@ -228,7 +228,7 @@ def atualizar_perfil_usuario(
         novo_nome_barbearia = str(payload.get("nome_barbearia") or "").strip()
         if len(novo_nome_barbearia) < 2:
             raise HTTPException(status_code=400, detail="Nome da barbearia precisa de pelo menos 2 caracteres")
-        barbearia = db.query(models.Barbearia).filter(models.Barbearia.usuario_id == u.id).first()
+        barbearia = db.query(models.Barbearia).filter(models.Barbearia.usuario_id == u.id).order_by(models.Barbearia.id.asc()).first()
         if barbearia:
             barbearia.nome = novo_nome_barbearia
             nome_barbearia = novo_nome_barbearia
@@ -239,7 +239,7 @@ def atualizar_perfil_usuario(
         texto_horario = str(payload.get("horario_funcionamento") or "").strip()
         if len(texto_horario) > 200:
             raise HTTPException(status_code=400, detail="Horário de funcionamento pode ter no máximo 200 caracteres")
-        barbearia = db.query(models.Barbearia).filter(models.Barbearia.usuario_id == u.id).first()
+        barbearia = db.query(models.Barbearia).filter(models.Barbearia.usuario_id == u.id).order_by(models.Barbearia.id.asc()).first()
         if barbearia:
             barbearia.horario_funcionamento = texto_horario or None
             horario_funcionamento = barbearia.horario_funcionamento
@@ -315,7 +315,7 @@ def acionar_cadeira_simples(
     # Buscar barbearia do usuário
     barbearia = db.query(models.Barbearia).filter(
         models.Barbearia.usuario_id == usuario.id
-    ).first()
+    ).order_by(models.Barbearia.id.asc()).first()
     
     if not barbearia:
         raise HTTPException(
@@ -391,7 +391,7 @@ def desacionar_cadeira_simples(
     # Buscar barbearia do usuário
     barbearia = db.query(models.Barbearia).filter(
         models.Barbearia.usuario_id == usuario.id
-    ).first()
+    ).order_by(models.Barbearia.id.asc()).first()
     
     if not barbearia:
         raise HTTPException(status_code=404, detail="Barbearia não encontrada")
@@ -507,7 +507,7 @@ def criar_avaliacao_cruzada(
         # Se avaliou uma barbearia, salvar em AvaliacaoBarbearia também
         barbearia = db.query(models.Barbearia).filter(
             models.Barbearia.usuario_id == avaliacao.avaliado_id
-        ).first()
+        ).order_by(models.Barbearia.id.asc()).first()
         
         if barbearia:
             aval_barbearia = models.AvaliacaoBarbearia(
@@ -865,7 +865,7 @@ def atualizar_condicoes_estrutura_barbearia(
     """A barbearia logada marca SIM/NÃO em cada item da estrutura oferecida."""
     _dono_barbearia_ou_403(usuario)
 
-    barbearia = db.query(models.Barbearia).filter(models.Barbearia.usuario_id == usuario.id).first()
+    barbearia = db.query(models.Barbearia).filter(models.Barbearia.usuario_id == usuario.id).order_by(models.Barbearia.id.asc()).first()
     if not barbearia:
         raise HTTPException(status_code=404, detail="Barbearia não encontrada para este usuário")
 
@@ -910,7 +910,7 @@ def marcar_presenca_barbearia(
     # Encontrar a barbearia do usuário
     barbearia = db.query(models.Barbearia).filter(
         models.Barbearia.usuario_id == usuario.id
-    ).first()
+    ).order_by(models.Barbearia.id.asc()).first()
     
     if not barbearia:
         raise HTTPException(status_code=404, detail="Barbearia não encontrada")

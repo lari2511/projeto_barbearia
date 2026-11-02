@@ -30,7 +30,7 @@ async def verificar_barbearia_ativa(
     # Buscar barbearia do usuário
     barbearia = db.query(models.Barbearia).filter(
         models.Barbearia.usuario_id == usuario_atual.id
-    ).first()
+    ).order_by(models.Barbearia.id.asc()).first()
     
     if not barbearia:
         raise HTTPException(
@@ -108,7 +108,7 @@ async def obter_barbearia_usuario(
     
     barbearia = db.query(models.Barbearia).filter(
         models.Barbearia.usuario_id == usuario_atual.id
-    ).first()
+    ).order_by(models.Barbearia.id.asc()).first()
     
     if not barbearia:
         raise HTTPException(

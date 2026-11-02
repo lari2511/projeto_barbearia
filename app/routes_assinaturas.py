@@ -318,6 +318,18 @@ def calcular_valor_assinatura(num_cadeiras: int):
     }
 
 
+def _garantir_linhas_cadeiras(db: Session, barbearia_id: int, quantidade: int) -> None:
+    """Cadeira contratada passa a existir em `cadeiras`. Só acrescenta: nunca altera nem apaga."""
+    existentes = db.query(models.Cadeira).filter(models.Cadeira.barbearia_id == barbearia_id).all()
+    proximo_numero = max((c.numero for c in existentes), default=0) + 1
+    for deslocamento in range(max(0, quantidade - len(existentes))):
+        db.add(models.Cadeira(
+            barbearia_id=barbearia_id,
+            numero=proximo_numero + deslocamento,
+            status=models.StatusCadeira.DISPONIVEL,
+        ))
+
+
 def aplicar_contratacao_cadeiras(
     db: Session,
     barbearia: models.Barbearia,
@@ -384,6 +396,7 @@ def aplicar_contratacao_cadeiras(
 
         cadeiras_ativas = _resumo_ativo_cadeiras(db, assinatura.id)
         _sincronizar_totais_assinatura(assinatura, cadeiras_ativas, agora)
+        _garantir_linhas_cadeiras(db, barbearia.id, assinatura.quantidade_cadeiras)
         assinatura.metodo_pagamento_preferido = metodo_pagamento
 
         # Se estava suspensa/cancelada, reativar
@@ -428,6 +441,7 @@ def aplicar_contratacao_cadeiras(
 
         cadeiras_ativas = _resumo_ativo_cadeiras(db, nova_assinatura.id)
         _sincronizar_totais_assinatura(nova_assinatura, cadeiras_ativas, agora)
+        _garantir_linhas_cadeiras(db, barbearia.id, nova_assinatura.quantidade_cadeiras)
 
         db.flush()
         return nova_assinatura
@@ -448,7 +462,7 @@ def obter_minha_assinatura(
     # Buscar a barbearia do usuário
     barbearia = db.query(models.Barbearia).filter(
         models.Barbearia.usuario_id == usuario_atual.id
-    ).first()
+    ).order_by(models.Barbearia.id.asc()).first()
     
     if not barbearia:
         raise HTTPException(
@@ -498,7 +512,7 @@ def contratar_ou_atualizar_assinatura(
     # Buscar a barbearia do usuário
     barbearia = db.query(models.Barbearia).filter(
         models.Barbearia.usuario_id == usuario_atual.id
-    ).first()
+    ).order_by(models.Barbearia.id.asc()).first()
     
     if not barbearia:
         raise HTTPException(
@@ -543,7 +557,7 @@ def obter_painel_cadeiras(
 
     barbearia = db.query(models.Barbearia).filter(
         models.Barbearia.usuario_id == usuario_atual.id
-    ).first()
+    ).order_by(models.Barbearia.id.asc()).first()
 
     if not barbearia:
         raise HTTPException(
@@ -607,7 +621,7 @@ def definir_cadeiras_teste(
 
     barbearia = db.query(models.Barbearia).filter(
         models.Barbearia.usuario_id == usuario_atual.id
-    ).first()
+    ).order_by(models.Barbearia.id.asc()).first()
 
     if not barbearia:
         raise HTTPException(
@@ -675,7 +689,7 @@ def renovar_assinatura(
 
     barbearia = db.query(models.Barbearia).filter(
         models.Barbearia.usuario_id == usuario_atual.id
-    ).first()
+    ).order_by(models.Barbearia.id.asc()).first()
 
     if not barbearia:
         raise HTTPException(
@@ -728,7 +742,7 @@ def cancelar_assinatura(
     # Buscar a barbearia do usuário
     barbearia = db.query(models.Barbearia).filter(
         models.Barbearia.usuario_id == usuario_atual.id
-    ).first()
+    ).order_by(models.Barbearia.id.asc()).first()
     
     if not barbearia:
         raise HTTPException(
@@ -793,7 +807,7 @@ def verificar_limite_cadeiras(
     # Buscar a barbearia do usuário
     barbearia = db.query(models.Barbearia).filter(
         models.Barbearia.usuario_id == usuario_atual.id
-    ).first()
+    ).order_by(models.Barbearia.id.asc()).first()
     
     if not barbearia:
         raise HTTPException(
@@ -923,7 +937,7 @@ def pagar_mensalidade(
     # Buscar barbearia
     barbearia = db.query(models.Barbearia).filter(
         models.Barbearia.usuario_id == usuario_atual.id
-    ).first()
+    ).order_by(models.Barbearia.id.asc()).first()
 
     if not barbearia:
         raise HTTPException(
@@ -1004,7 +1018,7 @@ def gerar_pix_mensalidade(
 
     barbearia = db.query(models.Barbearia).filter(
         models.Barbearia.usuario_id == usuario_atual.id
-    ).first()
+    ).order_by(models.Barbearia.id.asc()).first()
     if not barbearia:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -1068,7 +1082,7 @@ def verificar_status_assinatura(
     # Buscar barbearia
     barbearia = db.query(models.Barbearia).filter(
         models.Barbearia.usuario_id == usuario_atual.id
-    ).first()
+    ).order_by(models.Barbearia.id.asc()).first()
 
     if not barbearia:
         raise HTTPException(

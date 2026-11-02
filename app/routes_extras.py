@@ -233,7 +233,7 @@ def configurar_endereco_minha_barbearia(payload: ConfigurarEnderecoBarbeariaRequ
     if user.tipo != 'barbearia':
         raise HTTPException(status_code=403, detail='Apenas a barbearia pode configurar o endereço')
 
-    barbearia = db.query(models.Barbearia).filter(models.Barbearia.usuario_id == user.id).first()
+    barbearia = db.query(models.Barbearia).filter(models.Barbearia.usuario_id == user.id).order_by(models.Barbearia.id.asc()).first()
     if not barbearia:
         raise HTTPException(status_code=404, detail='Sua barbearia não foi encontrada')
 
@@ -386,7 +386,7 @@ def configurar_endereco_minha_barbearia_por_gps(payload: ConfigurarEnderecoPorGp
     if user.tipo != 'barbearia':
         raise HTTPException(status_code=403, detail='Apenas a barbearia pode configurar o endereço')
 
-    barbearia = db.query(models.Barbearia).filter(models.Barbearia.usuario_id == user.id).first()
+    barbearia = db.query(models.Barbearia).filter(models.Barbearia.usuario_id == user.id).order_by(models.Barbearia.id.asc()).first()
     if not barbearia:
         raise HTTPException(status_code=404, detail='Sua barbearia não foi encontrada')
 
@@ -779,7 +779,7 @@ def obter_usuario_publico(usuario_id: int, db: Session = Depends(get_db)):
     if usuario.tipo == 'barbearia':
         barbearia_vinculada = db.query(models.Barbearia).filter(
             models.Barbearia.usuario_id == usuario.id
-        ).first()
+        ).order_by(models.Barbearia.id.asc()).first()
     elif usuario.barbearia_atual_id:
         barbearia_vinculada = db.query(models.Barbearia).filter(
             models.Barbearia.id == usuario.barbearia_atual_id
@@ -1582,7 +1582,7 @@ def obter_estatisticas(token: str = Depends(oauth2_scheme), db: Session = Depend
     
     if user.tipo == "barbearia":
         # Estatísticas da barbearia
-        barbearia = db.query(models.Barbearia).filter(models.Barbearia.usuario_id == user.id).first()
+        barbearia = db.query(models.Barbearia).filter(models.Barbearia.usuario_id == user.id).order_by(models.Barbearia.id.asc()).first()
         chamados = db.query(models.Chamado).filter(models.Chamado.barbearia_id == barbearia.id)
     elif user.tipo == "barbeiro":
         # Estatísticas do barbeiro

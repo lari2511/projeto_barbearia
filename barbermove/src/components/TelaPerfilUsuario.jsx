@@ -357,6 +357,7 @@ export function TelaPerfilUsuario({
   const [perfilBarbeariaTeste, setPerfilBarbeariaTeste] = useState(false);
   const [cadeirasPlano, setCadeirasPlano] = useState(1);
   const [cadeirasPlanoSalvas, setCadeirasPlanoSalvas] = useState(1);
+  const [resumoCadeiras, setResumoCadeiras] = useState(null);
   const [metodoPagamentoPlano, setMetodoPagamentoPlano] = useState('pix');
   const [tipoCartaoPlano, setTipoCartaoPlano] = useState('cartao_credito');
   const [cartaoPlano, setCartaoPlano] = useState({ numero_cartao: '', titular: '', validade: '', cvv: '' });
@@ -375,16 +376,18 @@ export function TelaPerfilUsuario({
       const res = await fetch(`${apiBase}/api/v1/assinaturas/minha-assinatura`, {
         headers: { Authorization: `Bearer ${token}` },
       });
-      if (!res.ok) return;
+      if (!res.ok) return false;
       const assinatura = await res.json().catch(() => ({}));
       const qtd = Number(assinatura?.cadeiras_ativas);
       if (Number.isFinite(qtd) && qtd >= 1) {
         setCadeirasPlano(Math.min(50, qtd));
         setCadeirasPlanoSalvas(Math.min(50, qtd));
+        return true;
       }
     } catch (_e) {
       // mantém a contagem atual
     }
+    return false;
   }, [apiBase, token]);
 
   const [barberStatus, setBarberStatus] = useState('offline');
@@ -590,16 +593,28 @@ export function TelaPerfilUsuario({
             setLongitudeBarbearia(
               Number.isFinite(Number(barbearia?.longitude)) ? Number(barbearia.longitude) : null
             );
-            const assinaturaRes = await fetch(`${apiBase}/api/v1/assinatura/barbearia/${id}`, {
-              headers: { Authorization: `Bearer ${token}` },
-            });
-            if (assinaturaRes.ok) {
-              const assinatura = await safeReadJson(assinaturaRes, {});
-              const qtd = Number(assinatura?.quantidade_cadeiras || 1);
-              setCadeirasPlano(Math.max(1, Math.min(50, qtd)));
-              setCadeirasPlanoSalvas(Math.max(1, Math.min(50, qtd)));
+            // A assinatura atual é a fonte. A tabela antiga só vale sem Pix real (ela é gravada
+            // sem pagamento), e nunca pode preencher a tela enquanto o Pix ainda está carregando.
+            const temAssinaturaNova = await carregarCadeirasAssinaturaNova();
+            if (!temAssinaturaNova && pixRealRef.current === false) {
+              const assinaturaRes = await fetch(`${apiBase}/api/v1/assinatura/barbearia/${id}`, {
+                headers: { Authorization: `Bearer ${token}` },
+              });
+              if (assinaturaRes.ok) {
+                const assinatura = await safeReadJson(assinaturaRes, {});
+                const qtd = Number(assinatura?.quantidade_cadeiras || 1);
+                setCadeirasPlano(Math.max(1, Math.min(50, qtd)));
+                setCadeirasPlanoSalvas(Math.max(1, Math.min(50, qtd)));
+              }
             }
-            if (pixRealRef.current) await carregarCadeirasAssinaturaNova();
+            try {
+              const resumoRes = await fetch(`${apiBase}/api/v1/cadeiras/resumo`, {
+                headers: { Authorization: `Bearer ${token}` },
+              });
+              if (resumoRes.ok) setResumoCadeiras(await safeReadJson(resumoRes, null));
+            } catch (_e) {
+              // sem resumo, a linha de contagem não aparece
+            }
 
             const limiteRes = await fetch(`${apiBase}/api/v1/assinaturas/verificar-limite-cadeiras`, {
               headers: { Authorization: `Bearer ${token}` },
@@ -1831,6 +1846,11 @@ export function TelaPerfilUsuario({
         <AppCard>
           <div className="space-y-3">
             <p className={styles.labelStrong}>Plano da barbearia por cadeira</p>
+            {resumoCadeiras && (
+              <p className="text-xs text-zinc-400" data-testid="resumo-cadeiras-perfil">
+                Hoje: {resumoCadeiras.pagas} pagas · {resumoCadeiras.cadastradas} cadastradas
+              </p>
+            )}
 
             <div className={styles.counterRow}>
               <div className={styles.counterTopRow}>

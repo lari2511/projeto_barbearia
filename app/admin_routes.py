@@ -409,7 +409,7 @@ def _qtd_fotos(db: Session, usuario: Usuario) -> int:
 
 def _dados_barbearia(db: Session, usuario: Usuario, com_historico: bool = False):
     """Barbearia do proprietário + cadeiras/assinatura já registradas no sistema."""
-    b = db.query(Barbearia).filter(Barbearia.usuario_id == usuario.id).first()
+    b = db.query(Barbearia).filter(Barbearia.usuario_id == usuario.id).order_by(Barbearia.id.asc()).first()
     if not b:
         return None
 

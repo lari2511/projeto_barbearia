@@ -55,7 +55,7 @@ def listar_barbearias_proximas(
     for user in barbearias_usuarios:
         barbearia = db.query(Barbearia).filter(
             Barbearia.usuario_id == user.id
-        ).first()
+        ).order_by(Barbearia.id.asc()).first()
 
         if barbearia and barbearia.latitude and barbearia.longitude:
             cadeira_disponivel = db.query(Cadeira).filter(
@@ -144,7 +144,7 @@ def listar_todas_barbearias_aprovadas(
     for user in barbearias_usuarios:
         barbearia = db.query(Barbearia).filter(
             Barbearia.usuario_id == user.id
-        ).first()
+        ).order_by(Barbearia.id.asc()).first()
         
         if barbearia:
             cadeira_disponivel = db.query(Cadeira).filter(

@@ -453,7 +453,7 @@ def solicitar_freelancer(
     # Determinar barbearia
     barbearia = None
     if usuario_atual.tipo == "barbearia":
-        barbearia = db.query(Barbearia).filter(Barbearia.usuario_id == usuario_atual.id).first()
+        barbearia = db.query(Barbearia).filter(Barbearia.usuario_id == usuario_atual.id).order_by(Barbearia.id.asc()).first()
     else:  # barbeiro
         # Barbeiro procura a barbearia onde os agendamentos dele recentes estão
         # Para simplificar, pegamos a primeira barbearia que tem agendamentos do barbeiro

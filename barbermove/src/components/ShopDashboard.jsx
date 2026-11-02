@@ -115,6 +115,7 @@ export default function ShopDashboard({ token, logout, notify, API_URL }) {
     const [wsConectado, setWsConectado] = useState(false);
     const [_loading, _setLoading] = useState(false);
     const [barbeariaId, setBarbeariaId] = useState(null);
+    const [resumoCadeiras, setResumoCadeiras] = useState(null); // /cadeiras/resumo
     const [vagasRelampago, setVagasRelampago] = useState([]);
     // Candidaturas da vaga de cadeira (freelancer manifesta interesse; o dono escolhe).
     const [candidatosPorVaga, setCandidatosPorVaga] = useState({}); // vaga_id -> [{ id, freelancer_id, nome, foto_perfil, criado_em }]
@@ -586,6 +587,11 @@ export default function ShopDashboard({ token, logout, notify, API_URL }) {
 
     const carregarCadeirasBarbearia = useCallback(async () => {
         if (!barbeariaId) return;
+
+        fetch(`${API_URL}/api/v1/cadeiras/resumo`, { headers: {'Authorization': `Bearer ${token}`} })
+            .then((r) => (r.ok ? r.json() : null))
+            .then((dados) => setResumoCadeiras(dados))
+            .catch(() => setResumoCadeiras(null));
 
         try {
             setLoadingCadeirasBarbearia(true);
@@ -1205,7 +1211,12 @@ export default function ShopDashboard({ token, logout, notify, API_URL }) {
                         <div className="bg-purple-600/10 border border-purple-600/30 p-5 rounded-2xl mb-6">
                           <div className="flex items-center justify-between mb-4">
                                                         <div>
-                                                            <h3 className="text-purple-400 font-bold text-sm flex items-center gap-2">💺 Cadeiras ativas do plano ({cadeirasBarbearia.length})</h3>
+                                                            <h3 className="text-purple-400 font-bold text-sm flex items-center gap-2">💺 Cadeiras da barbearia</h3>
+                                                            {resumoCadeiras && (
+                                                                <p className="mt-1 text-[11px] font-bold text-zinc-200" data-testid="resumo-cadeiras">
+                                                                    {resumoCadeiras.cadastradas} cadastradas · {resumoCadeiras.pagas} pagas · {resumoCadeiras.desbloqueadas} desbloqueadas · {resumoCadeiras.bloqueadas} bloqueadas
+                                                                </p>
+                                                            )}
                                                             <p className="mt-1 text-[11px] text-zinc-400">A ordem aqui é a ordem paga no plano. Se você tem 1 cadeira, só deve ver a Cadeira 1.</p>
                                                         </div>
                                                         <button

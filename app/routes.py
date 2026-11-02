@@ -1253,7 +1253,7 @@ def obter_minha_barbearia(token: str = Depends(oauth2_scheme), db: Session = Dep
     user = get_current_user(token=token, db=db)
     if user.tipo != "barbearia":
         raise HTTPException(status_code=403, detail="Apenas barbearias")
-    barbearia = db.query(models.Barbearia).filter(models.Barbearia.usuario_id == user.id).first()
+    barbearia = db.query(models.Barbearia).filter(models.Barbearia.usuario_id == user.id).order_by(models.Barbearia.id.asc()).first()
     if not barbearia:
         barbearia = models.Barbearia(
             usuario_id=user.id,
@@ -4025,7 +4025,7 @@ def criar_servico(servico: schemas.ServicoCreate, token: str = Depends(oauth2_sc
     # Criar novo serviço na barbearia.
     user = get_current_user(token=token, db=db)
     
-    barbearia = db.query(models.Barbearia).filter(models.Barbearia.usuario_id == user.id).first()
+    barbearia = db.query(models.Barbearia).filter(models.Barbearia.usuario_id == user.id).order_by(models.Barbearia.id.asc()).first()
     if not barbearia:
         raise HTTPException(status_code=404, detail="Barbearia não encontrada para este usuário")
 

@@ -75,7 +75,7 @@ def resumo_por_usuario(db: Session, usuario_id: int) -> dict:
 
     barbearia = db.query(models.Barbearia).filter(
         models.Barbearia.usuario_id == usuario_id
-    ).first()
+    ).order_by(models.Barbearia.id.asc()).first()
     if barbearia:
         return resumo_barbearia(db, barbearia.id)
 

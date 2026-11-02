@@ -210,7 +210,7 @@ def listar_minhas_avaliacoes_barbearia(
     if usuario.tipo != "barbearia":
         raise HTTPException(status_code=403, detail="Apenas barbearias podem acessar")
 
-    barbearia = db.query(Barbearia).filter(Barbearia.usuario_id == usuario.id).first()
+    barbearia = db.query(Barbearia).filter(Barbearia.usuario_id == usuario.id).order_by(Barbearia.id.asc()).first()
     if not barbearia:
         return []
     
@@ -246,7 +246,7 @@ def obter_estatisticas_barbearia(
     if usuario.tipo != "barbearia":
         raise HTTPException(status_code=403, detail="Apenas barbearias podem acessar")
 
-    barbearia = db.query(Barbearia).filter(Barbearia.usuario_id == usuario.id).first()
+    barbearia = db.query(Barbearia).filter(Barbearia.usuario_id == usuario.id).order_by(Barbearia.id.asc()).first()
     if not barbearia:
         return {
             "media_notas": 0,
@@ -313,7 +313,7 @@ def obter_resumo_barbearia(
     if usuario.tipo != "barbearia":
         raise HTTPException(status_code=403, detail="Apenas barbearias podem acessar")
 
-    barbearia = db.query(Barbearia).filter(Barbearia.usuario_id == usuario.id).first()
+    barbearia = db.query(Barbearia).filter(Barbearia.usuario_id == usuario.id).order_by(Barbearia.id.asc()).first()
     if not barbearia:
         return {
             "media": 0,

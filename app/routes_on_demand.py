@@ -595,7 +595,7 @@ async def solicitar_barbeiro(
     barbearia_id_origem = None
     nome_barbearia_origem = "Próximo a você"
     if current_user.tipo == "barbearia":
-        barbearia_origem = db.query(Barbearia).filter(Barbearia.usuario_id == current_user.id).first()
+        barbearia_origem = db.query(Barbearia).filter(Barbearia.usuario_id == current_user.id).order_by(Barbearia.id.asc()).first()
         if barbearia_origem:
             barbearia_id_origem = barbearia_origem.id
             nome_barbearia_origem = barbearia_origem.nome or nome_barbearia_origem
@@ -944,7 +944,7 @@ def _barbearia_do_dono(db: Session, current_user: Usuario) -> Barbearia:
     if current_user.tipo != "barbearia":
         raise HTTPException(status_code=403, detail="Apenas barbearias podem anunciar vagas")
 
-    barbearia = db.query(Barbearia).filter(Barbearia.usuario_id == current_user.id).first()
+    barbearia = db.query(Barbearia).filter(Barbearia.usuario_id == current_user.id).order_by(Barbearia.id.asc()).first()
     if not barbearia:
         raise HTTPException(status_code=404, detail="Barbearia nao encontrada")
     return barbearia
@@ -1060,7 +1060,7 @@ async def acionar_cadeira_relampago(
     if current_user.tipo != "barbearia":
         raise HTTPException(status_code=403, detail="Apenas barbearias podem acionar cadeira")
 
-    barbearia = db.query(Barbearia).filter(Barbearia.usuario_id == current_user.id).first()
+    barbearia = db.query(Barbearia).filter(Barbearia.usuario_id == current_user.id).order_by(Barbearia.id.asc()).first()
     if not barbearia:
         raise HTTPException(status_code=404, detail="Barbearia nao encontrada")
 
@@ -1204,7 +1204,7 @@ async def listar_cadeiras_acionadas_minhas(
     if current_user.tipo != "barbearia":
         raise HTTPException(status_code=403, detail="Apenas barbearias podem visualizar suas vagas")
 
-    barbearia = db.query(Barbearia).filter(Barbearia.usuario_id == current_user.id).first()
+    barbearia = db.query(Barbearia).filter(Barbearia.usuario_id == current_user.id).order_by(Barbearia.id.asc()).first()
     if not barbearia:
         raise HTTPException(status_code=404, detail="Barbearia nao encontrada")
 
@@ -1227,7 +1227,7 @@ async def cancelar_cadeira_acionada(
     if current_user.tipo != "barbearia":
         raise HTTPException(status_code=403, detail="Apenas barbearias podem cancelar vaga")
 
-    barbearia = db.query(Barbearia).filter(Barbearia.usuario_id == current_user.id).first()
+    barbearia = db.query(Barbearia).filter(Barbearia.usuario_id == current_user.id).order_by(Barbearia.id.asc()).first()
     if not barbearia:
         raise HTTPException(status_code=404, detail="Barbearia nao encontrada")
 
@@ -1364,7 +1364,7 @@ async def listar_candidatos_cadeira_acionada(
     if current_user.tipo != "barbearia":
         raise HTTPException(status_code=403, detail="Apenas barbearias podem ver os candidatos da vaga")
 
-    barbearia = db.query(Barbearia).filter(Barbearia.usuario_id == current_user.id).first()
+    barbearia = db.query(Barbearia).filter(Barbearia.usuario_id == current_user.id).order_by(Barbearia.id.asc()).first()
     if not barbearia:
         raise HTTPException(status_code=404, detail="Barbearia nao encontrada")
 
@@ -1411,7 +1411,7 @@ async def escolher_freelancer_cadeira_acionada(
     if current_user.tipo != "barbearia":
         raise HTTPException(status_code=403, detail="Apenas barbearias podem escolher o freelancer da vaga")
 
-    barbearia = db.query(Barbearia).filter(Barbearia.usuario_id == current_user.id).first()
+    barbearia = db.query(Barbearia).filter(Barbearia.usuario_id == current_user.id).order_by(Barbearia.id.asc()).first()
     if not barbearia:
         raise HTTPException(status_code=404, detail="Barbearia nao encontrada")
 

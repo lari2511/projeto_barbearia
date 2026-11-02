@@ -36,6 +36,10 @@ STATUS_RESERVADA_CLIENTE = "reservada_por_cliente"
 STATUS_CANCELADA = "cancelada"
 
 
+def barbearia_do_dono(db: Session, usuario_id: int) -> Optional[Barbearia]:
+    return db.query(Barbearia).filter(Barbearia.usuario_id == usuario_id).order_by(Barbearia.id.asc()).first()
+
+
 def fim_do_dia_utc() -> datetime:
     """Meia-noite seguinte em Brasília, no formato do banco (UTC sem fuso)."""
     amanha = agora_sp().date() + timedelta(days=1)

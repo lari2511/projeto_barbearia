@@ -147,7 +147,7 @@ def _resolver_barbearia(db: Session, barbearia_id: int) -> Barbearia:
         # Compatibilidade: algumas telas enviam o usuario_id do dono.
         barbearia = db.query(Barbearia).filter(
             Barbearia.usuario_id == barbearia_id
-        ).first()
+        ).order_by(Barbearia.id.asc()).first()
     if not barbearia:
         raise HTTPException(status_code=404, detail="Barbearia nao encontrada")
     return barbearia
@@ -214,7 +214,7 @@ def avaliar_freelancer(
             )
         dono = db.query(Barbearia).filter(
             Barbearia.usuario_id == usuario_atual.id
-        ).first()
+        ).order_by(Barbearia.id.asc()).first()
         if not dono:
             raise HTTPException(status_code=403, detail="Barbearia nao encontrada")
         ja_trabalhou_aqui = db.query(Chamado).filter(
@@ -657,7 +657,7 @@ def minhas_avaliacoes_recebidas(
 
     barbearia = db.query(Barbearia).filter(
         Barbearia.usuario_id == usuario_atual.id
-    ).first()
+    ).order_by(Barbearia.id.asc()).first()
     if barbearia:
         linhas = db.query(
             AvaliacaoBarbearia,

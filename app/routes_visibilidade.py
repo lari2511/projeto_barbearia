@@ -174,7 +174,7 @@ def freelancers_proximos_da_barbearia(
     if usuario_atual.tipo != "barbearia":
         raise HTTPException(status_code=403, detail="Apenas proprietarios de barbearia")
 
-    barbearia = db.query(Barbearia).filter(Barbearia.usuario_id == usuario_atual.id).first()
+    barbearia = db.query(Barbearia).filter(Barbearia.usuario_id == usuario_atual.id).order_by(Barbearia.id.asc()).first()
     if not barbearia or barbearia.latitude is None or barbearia.longitude is None:
         return {"total": 0, "freelancers": [], "erro": "Barbearia sem localizacao definida"}
 
