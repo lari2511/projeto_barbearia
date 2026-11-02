@@ -139,6 +139,15 @@ export default function ProfileCard({ usuarioId, userType, token, isOwnProfile: 
   // (portfolio -> servicos -> endereco -> como chegar -> avaliacoes -> contato).
   // Freelancer/dono/admin continuam vendo o layout completo (cadeiras, condicoes de estrutura etc.).
   const isClienteViewingBarbearia = userType === 'barbearia' && String(readStorageValue('userType') || '').toLowerCase() === 'cliente';
+  // Freelancer vendo barbearia: endereco como foi cadastrado (formatarEndereco corta
+  // cidade/UF) e rota no Google Maps, onde ele escolhe carro, onibus etc.
+  const isFreelancerViewingBarbearia = userType === 'barbearia' && visitanteEhFreelancer;
+  const enderecoCompleto = enderecoMapa.replace(/\s+/g, ' ');
+  const cepDigitos = String(profile?.cep || '').replace(/\D/g, '');
+  const cepFormatado = cepDigitos.length === 8 ? `CEP ${cepDigitos.slice(0, 5)}-${cepDigitos.slice(5)}` : '';
+  const googleMapsRotaUrl = enderecoCompleto
+    ? `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(enderecoCompleto)}`
+    : '';
   // Perfil de freelancer visto pelo dono: prioriza portfolio, identificacao e
   // contato; avaliacoes ficam resumidas na tela principal (comentarios completos
   // só no modal correspondente). Cliente/admin continuam vendo o layout completo.
@@ -935,9 +944,25 @@ export default function ProfileCard({ usuarioId, userType, token, isOwnProfile: 
                 <MapPin size={18} className="text-orange-400 shrink-0 mt-1" />
                 <div>
                   <p className="text-xs text-zinc-400">Localização</p>
-                  <p className="text-sm text-white">{enderecoPerfilFormatado}</p>
+                  <p className="text-sm text-white break-words">
+                    {isFreelancerViewingBarbearia
+                      ? [enderecoCompleto, cepFormatado].filter(Boolean).join(' - ')
+                      : enderecoPerfilFormatado}
+                  </p>
                 </div>
               </div>
+            )}
+
+            {isFreelancerViewingBarbearia && profile.endereco && googleMapsRotaUrl && (
+              <a
+                href={googleMapsRotaUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="w-full bg-orange-600 hover:bg-orange-700 text-white px-4 py-3 rounded-lg font-bold flex items-center justify-center gap-2 active:scale-95 transition-all"
+              >
+                <Navigation size={18} />
+                Como chegar
+              </a>
             )}
 
             {profile.horario_funcionamento && (

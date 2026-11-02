@@ -326,6 +326,23 @@ def test_so_freelancer_altera_tempo_de_experiencia(http):
             db.close()
 
 
+def test_perfil_da_barbearia_traz_endereco_completo_e_cep_cadastrados(http):
+    loja = _barbearia("dono@t.com", 1)
+    db = SessionLocal()
+    try:
+        b = db.get(models.Barbearia, loja["id"])
+        b.endereco, b.cep = "Rua A, 99, Centro, São Paulo/SP", "01305000"
+        db.commit()
+    finally:
+        db.close()
+    perfil = http.get(f"/api/v1/usuario/{loja['dono_id']}").json()
+    assert perfil["endereco"] == "Rua A, 99, Centro, São Paulo/SP"
+    assert perfil["cep"] == "01305000"
+
+    fid, _ = _usuario("barbeiro", "f@t.com")
+    assert http.get(f"/api/v1/usuario/{fid}").json()["cep"] is None
+
+
 def test_vaga_informa_o_dono_para_abrir_o_perfil_e_os_mesmos_servicos(http):
     loja = _barbearia("dono@t.com", 1)
     _publicar(http, loja, 1)
