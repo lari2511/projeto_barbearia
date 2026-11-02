@@ -195,3 +195,46 @@ def test_mensalidade_informa_zero_real(http):
     r = http.get(f"/api/v1/mensalidade/barbearia/{zero['id']}", headers=zero["headers"])
     assert r.status_code == 200, r.text
     assert r.json()["quantidade_cadeiras"] == 0
+
+
+def test_compra_confirmada_acrescenta_a_cadeira_as_existentes(http):
+    # Mesmo cenário da Nhocuné Style: 5 cadeiras cadastradas e 1 contratada.
+    loja = _loja("a@t.com", [BLOQUEADA] * 5, pagas=1)
+    outra = _loja("b@t.com", [DISPONIVEL] * 2, pagas=2)
+    antes = http.get(f"/api/v1/cadeiras/barbearia/{loja['id']}").json()
+    db = SessionLocal()
+    try:
+        barbearia = db.get(models.Barbearia, loja["id"])
+        aplicar_contratacao_cadeiras(db, barbearia, 1, "pix")  # sem compra nova, nada muda
+        db.commit()
+        assert _resumo(http, loja)["cadastradas"] == 5
+
+        aplicar_contratacao_cadeiras(db, barbearia, 2, "pix")
+        db.commit()
+    finally:
+        db.close()
+    depois = http.get(f"/api/v1/cadeiras/barbearia/{loja['id']}").json()
+    assert len(depois) == 6
+    assert [c["id"] for c in depois][:5] == [c["id"] for c in antes]  # as 5 anteriores preservadas
+    assert all(c["status"] == BLOQUEADA for c in depois[:5])
+    assert depois[5]["status"] == DISPONIVEL
+    assert _resumo(http, outra)["cadastradas"] == 2
+
+
+def test_barbearia_cancelada_sem_cadeiras_fica_zerada_e_pode_contratar_de_novo(http):
+    # Estado da Lavras depois da correção de dados.
+    loja = _loja("a@t.com", pagas=5, status_assinatura="cancelada")
+    db = SessionLocal()
+    try:
+        assinatura = db.query(models.AssinaturaBarbearia).filter_by(barbearia_id=loja["id"]).one()
+        assinatura.quantidade_cadeiras = 0
+        assinatura.valor_mensalidade = 0
+        db.commit()
+        assert _contar(_resumo(http, loja)) == (0, 0, 0, 0)
+        assert http.post("/api/v1/on-demand/cadeiras-acionadas/anunciar", json={"quantidade": 1}, headers=loja["headers"]).status_code in (400, 402)
+
+        aplicar_contratacao_cadeiras(db, db.get(models.Barbearia, loja["id"]), 1, "pix")
+        db.commit()
+    finally:
+        db.close()
+    assert _contar(_resumo(http, loja)) == (1, 1, 1, 0)

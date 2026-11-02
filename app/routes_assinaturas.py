@@ -318,11 +318,14 @@ def calcular_valor_assinatura(num_cadeiras: int):
     }
 
 
-def _garantir_linhas_cadeiras(db: Session, barbearia_id: int, quantidade: int) -> None:
-    """Cadeira contratada passa a existir em `cadeiras`. Só acrescenta: nunca altera nem apaga."""
+def _garantir_linhas_cadeiras(db: Session, barbearia_id: int, quantidade: int, acrescimo: int = 0) -> None:
+    """
+    Cadeira contratada passa a existir em `cadeiras`: `acrescimo` cadeiras novas, ou o que faltar
+    para chegar a `quantidade`. Só acrescenta: nunca altera nem apaga.
+    """
     existentes = db.query(models.Cadeira).filter(models.Cadeira.barbearia_id == barbearia_id).all()
     proximo_numero = max((c.numero for c in existentes), default=0) + 1
-    for deslocamento in range(max(0, quantidade - len(existentes))):
+    for deslocamento in range(max(acrescimo, quantidade - len(existentes))):
         db.add(models.Cadeira(
             barbearia_id=barbearia_id,
             numero=proximo_numero + deslocamento,
@@ -396,7 +399,9 @@ def aplicar_contratacao_cadeiras(
 
         cadeiras_ativas = _resumo_ativo_cadeiras(db, assinatura.id)
         _sincronizar_totais_assinatura(assinatura, cadeiras_ativas, agora)
-        _garantir_linhas_cadeiras(db, barbearia.id, assinatura.quantidade_cadeiras)
+        _garantir_linhas_cadeiras(
+            db, barbearia.id, assinatura.quantidade_cadeiras, acrescimo=max(0, quantidade - quantidade_atual)
+        )
         assinatura.metodo_pagamento_preferido = metodo_pagamento
 
         # Se estava suspensa/cancelada, reativar

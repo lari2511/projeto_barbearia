@@ -204,13 +204,11 @@ def test_cadeira_cadastrada_alem_das_pagas_nao_aumenta_o_limite(http):
     assert _anunciar(http, loja, 3).status_code == 409
 
 
-def test_cadeira_paga_sem_linha_e_criada_bloqueada(http):
+def test_anuncio_nunca_cria_cadeira(http):
     loja = _barbearia("dono@t.com", 3, linhas=0)
-    assert _resumo(http, loja)["vagas_disponiveis_para_anunciar"] == 3
-    assert len(_publicar(http, loja, 3)) == 3
-    cadeiras = _cadeiras(loja["id"])
-    assert len(cadeiras) == 3
-    assert all(status == models.StatusCadeira.BLOQUEADA for _, status, _f in cadeiras)
+    assert _resumo(http, loja)["vagas_disponiveis_para_anunciar"] == 0
+    assert _anunciar(http, loja, 1).status_code == 409
+    assert _cadeiras(loja["id"]) == []
 
 
 def test_cadeira_com_freelancer_nao_entra_no_anuncio(http):

@@ -2,7 +2,7 @@
 Regras de anúncio de vagas de cadeira (CadeiraAcionada).
 
 Toda vaga fica presa a uma cadeira da barbearia. O limite vem da assinatura (nunca do app):
-só há vaga enquanto houver cadeira paga sem vaga ativa e sem freelancer. Cadeira bloqueada
+só há vaga enquanto houver cadeira cadastrada e paga, sem vaga ativa e sem freelancer. Anunciar nunca cria cadeira. Cadeira bloqueada
 conta normalmente: anunciar ou escolher freelancer nunca a desbloqueia. Quando a escolha
 acontece com a cadeira bloqueada, a vaga fica em "aguardando_desbloqueio" e o freelancer só
 assume a cadeira no desbloqueio manual do dono (concluir_selecao_no_desbloqueio).
@@ -117,14 +117,12 @@ def limites_de_anuncio(db: Session, barbearia: Barbearia) -> dict:
         cadeira for cadeira in cadeiras
         if cadeira.id not in ids_com_vaga and cadeira.freelancer_id is None and cadeira.chamado_id is None
     ]
-    # O pagamento registra só a quantidade: a linha da cadeira paga pode ainda não existir.
-    sem_linha = max(0, pagas - len(cadeiras))
     return {
         "cadeiras_pagas": pagas,
         "ativas": ativas,
         "cadeiras": cadeiras,
         "livres": livres,
-        "disponiveis": max(0, min(len(livres) + sem_linha, pagas - len(ativas))),
+        "disponiveis": max(0, min(len(livres), pagas - len(ativas))),
     }
 
 
@@ -178,16 +176,7 @@ def reservar_cadeiras(
         return [cadeira]
 
     livres = sorted(livres, key=lambda c: (c.status != StatusCadeira.BLOQUEADA, c.numero, c.id))
-    escolhidas = livres[:quantidade]
-
-    proximo_numero = max((c.numero for c in limites["cadeiras"]), default=0) + 1
-    while len(escolhidas) < quantidade:
-        nova = Cadeira(barbearia_id=barbearia.id, numero=proximo_numero, status=StatusCadeira.BLOQUEADA)
-        db.add(nova)
-        escolhidas.append(nova)
-        proximo_numero += 1
-    db.flush()
-    return escolhidas
+    return livres[:quantidade]
 
 
 def aplicar_freelancer_na_cadeira(db: Session, vaga: CadeiraAcionada, freelancer_id: int) -> Optional[Usuario]:
