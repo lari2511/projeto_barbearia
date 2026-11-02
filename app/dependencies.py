@@ -72,6 +72,8 @@ async def verificar_barbearia_ativa(
     # Verificar se assinatura está vencida
     if (assinatura.status == "inadimplente" or assinatura.proximo_vencimento < datetime.utcnow()) and not perfil_teste:
         # Bloquear automaticamente a barbearia
+        from app.routes_assinaturas import mensalidade_devida
+
         if not barbearia.bloqueada:
             barbearia.bloqueada = True
             barbearia.motivo_bloqueio = f"Assinatura vencida desde {assinatura.proximo_vencimento.strftime('%d/%m/%Y')}. Regularize para continuar."
@@ -84,7 +86,7 @@ async def verificar_barbearia_ativa(
             detail={
                 "erro": "assinatura_vencida",
                 "mensagem": f"Sua assinatura venceu em {assinatura.proximo_vencimento.strftime('%d/%m/%Y')}. Complete o pagamento para continuar.",
-                "valor_devido": assinatura.valor_mensalidade,
+                "valor_devido": mensalidade_devida(db, assinatura)[0],
                 "vencimento": assinatura.proximo_vencimento.isoformat()
             }
         )

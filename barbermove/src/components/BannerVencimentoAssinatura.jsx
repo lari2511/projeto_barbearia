@@ -68,7 +68,7 @@ export default function BannerVencimentoAssinatura({ token, onNavigateToPagament
       return `⛔ BARBEARIA BLOQUEADA! ${status.motivo_bloqueio}`;
     }
     if (status.vencida) {
-      return `⚠️ Sua assinatura venceu! Pague R$ ${status.valor_mensalidade?.toFixed(2)} para desbloquear.`;
+      return `⚠️ Sua assinatura venceu! Pague R$ ${(status.valor_devido ?? status.valor_mensalidade)?.toFixed(2)} para desbloquear.`;
     }
     if (status.dias_vencimento <= 3) {
       return `⏰ Sua assinatura vence em ${status.dias_vencimento} dia(s)! Pague antes para evitar bloqueio.`;

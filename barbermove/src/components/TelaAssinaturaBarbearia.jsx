@@ -553,7 +553,7 @@ export default function TelaAssinaturaBarbearia({ token, onNotify }) {
       {(status?.bloqueada || status?.vencida) && (
         <div className="bg-gradient-to-r from-orange-500 to-orange-600 rounded-lg p-6 text-white shadow-lg">
           <h2 className="text-2xl font-bold mb-4">⛔ Desbloqueie sua barbearia agora!</h2>
-          <p className="mb-4">Pague R$ {status.valor_mensalidade?.toFixed(2)} para continuar usando o app.</p>
+          <p className="mb-4">Pague R$ {(status.valor_devido ?? status.valor_mensalidade)?.toFixed(2)} para continuar usando o app.</p>
           
           <div className="space-y-3 mb-4">
             <button

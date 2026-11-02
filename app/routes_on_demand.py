@@ -35,6 +35,7 @@ from app.vagas import (
     aplicar_freelancer_na_cadeira,
     cadeira_esta_bloqueada,
     fim_do_dia_utc,
+    cadeiras_vencidas,
     limites_de_anuncio,
     reservar_cadeiras,
     travar_barbearia,
@@ -972,6 +973,7 @@ def _resumo_de_vagas(db: Session, barbearia: Barbearia, usuario_id: int) -> dict
 
     return {
         "cadeiras_pagas": limites["cadeiras_pagas"],
+        "cadeiras_vencidas": cadeiras_vencidas(db, barbearia),
         "vagas_anunciadas": len(ativas),
         "vagas_disponiveis_para_anunciar": limites["disponiveis"],
         "vagas": vagas,

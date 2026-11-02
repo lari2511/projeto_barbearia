@@ -19,6 +19,7 @@ from app.models import (
     Barbearia,
     Cadeira,
     CadeiraAcionada,
+    CadeiraContratada,
     Notificacao,
     StatusCadeira,
     Usuario,
@@ -34,6 +35,9 @@ STATUS_AGUARDANDO_DESBLOQUEIO = "aguardando_desbloqueio"
 STATUS_OCUPADA = "ocupada_por_barbeiro"
 STATUS_RESERVADA_CLIENTE = "reservada_por_cliente"
 STATUS_CANCELADA = "cancelada"
+
+# "vencida" é gravado por verificar_assinatura_ativa quando o vencimento passa.
+STATUS_ASSINATURA_POR_CADEIRA = ("ativa", "vencida")
 
 
 def barbearia_do_dono(db: Session, usuario_id: int) -> Optional[Barbearia]:
@@ -51,13 +55,38 @@ def cadeira_esta_bloqueada(cadeira: Optional[Cadeira]) -> bool:
 
 
 def cadeiras_pagas(db: Session, barbearia: Barbearia) -> int:
-    """Cadeiras com pagamento válido: assinatura ativa, em dia e barbearia sem bloqueio financeiro."""
+    """
+    Cadeiras com pagamento válido: assinatura em dia e barbearia sem bloqueio financeiro. Cada
+    cadeira tem o próprio ciclo, então uma vencida não invalida as outras que estão pagas.
+    """
     if barbearia.bloqueada:
         return 0
     assinatura = db.query(AssinaturaBarbearia).filter(AssinaturaBarbearia.barbearia_id == barbearia.id).first()
     ativa, quantidade = _assinatura_ativa_e_limite(assinatura)
+    if not ativa:
+        quantidade = _contratadas_em_dia(db, assinatura)
     dono = db.query(Usuario).filter(Usuario.id == barbearia.usuario_id).first()
-    return merge_with_free_test_limit(quantidade if ativa else 0, usuario=dono, barbearia=barbearia)
+    return merge_with_free_test_limit(quantidade, usuario=dono, barbearia=barbearia)
+
+
+def _contratadas_em_dia(db: Session, assinatura: Optional[AssinaturaBarbearia]) -> int:
+    """Só o vencimento tira a assinatura de "em dia" aqui: suspensa, cancelada etc. seguem sem cadeira paga."""
+    if not assinatura or str(assinatura.status).lower() not in STATUS_ASSINATURA_POR_CADEIRA:
+        return 0
+    return db.query(CadeiraContratada).filter(
+        CadeiraContratada.assinatura_id == assinatura.id,
+        CadeiraContratada.ativa.is_(True),
+        CadeiraContratada.data_proxima_cobranca >= datetime.now(),
+    ).count()
+
+
+def cadeiras_vencidas(db: Session, barbearia: Barbearia) -> int:
+    """Cadeiras contratadas com a mensalidade vencida, para o dono entender por que não contam no limite."""
+    return db.query(CadeiraContratada).filter(
+        CadeiraContratada.barbearia_id == barbearia.id,
+        CadeiraContratada.ativa.is_(True),
+        CadeiraContratada.data_proxima_cobranca < datetime.now(),
+    ).count()
 
 
 def vagas_ativas(db: Session, barbearia_id: int) -> List[CadeiraAcionada]:

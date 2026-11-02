@@ -66,6 +66,7 @@ export default function AnunciarVagas({ API_URL, token, notify, onVerPerfil, onA
 
   const maximo = resumo?.vagas_disponiveis_para_anunciar ?? 0;
   const cadeirasPagas = resumo?.cadeiras_pagas ?? 0;
+  const cadeirasVencidas = resumo?.cadeiras_vencidas ?? 0;
   const vagasAnunciadas = resumo?.vagas_anunciadas ?? 0;
   const vagas = resumo?.vagas || [];
 
@@ -156,6 +157,20 @@ export default function AnunciarVagas({ API_URL, token, notify, onVerPerfil, onA
           </span>
         )}
       </div>
+
+      {cadeirasVencidas > 0 && cadeirasPagas > 0 && (
+        <button
+          type="button"
+          onClick={onAbrirAssinatura}
+          data-testid="cadeiras-vencidas"
+          className="w-full rounded-xl border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-left text-[11px] text-amber-200"
+        >
+          {cadeirasVencidas === 1
+            ? '1 cadeira com mensalidade vencida não conta para anunciar vagas.'
+            : `${cadeirasVencidas} cadeiras com mensalidade vencida não contam para anunciar vagas.`}{' '}
+          <span className="font-black underline">Ver assinatura</span>
+        </button>
+      )}
 
       {cadeirasPagas === 0 ? (
         <>

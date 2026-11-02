@@ -134,19 +134,21 @@ def _aplicar_assinatura_cadeiras(db: Session, cobranca: models.Cobranca, ref: di
 # ============================================================
 
 def _preparar_mensalidade(db: Session, usuario: models.Usuario, dados: dict) -> Preparo:
+    from app.routes_assinaturas import mensalidade_devida
+
     barbearia = _barbearia_do_dono(db, usuario)
     assinatura = db.query(models.AssinaturaBarbearia).filter(
         models.AssinaturaBarbearia.barbearia_id == barbearia.id
     ).first()
     if not assinatura:
         raise HTTPException(status_code=404, detail="Nenhuma assinatura encontrada. Contrate uma assinatura primeiro.")
-    valor = round(float(assinatura.valor_mensalidade or 0.0), 2)
+    valor, cadeiras = mensalidade_devida(db, assinatura)
     if valor <= 0:
         raise HTTPException(status_code=400, detail="Assinatura sem valor de mensalidade")
     venc = assinatura.proximo_vencimento.date().isoformat() if assinatura.proximo_vencimento else "sem-vencimento"
     return Preparo(
         valor=valor,
-        descricao=f"BarberMove - mensalidade {assinatura.quantidade_cadeiras or 0} cadeira(s)",
+        descricao=f"BarberMove - mensalidade {cadeiras} cadeira(s)",
         referencia={"barbearia_id": barbearia.id, "assinatura_id": assinatura.id, "vencimento": venc},
         chave_referencia=f"mensalidade:{assinatura.id}:{venc}",
     )

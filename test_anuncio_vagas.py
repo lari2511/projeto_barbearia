@@ -23,6 +23,7 @@ from app import models, routes_on_demand, vagas as regras_vagas  # noqa: E402
 from app.database import Base, SessionLocal, engine, init_db  # noqa: E402
 from app.main import app  # noqa: E402
 from app.routes import create_access_token  # noqa: E402
+from app.routes_assinaturas import aplicar_contratacao_cadeiras, aplicar_pagamento_mensalidade, mensalidade_devida  # noqa: E402
 
 BASE = "/api/v1/on-demand/cadeiras-acionadas"
 LAT, LON = -23.55, -46.63
@@ -557,3 +558,155 @@ def test_chat_dos_chamados_segue_separado(http):
         assert db.query(models.MensagemVaga).count() == 0
     finally:
         db.close()
+
+
+# ---------- Cadeira paga entra no limite, com ciclo próprio por cadeira ----------
+
+def _contratar_mais_uma(loja, primeira_vencida):
+    """Assinatura de 1 cadeira (vencida ou em dia) + compra confirmada de mais 1, como no Pix."""
+    db = SessionLocal()
+    try:
+        assinatura = db.query(models.AssinaturaBarbearia).filter_by(barbearia_id=loja["id"]).first()
+        venc = datetime.now() + (timedelta(days=-22) if primeira_vencida else timedelta(days=20))
+        assinatura.proximo_vencimento = venc
+        db.add(models.CadeiraContratada(
+            assinatura_id=assinatura.id, barbearia_id=loja["id"], numero_referencia=1,
+            origem_contratacao="adicional", valor_mensal=47.9,
+            data_contratacao=venc - timedelta(days=30), data_proxima_cobranca=venc, ativa=True,
+        ))
+        db.flush()
+        aplicar_contratacao_cadeiras(db, db.get(models.Barbearia, loja["id"]), 2, "pix")
+        db.commit()
+    finally:
+        db.close()
+
+
+def test_duas_cadeiras_pagas_anunciam_duas_vagas_simultaneas(http):
+    loja = _barbearia("duas@t.com", 1)
+    _contratar_mais_uma(loja, primeira_vencida=False)
+
+    assert len(_cadeiras(loja["id"])) == 2
+    resumo = _resumo(http, loja)
+    assert (resumo["cadeiras_pagas"], resumo["vagas_disponiveis_para_anunciar"], resumo["cadeiras_vencidas"]) == (2, 2, 0)
+
+    r = _anunciar(http, loja, 2)
+    assert r.status_code == 201, r.text
+    resumo = _resumo(http, loja)
+    assert resumo["vagas_anunciadas"] == 2
+    assert len({v["cadeira_id"] for v in resumo["vagas"]}) == 2
+    assert _anunciar(http, loja, 1).status_code == 409
+    assert len(_cadeiras(loja["id"])) == 2
+
+
+def test_cadeira_vencida_nao_invalida_a_recem_paga(http):
+    loja = _barbearia("mista@t.com", 1)
+    _contratar_mais_uma(loja, primeira_vencida=True)
+
+    resumo = _resumo(http, loja)
+    assert (resumo["cadeiras_pagas"], resumo["vagas_disponiveis_para_anunciar"], resumo["cadeiras_vencidas"]) == (1, 1, 1)
+    assert _anunciar(http, loja, 2).status_code == 409
+    assert _anunciar(http, loja, 1).status_code == 201
+
+
+def test_pagar_a_mensalidade_vencida_libera_as_duas_vagas(http):
+    loja = _barbearia("quita@t.com", 1)
+    _contratar_mais_uma(loja, primeira_vencida=True)
+    db = SessionLocal()
+    try:
+        barbearia = db.get(models.Barbearia, loja["id"])
+        assinatura = db.query(models.AssinaturaBarbearia).filter_by(barbearia_id=loja["id"]).first()
+        aplicar_pagamento_mensalidade(db, barbearia, assinatura, "pix")
+        db.commit()
+    finally:
+        db.close()
+
+    resumo = _resumo(http, loja)
+    assert (resumo["cadeiras_pagas"], resumo["cadeiras_vencidas"]) == (2, 0)
+    assert _anunciar(http, loja, 2).status_code == 201
+
+
+def test_perfil_de_teste_conta_a_cadeira_gratis_sem_somar_a_vencida(http, monkeypatch):
+    monkeypatch.setenv("TEST_BARBERSHOP_EMAILS", "perfilteste@t.com")
+    loja = _barbearia("perfilteste@t.com", 1)
+    _contratar_mais_uma(loja, primeira_vencida=True)
+    assert _resumo(http, loja)["cadeiras_pagas"] == 1
+
+
+@pytest.mark.parametrize("status_assinatura", ["suspensa", "cancelada", "inadimplente"])
+def test_assinatura_sem_validade_nao_conta_cadeira_em_dia(http, status_assinatura):
+    loja = _barbearia(f"{status_assinatura}@t.com", 1)
+    _contratar_mais_uma(loja, primeira_vencida=True)
+    db = SessionLocal()
+    try:
+        db.query(models.AssinaturaBarbearia).filter_by(barbearia_id=loja["id"]).update({"status": status_assinatura})
+        db.commit()
+    finally:
+        db.close()
+    assert _resumo(http, loja)["cadeiras_pagas"] == 0
+
+
+def test_status_vencida_ainda_conta_a_cadeira_em_dia(http):
+    loja = _barbearia("statusvencida@t.com", 1)
+    _contratar_mais_uma(loja, primeira_vencida=True)
+    db = SessionLocal()
+    try:
+        db.query(models.AssinaturaBarbearia).filter_by(barbearia_id=loja["id"]).update({"status": "vencida"})
+        db.commit()
+    finally:
+        db.close()
+    assert _resumo(http, loja)["cadeiras_pagas"] == 1
+
+
+# ---------- Mensalidade cobra só o que venceu ----------
+
+def _pagar_mensalidade(loja):
+    db = SessionLocal()
+    try:
+        barbearia = db.get(models.Barbearia, loja["id"])
+        assinatura = db.query(models.AssinaturaBarbearia).filter_by(barbearia_id=loja["id"]).first()
+        aplicar_pagamento_mensalidade(db, barbearia, assinatura, "pix")
+        db.commit()
+    finally:
+        db.close()
+
+
+def _devida_e_datas(loja):
+    db = SessionLocal()
+    try:
+        assinatura = db.query(models.AssinaturaBarbearia).filter_by(barbearia_id=loja["id"]).first()
+        contratadas = db.query(models.CadeiraContratada).filter_by(assinatura_id=assinatura.id).order_by(models.CadeiraContratada.numero_referencia)
+        return mensalidade_devida(db, assinatura), [c.data_proxima_cobranca for c in contratadas], assinatura.valor_mensalidade
+    finally:
+        db.close()
+
+
+def test_mensalidade_cobra_so_a_cadeira_vencida_e_a_fatura_registra_o_mesmo(http):
+    loja = _barbearia("cobra@t.com", 1)
+    _contratar_mais_uma(loja, primeira_vencida=True)
+
+    devida, datas, mensal = _devida_e_datas(loja)
+    assert devida == (47.9, 1)
+    assert mensal == round(47.9 + 37.9, 2)
+
+    _pagar_mensalidade(loja)
+
+    _, novas_datas, mensal_depois = _devida_e_datas(loja)
+    assert novas_datas[0] > datas[0] and novas_datas[1] == datas[1]
+    assert mensal_depois == mensal
+    db = SessionLocal()
+    try:
+        fatura = db.query(models.FaturaAssinatura).order_by(models.FaturaAssinatura.id.desc()).first()
+        assert (fatura.valor_fatura, fatura.quantidade_cadeiras) == (47.9, 1)
+    finally:
+        db.close()
+
+
+def test_mensalidade_sem_nada_vencido_antecipa_o_total(http):
+    loja = _barbearia("antecipa@t.com", 1)
+    _contratar_mais_uma(loja, primeira_vencida=False)
+    assert _devida_e_datas(loja)[0] == (round(47.9 + 37.9, 2), 2)
+
+
+def test_mensalidade_de_assinatura_sem_cadeiras_contratadas_cobra_o_total(http):
+    loja = _barbearia("legado@t.com", 2, vencida=True)
+    assert _devida_e_datas(loja)[0] == (50.0, 2)

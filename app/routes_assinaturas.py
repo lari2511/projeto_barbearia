@@ -175,6 +175,19 @@ def _resumo_ativo_cadeiras(db: Session, assinatura_id: int) -> List[models.Cadei
     ).order_by(models.CadeiraContratada.numero_referencia.asc()).all()
 
 
+def mensalidade_devida(db: Session, assinatura: models.AssinaturaBarbearia, referencia: Optional[datetime] = None) -> tuple[float, int]:
+    """
+    (valor, cadeiras) que o próximo pagamento cobre. Cada cadeira tem o próprio ciclo: paga-se só
+    o que venceu. Sem nada vencido, é antecipação de um ciclo de todas (ver aplicar_pagamento_mensalidade).
+    """
+    referencia = referencia or datetime.now()
+    ativas = _resumo_ativo_cadeiras(db, assinatura.id)
+    vencidas = [c for c in ativas if c.data_proxima_cobranca <= referencia]
+    if not vencidas:
+        return round(float(assinatura.valor_mensalidade or 0.0), 2), assinatura.quantidade_cadeiras or 0
+    return round(sum(float(c.valor_mensal or 0) for c in vencidas), 2), len(vencidas)
+
+
 def _sincronizar_totais_assinatura(
     assinatura: models.AssinaturaBarbearia,
     cadeiras_ativas: List[models.CadeiraContratada],
@@ -872,6 +885,7 @@ def aplicar_pagamento_mensalidade(
 
     vencimento_referencia = assinatura.proximo_vencimento or datetime.now()
     cadeiras_ativas = _resumo_ativo_cadeiras(db, assinatura.id)
+    valor_pago, cadeiras_pagas = mensalidade_devida(db, assinatura, hoje)
 
     # Avança somente cadeiras vencidas para respeitar ciclos individuais.
     atualizadas = _avancar_ciclo_cobranca_cadeiras(cadeiras_ativas, hoje, apenas_vencidas=True)
@@ -901,9 +915,9 @@ def aplicar_pagamento_mensalidade(
         mes_referencia=hoje.strftime("%Y-%m"),
         data_inicio_periodo=vencimento_referencia,
         data_fim_periodo=novo_vencimento,
-        valor_fatura=assinatura.valor_mensalidade,
-        quantidade_cadeiras=assinatura.quantidade_cadeiras,
-        descricao_cobrada=f"Mensalidade {assinatura.quantidade_cadeiras} cadeira(s)",
+        valor_fatura=valor_pago,
+        quantidade_cadeiras=cadeiras_pagas,
+        descricao_cobrada=f"Mensalidade {cadeiras_pagas} cadeira(s)",
         status="pago",
         data_vencimento=vencimento_referencia,
         data_pagamento=hoje,
@@ -1039,7 +1053,7 @@ def gerar_pix_mensalidade(
             detail="Nenhuma assinatura encontrada"
         )
 
-    valor = assinatura.valor_mensalidade
+    valor, _ = mensalidade_devida(db, assinatura)
     identificador = f"BARBEARMOVE-{barbearia.id}-{datetime.now().strftime('%Y%m%d%H%M%S')}"
     pix_payload = (
         f"00020126360014BR.GOV.BCB.PIX0114+5511999999999"
@@ -1121,6 +1135,7 @@ def verificar_status_assinatura(
 
     # Verificar se está vencida
     vencida = assinatura.proximo_vencimento < hoje
+    valor_devido, _ = mensalidade_devida(db, assinatura, hoje)
 
     return {
         "tem_assinatura": True,
@@ -1132,19 +1147,20 @@ def verificar_status_assinatura(
         "dias_vencimento": dias_vencimento,
         "proximo_vencimento": assinatura.proximo_vencimento.isoformat(),
         "valor_mensalidade": assinatura.valor_mensalidade,
+        "valor_devido": valor_devido,
         "cadeiras_ativas": assinatura.quantidade_cadeiras,
         "metodo_pagamento": assinatura.metodo_pagamento_preferido,
-        "mensagem": _gerar_mensagem_status(barbearia, assinatura, dias_vencimento, vencida)
+        "mensagem": _gerar_mensagem_status(barbearia, valor_devido, dias_vencimento, vencida)
     }
 
 
-def _gerar_mensagem_status(barbearia, assinatura, dias_vencimento, vencida):
+def _gerar_mensagem_status(barbearia, valor_devido, dias_vencimento, vencida):
     """Gera mensagem apropriada baseada no status"""
     if barbearia.bloqueada:
         return f"⛔ Sua barbearia está bloqueada. {barbearia.motivo_bloqueio}"
     
     if vencida:
-        return f"⚠️ Sua assinatura venceu! Complete o pagamento de R$ {assinatura.valor_mensalidade:.2f} para continuar."
+        return f"⚠️ Sua assinatura venceu! Complete o pagamento de R$ {valor_devido:.2f} para continuar."
     
     if dias_vencimento <= 3:
         return f"⚠️ Sua assinatura vence em {dias_vencimento} dia(s). Pague antes para evitar bloqueio."
