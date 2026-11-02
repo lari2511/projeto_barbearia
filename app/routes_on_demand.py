@@ -280,6 +280,7 @@ class CadeiraAcionadaResponse(BaseModel):
     valor_oferta: Optional[float] = None
     observacoes: Optional[str] = None
     barbearia_nome: Optional[str] = None
+    barbearia_usuario_id: Optional[int] = None
     barbearia_latitude: Optional[float] = None
     barbearia_longitude: Optional[float] = None
     eta_min_usuario_atual: Optional[int] = None
@@ -375,6 +376,7 @@ def _serializar_cadeira_acionada(vaga: CadeiraAcionada, eta_min_usuario_atual: O
         "valor_oferta": vaga.valor_oferta,
         "observacoes": vaga.observacoes,
         "barbearia_nome": barbearia.nome if barbearia else None,
+        "barbearia_usuario_id": barbearia.usuario_id if barbearia else None,
         "barbearia_latitude": barbearia.latitude if barbearia else None,
         "barbearia_longitude": barbearia.longitude if barbearia else None,
         "eta_min_usuario_atual": eta_min_usuario_atual,

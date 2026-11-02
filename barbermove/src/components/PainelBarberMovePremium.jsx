@@ -1168,23 +1168,48 @@ export default function PainelBarberMovePremium({ token: tokenProp, logout: logo
                   <div className="space-y-2">
                     {vagasRelampago.slice(0, 5).map((vaga) => {
                       const jaCandidatado = vagasCandidatadas.has(Number(vaga.id));
+                      const abrirPerfilDaVaga = () => {
+                        if (vaga.barbearia_usuario_id) {
+                          setBarbeariaPerfilModal({ usuario_id: vaga.barbearia_usuario_id, nome: vaga.barbearia_nome });
+                        }
+                      };
                       return (
-                      <div key={vaga.id} className="rounded-xl border border-zinc-700 bg-zinc-900/80 p-3">
+                      <div
+                        key={vaga.id}
+                        role={vaga.barbearia_usuario_id ? 'button' : undefined}
+                        tabIndex={vaga.barbearia_usuario_id ? 0 : undefined}
+                        onClick={abrirPerfilDaVaga}
+                        onKeyDown={(e) => {
+                          if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) {
+                            e.preventDefault();
+                            abrirPerfilDaVaga();
+                          }
+                        }}
+                        className={`rounded-xl border border-zinc-700 bg-zinc-900/80 p-3 ${vaga.barbearia_usuario_id ? 'cursor-pointer hover:border-zinc-500' : ''}`}
+                      >
                         <div className="flex items-center justify-between gap-3">
-                          <div>
+                          <div className="min-w-0">
                             <p className="text-sm font-bold text-white">{vaga.barbearia_nome || 'Barbearia'} {vaga.cadeira_id ? `• Cadeira ${vaga.cadeira_id}` : ''}</p>
                             <p className="text-xs text-zinc-400">ETA atual: {vaga.eta_min_usuario_atual ?? '-'} min</p>
+                            {vaga.barbearia_usuario_id && (
+                              <p className="text-[11px] font-semibold text-orange-300 mt-1">Ver perfil da barbearia ›</p>
+                            )}
                           </div>
-                          <button
-                            type="button"
-                            onClick={() => !bloqueadoFinanceiro && candidatarSeVagaRelampago(vaga.id)}
-                            disabled={aceitandoVagaId === vaga.id || bloqueadoFinanceiro || jaCandidatado}
-                            className="rounded-lg bg-red-600 hover:bg-red-500 disabled:bg-red-800/50 disabled:text-red-200/80 text-white px-3 py-2 text-xs font-bold"
-                          >
-                            {bloqueadoFinanceiro ? '⛔ Bloqueado' : jaCandidatado ? 'Candidatura enviada' : (aceitandoVagaId === vaga.id ? 'Candidatando...' : 'Candidatar-se')}
-                          </button>
+                          {/* Wrapper: o clique na candidatura (mesmo com o botao desabilitado) nao abre o perfil. */}
+                          <div className="shrink-0" onClick={(e) => e.stopPropagation()}>
+                            <button
+                              type="button"
+                              onClick={() => !bloqueadoFinanceiro && candidatarSeVagaRelampago(vaga.id)}
+                              disabled={aceitandoVagaId === vaga.id || bloqueadoFinanceiro || jaCandidatado}
+                              className="rounded-lg bg-red-600 hover:bg-red-500 disabled:bg-red-800/50 disabled:text-red-200/80 text-white px-3 py-2 text-xs font-bold"
+                            >
+                              {bloqueadoFinanceiro ? '⛔ Bloqueado' : jaCandidatado ? 'Candidatura enviada' : (aceitandoVagaId === vaga.id ? 'Candidatando...' : 'Candidatar-se')}
+                            </button>
+                          </div>
                         </div>
-                        <EstruturaDaVaga API_URL={API_URL} token={token} barbeariaId={vaga.barbearia_id} />
+                        <div className="cursor-default" onClick={(e) => e.stopPropagation()}>
+                          <EstruturaDaVaga API_URL={API_URL} token={token} barbeariaId={vaga.barbearia_id} />
+                        </div>
                       </div>
                       );
                     })}

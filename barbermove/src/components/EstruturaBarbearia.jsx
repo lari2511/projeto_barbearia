@@ -108,7 +108,7 @@ export function EstruturaDaVaga({ API_URL, token, barbeariaId }) {
         onClick={alternar}
         className="text-xs font-semibold text-orange-300 underline underline-offset-2 hover:text-orange-200"
       >
-        {aberta ? 'Ocultar estrutura' : 'Ver estrutura oferecida (secador, equipamentos...)'}
+        {aberta ? 'Ocultar estrutura' : 'Ver estrutura para freelancer'}
       </button>
       {aberta && (
         <div className="mt-2">

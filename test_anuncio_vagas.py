@@ -293,6 +293,20 @@ def test_freelancer_ve_vaga_de_cadeira_bloqueada(http):
     assert [v["id"] for v in http.get(f"{BASE}/ativas", headers=headers).json()] == [vaga]
 
 
+def test_vaga_informa_o_dono_para_abrir_o_perfil_e_os_mesmos_servicos(http):
+    loja = _barbearia("dono@t.com", 1)
+    _publicar(http, loja, 1)
+    _, headers = _freelancer("f1@t.com")
+    vaga = http.get(f"{BASE}/ativas", headers=headers).json()[0]
+    assert vaga["barbearia_usuario_id"] == loja["dono_id"]
+
+    perfil = http.get(f"/api/v1/usuario/{vaga['barbearia_usuario_id']}", headers=headers).json()
+    assert perfil["barbearia_id"] == loja["id"]
+    do_perfil = http.get(f"/api/v1/barbearias/{perfil['barbearia_id']}/servicos").json()["servicos"]
+    do_cliente = http.get(f"/api/v1/barbearia/{loja['id']}/servicos", headers=headers).json()
+    assert [(s["id"], s["valor"]) for s in do_perfil] == [(s["id"], s["valor"]) for s in do_cliente] == [(loja["servico_id"], 50.0)]
+
+
 # Item 11
 def test_dono_cancela_vaga_e_libera_o_limite(http):
     loja = _barbearia("dono@t.com", 1)

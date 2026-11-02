@@ -3,7 +3,7 @@ import React, { useState, useEffect, useCallback, useContext } from 'react';
 import { Star, MapPin, Phone, Award, TrendingUp, MessageCircle, Navigation, Scissors, Clock } from 'lucide-react';
 import ChatRoom from './ChatRoom';
 import ListaAvaliacoes from './ListaAvaliacoes';
-import { ListaEstrutura } from './EstruturaBarbearia';
+import { EstruturaDaVaga } from './EstruturaBarbearia';
 import { AppContext } from '../contexts/AppContext';
 import { getApiBaseUrl, resolveMediaUrl } from '../utils/api';
 import { formatarEndereco } from '../utils/address';
@@ -86,7 +86,6 @@ export default function ProfileCard({ usuarioId, userType, token, isOwnProfile: 
   const [chatLoading, setChatLoading] = useState(false);
   const [fotoPerfilFalhou, setFotoPerfilFalhou] = useState(false);
   const [fotosQueFalharam, setFotosQueFalharam] = useState({});
-  const [condicoesEstrutura, setCondicoesEstrutura] = useState(null);
   const [servicosBarbearia, setServicosBarbearia] = useState([]);
   const [avaliacoesExpandido, setAvaliacoesExpandido] = useState(false);
   const [avaliacoesModalTipo, setAvaliacoesModalTipo] = useState(null); // null | 'clientes' | 'proprietarios'
@@ -268,19 +267,6 @@ export default function ProfileCard({ usuarioId, userType, token, isOwnProfile: 
               cadeira_disponivel: possuiCadeiraDisponivel,
             });
             setCadeirasBarbearia(cadeiras);
-
-            if (visitanteEhFreelancer && token) {
-              try {
-                const condicoesRes = await fetch(`${API_URL}/api/v1/barbearia/${barbeariaDoPerfil.id}/condicoes-estrutura`, {
-                  headers: { 'Authorization': `Bearer ${token}` }
-                });
-                if (condicoesRes.ok) {
-                  setCondicoesEstrutura(await condicoesRes.json());
-                }
-              } catch (_err) {
-                setCondicoesEstrutura(null);
-              }
-            }
 
             // Interesse de clientes: cliente abriu o perfil de uma barbearia
             // sem cadeira disponivel agora. So contagem agregada pro dono
@@ -906,6 +892,35 @@ export default function ProfileCard({ usuarioId, userType, token, isOwnProfile: 
             </div>
           )}
 
+          {/* Servicos e valores para o freelancer: mesmos registros que o cliente ve
+              (carregados em carregarPerfil), somente leitura. Logo apos a avaliacao
+              para aparecer sem precisar rolar o perfil inteiro. */}
+          {userType === 'barbearia' && visitanteEhFreelancer && (
+            <div className="mb-6 pb-6 border-b border-zinc-800">
+              <h3 className="text-sm font-bold text-white mb-3 flex items-center gap-2">
+                <Scissors size={15} className="text-orange-400" /> Serviços e valores
+              </h3>
+              {servicosBarbearia.length > 0 ? (
+                <div className="space-y-2">
+                  {servicosBarbearia.map((servico) => (
+                    <div key={servico.id} className="rounded-lg border border-zinc-800 bg-black/30 px-3 py-2">
+                      <div className="flex items-start justify-between gap-3">
+                        <span className="text-sm text-white min-w-0 break-words">{servico.nome}</span>
+                        <span className="text-sm font-bold text-green-400 shrink-0">R$ {Number(servico.valor).toFixed(2)}</span>
+                      </div>
+                      {servico.descricao && <p className="text-xs text-zinc-400 mt-1">{servico.descricao}</p>}
+                      <p className="text-[11px] text-zinc-500 mt-1">
+                        {[servico.categoria, servico.duracao_minutos ? `${servico.duracao_minutos} min` : null].filter(Boolean).join(' · ')}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-sm text-zinc-500">Esta barbearia ainda não cadastrou serviços.</p>
+              )}
+            </div>
+          )}
+
           {/* Contato e Localização */}
           <div className="space-y-3">
             {profile.endereco && (
@@ -971,11 +986,11 @@ export default function ProfileCard({ usuarioId, userType, token, isOwnProfile: 
           )}
 
           {/* Condições e estrutura para freelancer: só visível pra quem está
-              logado como freelancer (cliente não vê essa seção). */}
-          {userType === 'barbearia' && visitanteEhFreelancer && condicoesEstrutura && (
-            <div className="mt-6 pt-6 border-t border-zinc-800 space-y-3">
-              <p className="text-xs text-zinc-400 uppercase">Estrutura oferecida ao freelancer</p>
-              <ListaEstrutura condicoes={condicoesEstrutura} />
+              logado como freelancer (cliente não vê essa seção). Recolhida, igual
+              ao card da vaga, para a lista longa não empurrar o resto do perfil. */}
+          {userType === 'barbearia' && visitanteEhFreelancer && token && (
+            <div className="mt-4">
+              <EstruturaDaVaga API_URL={API_URL} token={token} barbeariaId={barbeariaProfile?.id} />
             </div>
           )}
           {profile.telefone && userType === 'barbeiro' && (
@@ -1041,34 +1056,6 @@ export default function ProfileCard({ usuarioId, userType, token, isOwnProfile: 
               </div>
               <p className="text-2xl font-bold text-white">{profile.tempo_experiencia}</p>
             </div>
-          )}
-        </div>
-      )}
-
-      {/* Servicos e valores para o freelancer: mesmos registros que o cliente ve
-          (carregados em carregarPerfil), somente leitura. */}
-      {userType === 'barbearia' && visitanteEhFreelancer && (
-        <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6">
-          <h3 className="text-lg font-bold text-white mb-4 flex items-center gap-2">
-            <Scissors size={18} className="text-orange-400" /> Serviços e valores
-          </h3>
-          {servicosBarbearia.length > 0 ? (
-            <div className="space-y-2">
-              {servicosBarbearia.map((servico) => (
-                <div key={servico.id} className="rounded-lg border border-zinc-800 bg-black/30 px-3 py-2">
-                  <div className="flex items-start justify-between gap-3">
-                    <span className="text-sm text-white min-w-0 break-words">{servico.nome}</span>
-                    <span className="text-sm font-bold text-green-400 shrink-0">R$ {Number(servico.valor).toFixed(2)}</span>
-                  </div>
-                  {servico.descricao && <p className="text-xs text-zinc-400 mt-1">{servico.descricao}</p>}
-                  <p className="text-[11px] text-zinc-500 mt-1">
-                    {[servico.categoria, servico.duracao_minutos ? `${servico.duracao_minutos} min` : null].filter(Boolean).join(' · ')}
-                  </p>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <p className="text-sm text-zinc-500">Esta barbearia ainda não cadastrou serviços.</p>
           )}
         </div>
       )}
