@@ -34,8 +34,9 @@ const ordenarBarbeirosParaExibicao = (lista) => {
     if (!Array.isArray(lista)) return [];
 
     return [...lista].sort((a, b) => {
-        const aPresente = Number(Boolean(a?.presente_em_local && a?.barbearia_atual_id));
-        const bPresente = Number(Boolean(b?.presente_em_local && b?.barbearia_atual_id));
+        // Presente com o cadeado da barbearia fechado não recebe clientes do app: não sobe na lista.
+        const aPresente = Number(Boolean(a?.presente_em_local && a?.barbearia_atual_id && a?.clientes_app_liberado !== false));
+        const bPresente = Number(Boolean(b?.presente_em_local && b?.barbearia_atual_id && b?.clientes_app_liberado !== false));
         const aTeste = /teste/i.test(a?.nome || '') ? 1 : 0;
         const bTeste = /teste/i.test(b?.nome || '') ? 1 : 0;
 
@@ -2036,7 +2037,11 @@ export default function ClientDashboard({ token, logout, API_URL: apiUrlProp, no
                                     const barbeiroDeTeste = /teste/i.test(barber.nome || '');
                                     const profissionalDaCasa = barber.profissional_da_casa === true;
                                     // Determinar status do freelancer
-                                    const statusInfo = barber.liberacao_antecipada ? {
+                                    const statusInfo = (barber.clientes_app_liberado === false && barber.presente_em_local) ? {
+                                        texto: 'SÓ PRESENCIAL AGORA',
+                                        cor: 'bg-gray-600',
+                                        icone: '🔒'
+                                    } : barber.liberacao_antecipada ? {
                                         texto: 'LIBERADO EM 10 MIN',
                                         cor: 'bg-amber-600',
                                         icone: '⏳'

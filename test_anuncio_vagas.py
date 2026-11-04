@@ -648,6 +648,11 @@ def test_desbloqueio_manual_restaura_o_funcionamento(http):
     assert resumo["vagas"][0]["status"] == regras_vagas.STATUS_OCUPADA
     assert resumo["vagas_disponiveis_para_anunciar"] == 0
 
+    # Presente não é o mesmo que disponível no app: o cadeado nasce fechado e o dono libera.
+    assert _chamar(http, loja, cliente, barbeiro_id=fre[0]).status_code == 400
+    r = http.put(f"/api/v1/cadeiras/clientes-app/{fre[0]}", json={"liberado": True}, headers=loja["headers"])
+    assert r.status_code == 200, r.text
+
     chamado = _chamar(http, loja, cliente, barbeiro_id=fre[0])
     assert chamado.status_code == 200, chamado.text
     db = SessionLocal()

@@ -69,6 +69,12 @@ def init_db():
                 connection.execute(text("ALTER TABLE usuarios ADD COLUMN saida_pendente VARCHAR(20)"))
                 print("[migracao] Coluna saida_pendente criada")
 
+        # Cadeado do proprietário: libera freelancer PRESENTE para clientes do app
+        if "clientes_app_liberado_barbearia_id" not in colunas_existentes:
+            with engine.begin() as connection:
+                connection.execute(text("ALTER TABLE usuarios ADD COLUMN clientes_app_liberado_barbearia_id INTEGER"))
+                print("[migracao] Coluna clientes_app_liberado_barbearia_id criada")
+
         # Tempo de experiência do freelancer, informado no cadastro
         if "tempo_experiencia" not in colunas_existentes:
             with engine.begin() as connection:

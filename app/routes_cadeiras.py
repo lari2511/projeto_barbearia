@@ -19,6 +19,7 @@ from app.schemas import (
     AssinaturaResponse,
     CadeiraPresencaRequest,
     CadeiraPresencaEncerrarRequest,
+    CadeadoClientesAppRequest,
 )
 from app.realtime import broadcast_event
 from app.routes import get_current_user
@@ -193,6 +194,7 @@ def listar_cadeiras(
             "freelancer_id": cadeira.freelancer_id,
             "freelancer_nome": cadeira.freelancer.nome if cadeira.freelancer else None,
             "ocupada_em": cadeira.ocupada_em,
+            "clientes_app_liberado": cadeira.clientes_app_liberado,
         })
     
     return resultado
@@ -965,6 +967,51 @@ def bloquear_cadeira(
             "status": "bloqueada",
             "bloqueada_em": cadeira.bloqueada_em
         }
+    }
+
+
+@router.put("/clientes-app/{freelancer_id}")
+def alterar_cadeado_clientes_app(
+    freelancer_id: int,
+    payload: CadeadoClientesAppRequest,
+    db: Session = Depends(get_db),
+    usuario_atual = Depends(get_current_user)
+):
+    """
+    Cadeado do proprietário sobre o freelancer PRESENTE na barbearia dele.
+
+    liberado=True  -> o freelancer passa a aparecer e receber chamados de clientes do app.
+    liberado=False -> para de receber NOVAS solicitações; segue presente e os
+                      atendimentos já existentes continuam normalmente.
+    Não mexe em presença, online_regiao, cadeira nem chamados.
+    """
+    if usuario_atual.tipo != "barbearia":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Apenas donos de barbearia")
+
+    from app.vagas import barbearia_do_dono
+    barbearia = barbearia_do_dono(db, usuario_atual.id)
+    if not barbearia:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Barbearia não encontrada")
+
+    freelancer = db.query(Usuario).filter(Usuario.id == freelancer_id, Usuario.tipo == "barbeiro").first()
+    if not freelancer or not freelancer.presente_em_local or freelancer.barbearia_atual_id != barbearia.id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Este freelancer não está presente na sua barbearia"
+        )
+
+    freelancer.clientes_app_liberado_barbearia_id = barbearia.id if payload.liberado else None
+    db.commit()
+
+    return {
+        "success": True,
+        "freelancer_id": freelancer.id,
+        "clientes_app_liberado": bool(payload.liberado),
+        "message": (
+            f"Cadeira de {freelancer.nome} liberada para clientes do app"
+            if payload.liberado
+            else f"Cadeira de {freelancer.nome} fechada para clientes do app"
+        ),
     }
 
 

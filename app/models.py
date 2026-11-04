@@ -2,6 +2,7 @@
 # Modelos SQLAlchemy para o banco de dados
 
 from sqlalchemy import Column, Integer, String, Float, DateTime, ForeignKey, Boolean, Enum, UniqueConstraint, Date
+from sqlalchemy import event
 from sqlalchemy.orm import relationship
 from datetime import datetime
 from .database import Base
@@ -113,6 +114,11 @@ class Usuario(Base):
     # Etapa 7: freelancer PRESENTE pediu para sair mas ainda tem atendimentos pendentes.
     # Valores: "online" | "offline" | None. Aplicado automaticamente quando a fila esvazia.
     saida_pendente = Column(String, nullable=True)
+    # Cadeado do proprietário: barbearia que liberou este freelancer PRESENTE para
+    # receber clientes do aplicativo. Estar presente NÃO libera sozinho: o cadeado
+    # nasce fechado (None) e volta a fechar quando a presença termina ou muda de
+    # barbearia (ver _fechar_cadeado_* abaixo). Independe de online_regiao.
+    clientes_app_liberado_barbearia_id = Column(Integer, nullable=True)
     # Freelancer: tempo de experiência informado no cadastro ("Menos de 1 ano", "1 ano", ..., "5 anos ou mais")
     tempo_experiencia = Column(String, nullable=True)
     # Freelancer: data de nascimento declarada (exige 18 anos completos). Não é pedida a cliente nem a dono.
@@ -135,6 +141,31 @@ class Usuario(Base):
     chamados_barbeiro = relationship("Chamado", foreign_keys="Chamado.barbeiro_id", back_populates="barbeiro")
     barbearias = relationship("Barbearia", back_populates="usuario", foreign_keys="Barbearia.usuario_id")
     barbearia_atual = relationship("Barbearia", foreign_keys=[barbearia_atual_id])
+
+
+# O cadeado vive na presença, não na linha da cadeira: os chamados ocupam e liberam
+# a cadeira a cada atendimento, e a liberação do dono não pode se perder nesse ciclo.
+# Os listeners cobrem todos os fluxos que encerram/mudam a presença sem tocar em cada um.
+@event.listens_for(Usuario.presente_em_local, "set", active_history=True)
+def _fechar_cadeado_ao_sair(target, value, oldvalue, initiator):
+    if not value:
+        target.clientes_app_liberado_barbearia_id = None
+
+
+@event.listens_for(Usuario.barbearia_atual_id, "set", active_history=True)
+def _fechar_cadeado_ao_trocar_barbearia(target, value, oldvalue, initiator):
+    if value != oldvalue:
+        target.clientes_app_liberado_barbearia_id = None
+
+
+def freelancer_bloqueado_para_clientes_app(usuario) -> bool:
+    """Freelancer PRESENTE cuja barbearia ainda não abriu o cadeado para o app.
+
+    Quem não está presente não é afetado (segue as regras de online/offline).
+    """
+    if not usuario or not usuario.presente_em_local or not usuario.barbearia_atual_id:
+        return False
+    return usuario.clientes_app_liberado_barbearia_id != usuario.barbearia_atual_id
 
 class Barbearia(Base):
     __tablename__ = "barbearias"
@@ -550,6 +581,14 @@ class Cadeira(Base):
     @property
     def freelancer_nome(self) -> str | None:
         return self.freelancer.nome if self.freelancer else None
+
+    @property
+    def clientes_app_liberado(self) -> bool | None:
+        """Estado do cadeado do freelancer presente nesta cadeira (None se não se aplica)."""
+        f = self.freelancer
+        if not f or not f.presente_em_local or f.barbearia_atual_id != self.barbearia_id:
+            return None
+        return not freelancer_bloqueado_para_clientes_app(f)
 
 
 class Assinatura(Base):

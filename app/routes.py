@@ -1384,7 +1384,15 @@ def criar_chamado(chamado: schemas.ChamadoCreate, token: str = Depends(oauth2_sc
                         status_code=400,
                         detail=f"Barbeiro está PRESENTE em {nome_barbearia.nome if nome_barbearia else 'outra barbearia'}. Não pode receber chamados de outro local."
                     )
-            
+
+            # Regra 2b: presente na barbearia não é o mesmo que disponível no app.
+            # Só recebe clientes do app depois que o proprietário abre o cadeado.
+            if models.freelancer_bloqueado_para_clientes_app(barbeiro):
+                raise HTTPException(
+                    status_code=400,
+                    detail="Este profissional está atendendo só presencialmente na barbearia agora. Tente outro profissional ou mais tarde."
+                )
+
             # Regra 3: Validar especialidade do barbeiro para o serviço
             freelancer_perfil = db.query(models.Freelancer).filter(
                 models.Freelancer.usuario_id == barbeiro.id
@@ -1750,8 +1758,13 @@ def listar_chamados_abertos(token: str = Depends(oauth2_scheme), db: Session = D
         ).all()
         tipos_especialidade = [esp.tipo for esp in especialidades]
 
+    # Cadeado fechado: chamados abertos não são para ele (o aceite também barra).
+    cadeado_fechado = models.freelancer_bloqueado_para_clientes_app(user)
+
     resultado = []
     for c in chamados_encontrados:
+        if cadeado_fechado and c.barbeiro_id is None:
+            continue
         servico = db.query(models.Servico).filter(models.Servico.id == c.servico_id).first()
 
         if c.barbeiro_id == user.id:
@@ -2158,6 +2171,13 @@ def aceitar_chamado(id: int, token: str = Depends(oauth2_scheme), db: Session = 
                     status_code=400,
                     detail=f"Você está PRESENTE em {nome_barbearia.nome if nome_barbearia else 'outra barbearia'}. Não pode aceitar chamados de outro local."
                 )
+        # Chamado aberto (sem barbeiro definido) é solicitação nova de cliente do app:
+        # exige o cadeado aberto. Chamados já direcionados a ele seguem normais.
+        if chamado.barbeiro_id is None and models.freelancer_bloqueado_para_clientes_app(barbeiro):
+            raise HTTPException(
+                status_code=400,
+                detail="A barbearia ainda não liberou sua cadeira para clientes do app."
+            )
     
     # ✅ VALIDAÇÃO: Verificar especialidade do freelancer para o serviço
     servico = db.query(models.Servico).filter(models.Servico.id == chamado.servico_id).first()
@@ -3273,6 +3293,9 @@ def listar_barbeiros_proximos(
     # Filtrar por distância E verificar se está em serviço
     barbeiros_proximos = []
     for b in barbeiros:
+        # Presente com o cadeado fechado = offline para clientes do app.
+        if models.freelancer_bloqueado_para_clientes_app(b) and b.id not in com_taxa_pendente:
+            continue
         distancia = haversine(longitude, latitude, b.longitude, b.latitude)
         if distancia <= raio_km:
             na_janela_liberacao = _esta_na_janela_liberacao_antecipada(b, agora=agora_filtro, janela_min=10)
@@ -3310,9 +3333,10 @@ def listar_barbeiros_proximos(
                 "barbearia_atual_nome": barbearia_nome,
                 "online_regiao": online_regiao_real,
                 "pode_receber_chamado_agora": bool(b.presente_em_local and b.barbearia_atual_id),
+                "clientes_app_liberado": True,
                 "liberacao_antecipada": na_janela_liberacao,
             })
-    
+
     # Ordenar por distância
     barbeiros_proximos.sort(key=lambda x: x["distancia_km"])
     
@@ -3336,6 +3360,9 @@ def listar_todos_barbeiros(
         disponivel_real = (b.disponivel and not esta_em_servico_agora(db, b.id)) or na_janela_liberacao
         online_regiao_real = bool(b.online_regiao) or na_janela_liberacao
         indisponivel = b.id in com_taxa_pendente
+        # Presença e disponibilidade mantêm o valor real (o painel do dono também usa esta
+        # lista); o cliente decide pelo cadeado em clientes_app_liberado.
+        cadeado_fechado = models.freelancer_bloqueado_para_clientes_app(b)
         if indisponivel:
             na_janela_liberacao = disponivel_real = online_regiao_real = False
         barbearia_nome = None
@@ -3356,7 +3383,8 @@ def listar_todos_barbeiros(
             "barbearia_atual_id": b.barbearia_atual_id,
             "barbearia_atual_nome": barbearia_nome,
             "online_regiao": online_regiao_real,
-            "pode_receber_chamado_agora": bool(b.presente_em_local and b.barbearia_atual_id),
+            "pode_receber_chamado_agora": bool(b.presente_em_local and b.barbearia_atual_id and not cadeado_fechado),
+            "clientes_app_liberado": not cadeado_fechado,
             "liberacao_antecipada": na_janela_liberacao,
             "foto_perfil": b.foto_perfil,
             "latitude": b.latitude,
@@ -3386,7 +3414,11 @@ def verificar_disponibilidade_imediata_barbeiro(barbeiro_id: int, db: Session = 
     if not barbeiro:
         raise HTTPException(status_code=404, detail="Barbeiro não encontrado")
 
-    pode_receber_chamado_agora = bool(barbeiro.presente_em_local and barbeiro.barbearia_atual_id)
+    pode_receber_chamado_agora = bool(
+        barbeiro.presente_em_local
+        and barbeiro.barbearia_atual_id
+        and not models.freelancer_bloqueado_para_clientes_app(barbeiro)
+    )
 
     return {
         "barbeiro_id": barbeiro.id,
@@ -3950,8 +3982,9 @@ def listar_barbeiros_presentes(
             # a query acima ja garante que sao verdadeiros pra cada linha aqui.
             "presente_em_local": True,
             "barbearia_atual_id": barbearia_id,
+            "clientes_app_liberado": not models.freelancer_bloqueado_para_clientes_app(barbeiro),
         })
-    
+
     return resultado
 
 
@@ -4042,6 +4075,11 @@ def listar_barbeiros_priorizados_barbearia(
         if not profissional_da_casa and not online_regiao_real:
             continue
 
+        # Profissional da casa com o cadeado fechado: atende só presencialmente,
+        # fica fora da lista do cliente como se estivesse offline.
+        if profissional_da_casa and models.freelancer_bloqueado_para_clientes_app(barbeiro):
+            continue
+
         distancia_km = None
         if usar_filtro_distancia:
             if barbeiro.latitude is None or barbeiro.longitude is None:
@@ -4078,6 +4116,7 @@ def listar_barbeiros_priorizados_barbearia(
             "origem": "casa" if profissional_da_casa else "freelancer",
             "prioridade": 1 if profissional_da_casa else 2,
             "pode_receber_chamado_agora": bool(profissional_da_casa),
+            "clientes_app_liberado": True,
             "liberacao_antecipada": na_janela_liberacao,
         })
 

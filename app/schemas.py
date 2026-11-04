@@ -693,6 +693,13 @@ class CadeiraResponse(BaseModel):
     freelancer_id: Optional[int] = None
     freelancer_nome: Optional[str] = None
     ocupada_em: Optional[datetime] = None
+    # Cadeado do freelancer presente: True = liberado p/ clientes do app; None = sem freelancer presente
+    clientes_app_liberado: Optional[bool] = None
+
+
+class CadeadoClientesAppRequest(BaseModel):
+    """Proprietário abre/fecha o cadeado do freelancer presente para clientes do app"""
+    liberado: bool
 
 
 class CadeiraPresencaRequest(BaseModel):

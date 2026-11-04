@@ -60,6 +60,24 @@ const confirmarAcao = (mensagem) => {
     }
 };
 
+// Cadeado do freelancer presente para clientes do app. Mostra o ESTADO atual:
+// fechado (🔒) = só presencial; aberto (🔓) = clientes do app podem chamar.
+function BotaoCadeadoClientesApp({ liberado, carregando, onClick }) {
+    return (
+        <button
+            type="button"
+            onClick={onClick}
+            disabled={carregando}
+            data-testid="cadeado-clientes-app"
+            className={`${liberado ? 'bg-green-700 hover:bg-zinc-700' : 'bg-zinc-700 hover:bg-green-700'} disabled:opacity-50 text-white px-2 py-2 rounded-lg text-sm transition-all`}
+            title={liberado ? 'Liberada para clientes do app — toque para fechar' : 'Fechada para clientes do app — toque para liberar'}
+            aria-label={liberado ? 'Fechar cadeira para clientes do app' : 'Liberar cadeira para clientes do app'}
+        >
+            {carregando ? '…' : liberado ? '🔓' : '🔒'}
+        </button>
+    );
+}
+
 export default function ShopDashboard({ token, logout, notify, API_URL }) {
     const TABS_VALIDAS = ['inicio', 'barbeiros', 'servicos', 'freelancers', 'agenda', 'avaliar', 'assinatura', 'perfil', 'pagamento'];
     const [services, setServices] = useState([]);
@@ -790,6 +808,33 @@ export default function ShopDashboard({ token, logout, notify, API_URL }) {
         }
     };
 
+    // Cadeado do freelancer PRESENTE: libera/fecha para clientes do app. Não mexe na
+    // presença, no status online/offline nem nos atendimentos que já existem.
+    const [alterandoCadeadoId, setAlterandoCadeadoId] = useState(null);
+    const alterarCadeadoClientesApp = async (freelancerId, liberado) => {
+        if (!freelancerId) return;
+        setAlterandoCadeadoId(Number(freelancerId));
+        try {
+            const res = await fetch(`${API_URL}/api/v1/cadeiras/clientes-app/${freelancerId}`, {
+                method: 'PUT',
+                headers: {'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json'},
+                body: JSON.stringify({ liberado }),
+            });
+            const data = await res.json().catch(() => ({}));
+            if (res.ok) {
+                notify(data.message || (liberado ? 'Cadeira liberada para clientes do app' : 'Cadeira fechada para clientes do app'), 'success');
+            } else {
+                notify(data.detail || 'Erro ao alterar o cadeado', 'error');
+            }
+        } catch (_err) {
+            notify('Erro ao conectar com servidor', 'error');
+        } finally {
+            setAlterandoCadeadoId(null);
+            carregarCadeirasBarbearia();
+            carregarFreelancersPresentes();
+        }
+    };
+
     const desbloquearCadeira = async (cadeiraId) => {
         if (!barbeariaId) {
             notify('Barbearia não identificada', 'error');
@@ -1276,6 +1321,13 @@ export default function ShopDashboard({ token, logout, notify, API_URL }) {
                                                                                         {badgeText}
                                                                                     </span>
                                                                                 </div>
+                                                                                {status === 'ocupada' && cadeira.clientes_app_liberado != null && (
+                                                                                    <p className={`text-[11px] mt-1 font-bold ${cadeira.clientes_app_liberado ? 'text-green-400' : 'text-zinc-400'}`}>
+                                                                                        {cadeira.clientes_app_liberado
+                                                                                            ? '🔓 Liberada para clientes do app'
+                                                                                            : '🔒 Fechada para clientes do app (só presencial)'}
+                                                                                    </p>
+                                                                                )}
                                                                                 <p className="text-[11px] text-zinc-500 mt-1">Essa é a cadeira paga do plano. O número interno do banco não muda a ordem exibida.</p>
                                       </div>
                                       <div className="flex gap-2">
@@ -1298,8 +1350,16 @@ export default function ShopDashboard({ token, logout, notify, API_URL }) {
                                             </button>
                                           </>
                                         )}
-                                                                                {/* O proprietário apenas visualiza a cadeira ocupada. Quem finaliza o
-                                                                                    atendimento é somente o próprio freelancer, no painel dele. */}
+                                                                                {/* O proprietário não finaliza o atendimento do freelancer (só ele, no
+                                                                                    painel dele). O que o dono controla aqui é o cadeado: se esse
+                                                                                    freelancer presente recebe ou não clientes do app. */}
+                                                                                {status === 'ocupada' && cadeira.freelancer_id && cadeira.clientes_app_liberado != null && (
+                                                                                    <BotaoCadeadoClientesApp
+                                                                                        liberado={cadeira.clientes_app_liberado === true}
+                                                                                        carregando={alterandoCadeadoId === Number(cadeira.freelancer_id)}
+                                                                                        onClick={() => alterarCadeadoClientesApp(cadeira.freelancer_id, cadeira.clientes_app_liberado !== true)}
+                                                                                    />
+                                                                                )}
                                                                                 {status === 'bloqueada' && (
                                           <button 
                                             onClick={() => desbloquearCadeira(cadeira.id)}
@@ -1576,6 +1636,20 @@ export default function ShopDashboard({ token, logout, notify, API_URL }) {
                                                     <span className="text-[11px] font-bold text-green-400">Presente</span>
                                                 </div>
                                             </div>
+                                            {/* Mesmo cadeado da seção de cadeiras — aqui também para quem está
+                                                presente sem uma cadeira vinculada no momento. */}
+                                            {freelancer.clientes_app_liberado != null && (
+                                                <div className="flex items-center justify-between gap-2">
+                                                    <span className={`text-[11px] font-bold ${freelancer.clientes_app_liberado ? 'text-green-400' : 'text-zinc-400'}`}>
+                                                        {freelancer.clientes_app_liberado ? 'Liberado para clientes do app' : 'Só presencial (app fechado)'}
+                                                    </span>
+                                                    <BotaoCadeadoClientesApp
+                                                        liberado={freelancer.clientes_app_liberado === true}
+                                                        carregando={alterandoCadeadoId === Number(freelancer.id)}
+                                                        onClick={(e) => { e.stopPropagation(); alterarCadeadoClientesApp(freelancer.id, freelancer.clientes_app_liberado !== true); }}
+                                                    />
+                                                </div>
+                                            )}
                                             {/* O proprietário é apenas observador do status. Só o próprio
                                                 freelancer altera o status dele, no painel do freelancer. */}
                                             {/* Estar presente não dá direito à avaliação — só libera após
