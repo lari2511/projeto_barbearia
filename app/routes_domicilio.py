@@ -29,6 +29,7 @@ from app import firebase_config, models, schemas
 from app.avaliacoes_service import resumo_freelancer
 from app.database import get_db
 from app.pagamento_diario import freelancer_bloqueado, freelancers_com_taxa_vencida
+from app.routes_servicos import TEMPLATES_SERVICOS
 from app.routes import (
     calcular_distancia_km,
     estimar_tempo_minutos,
@@ -193,6 +194,9 @@ def listar_servicos_domicilio_do_freelancer(
     db: Session = Depends(get_db),
     usuario: models.Usuario = Depends(get_current_user),
 ):
+    # Preços a domicílio são para o cliente (modalidade A DOMICÍLIO) e o próprio freelancer.
+    if usuario.tipo not in ("cliente", "admin") and usuario.id != freelancer_id:
+        raise HTTPException(status_code=403, detail="Preços a domicílio são exibidos só para clientes")
     f = db.query(models.Usuario).filter(
         models.Usuario.id == freelancer_id,
         models.Usuario.tipo == "barbeiro",
@@ -306,12 +310,16 @@ def editar_servico_domicilio(
 ):
     _exigir_freelancer(usuario)
     servico = _servico_do_freelancer(db, servico_id, usuario)
-    servico.nome = dados.nome.strip()
-    servico.descricao = (dados.descricao or "").strip() or None
-    servico.categoria = _validar_categoria(dados.categoria)
-    servico.valor = round(float(dados.valor), 2)
-    servico.duracao_minutos = dados.duracao_minutos
-    servico.ativo = dados.ativo
+    servico = _versionar_servico(
+        db, servico,
+        nome=dados.nome.strip(),
+        descricao=(dados.descricao or "").strip() or None,
+        categoria=_validar_categoria(dados.categoria),
+        valor=round(float(dados.valor), 2),
+        duracao_minutos=dados.duracao_minutos,
+    )
+    if not dados.ativo:
+        servico.ativo = False
     _desligar_se_sem_servicos(db, usuario)
     db.commit()
     db.refresh(servico)
@@ -331,6 +339,114 @@ def remover_servico_domicilio(
     _desligar_se_sem_servicos(db, usuario)
     db.commit()
     return {"ok": True, "atende_domicilio": bool(usuario.atende_domicilio)}
+
+
+def _versionar_servico(db: Session, servico: models.Servico, **novos) -> models.Servico:
+    """
+    Aplica nome/preço/duração novos. Se o serviço já foi usado em algum chamado,
+    não mexe nele: desativa e cria uma versão nova. Assim cada chamado continua
+    apontando para o preço/duração de quando foi feito (telas, taxa e alteração
+    de serviço leem `chamado.servico_id`).
+    """
+    mudou = any(getattr(servico, campo) != valor for campo, valor in novos.items())
+    if not mudou:
+        return servico
+    usado = db.query(models.Chamado.id).filter(models.Chamado.servico_id == servico.id).first() is not None
+    if not usado:
+        for campo, valor in novos.items():
+            setattr(servico, campo, valor)
+        return servico
+    servico.ativo = False
+    dados = {
+        "nome": servico.nome, "descricao": servico.descricao, "categoria": servico.categoria,
+        "valor": servico.valor, "duracao_minutos": servico.duracao_minutos,
+    }
+    dados.update(novos)
+    nova = models.Servico(barbearia_id=None, freelancer_id=servico.freelancer_id, ativo=True, **dados)
+    db.add(nova)
+    db.flush()
+    return nova
+
+
+# ============================================================
+# FREELANCER: "Valores a cobrar a domicílio" (mesmos serviços-modelo do proprietário)
+# ============================================================
+
+def _chave(nome: str) -> str:
+    return " ".join(str(nome or "").lower().split())
+
+
+class ValorDomicilioIn(BaseModel):
+    nome: str = Field(..., min_length=2, max_length=80)
+    categoria: str = "outros"
+    valor: Optional[float] = Field(None, ge=0, le=5000)   # vazio/0 = não ofereço
+    duracao_minutos: int = Field(30, ge=5, le=480)
+
+
+class ValoresDomicilioIn(BaseModel):
+    itens: list[ValorDomicilioIn]
+
+
+def _valores_do_freelancer(db: Session, usuario: models.Usuario) -> dict:
+    ativos = servicos_domicilio_ativos(db, usuario.id)
+    por_nome = {_chave(s.nome): s for s in ativos}
+    nomes_modelo = set()
+    itens = []
+    for modelo in TEMPLATES_SERVICOS:
+        chave = _chave(modelo["nome"])
+        nomes_modelo.add(chave)
+        atual = por_nome.get(chave)
+        itens.append({
+            "nome": modelo["nome"],
+            "categoria": modelo["categoria"],
+            "descricao": modelo.get("descricao"),
+            "servico_id": atual.id if atual else None,
+            "valor": atual.valor if atual else None,
+            "duracao_minutos": (atual.duracao_minutos if atual else None) or modelo["duracao_minutos_padrao"],
+        })
+    outros = [_serializar_servico(s) for s in ativos if _chave(s.nome) not in nomes_modelo]
+    return {"atende_domicilio": bool(usuario.atende_domicilio), "itens": itens, "outros": outros}
+
+
+@router.get("/valores")
+def meus_valores_domicilio(db: Session = Depends(get_db), usuario: models.Usuario = Depends(get_current_user)):
+    _exigir_freelancer(usuario)
+    return _valores_do_freelancer(db, usuario)
+
+
+@router.put("/valores")
+def salvar_valores_domicilio(
+    dados: ValoresDomicilioIn,
+    db: Session = Depends(get_db),
+    usuario: models.Usuario = Depends(get_current_user),
+):
+    """Cadastra/atualiza/remove (valor vazio) os preços a domicílio, um por serviço."""
+    _exigir_freelancer(usuario)
+    if len(dados.itens) > 40:
+        raise HTTPException(status_code=400, detail="Itens demais")
+    ativos = {_chave(s.nome): s for s in servicos_domicilio_ativos(db, usuario.id)}
+    for item in dados.itens:
+        chave = _chave(item.nome)
+        atual = ativos.get(chave)
+        valor = round(float(item.valor), 2) if item.valor else None
+        if valor is None:
+            if atual:
+                atual.ativo = False
+            continue
+        if atual:
+            ativos[chave] = _versionar_servico(db, atual, valor=valor, duracao_minutos=item.duracao_minutos)
+        else:
+            novo = models.Servico(
+                barbearia_id=None, freelancer_id=usuario.id, nome=" ".join(item.nome.split()),
+                categoria=_validar_categoria(item.categoria), valor=valor,
+                duracao_minutos=item.duracao_minutos, ativo=True,
+            )
+            db.add(novo)
+            db.flush()
+            ativos[chave] = novo
+    _desligar_se_sem_servicos(db, usuario)
+    db.commit()
+    return _valores_do_freelancer(db, usuario)
 
 
 def _desligar_se_sem_servicos(db: Session, usuario: models.Usuario) -> None:
@@ -369,7 +485,7 @@ def criar_chamado_domiciliar(chamado: schemas.ChamadoCreate, user: models.Usuari
         or servico.freelancer_id != chamado.barbeiro_id
         or not servico.ativo
     ):
-        raise HTTPException(status_code=400, detail="Serviço a domicílio inválido para este freelancer")
+        raise HTTPException(status_code=400, detail="Este serviço ou preço a domicílio foi atualizado pelo freelancer. Volte e escolha de novo.")
 
     barbeiro = db.query(models.Usuario).filter(models.Usuario.id == chamado.barbeiro_id).first()
     if not barbeiro or barbeiro.tipo != "barbeiro" or not barbeiro.perfil_aprovado:

@@ -343,3 +343,68 @@ def test_freelancer_em_domicilio_nao_entra_na_fila_da_barbearia(http):
     }, headers=c2)
     assert r.status_code == 400
     assert "domicílio" in r.json()["detail"]
+
+
+# ---------------------------------------------------------------- valores a cobrar a domicílio
+
+def _valores(http, headers, itens):
+    return http.put(f"{V1}/domicilio/valores", json={"itens": itens}, headers=headers)
+
+
+def test_valores_a_domicilio_cadastrar_alterar_remover(http):
+    fid, headers, _ = _freelancer(http, "f@t.com", PERTO, servico=False, ligar=False)
+    r = http.get(f"{V1}/domicilio/valores", headers=headers)
+    assert r.status_code == 200
+    modelos = {i["nome"]: i for i in r.json()["itens"]}
+    assert "Corte Masculino" in modelos and modelos["Corte Masculino"]["valor"] is None
+
+    r = _valores(http, headers, [
+        {"nome": "Corte Masculino", "categoria": "corte", "valor": 50, "duracao_minutos": 30},
+        {"nome": "Barba Completa", "categoria": "barba", "valor": 30, "duracao_minutos": 20},
+    ])
+    assert r.status_code == 200, r.text
+    itens = {i["nome"]: i for i in r.json()["itens"]}
+    assert itens["Corte Masculino"]["valor"] == 50 and itens["Barba Completa"]["valor"] == 30
+
+    # sem chamados: altera no lugar
+    corte_id = itens["Corte Masculino"]["servico_id"]
+    itens = {i["nome"]: i for i in _valores(http, headers, [
+        {"nome": "Corte Masculino", "categoria": "corte", "valor": 55, "duracao_minutos": 30},
+        {"nome": "Barba Completa", "categoria": "barba", "valor": None, "duracao_minutos": 20},
+    ]).json()["itens"]}
+    assert itens["Corte Masculino"]["servico_id"] == corte_id and itens["Corte Masculino"]["valor"] == 55
+    assert itens["Barba Completa"]["valor"] is None          # vazio = não oferece mais
+
+
+def test_preco_fica_preso_ao_chamado(http):
+    fid, headers, _ = _freelancer(http, "f@t.com", PERTO, servico=False, ligar=False)
+    sid = {i["nome"]: i for i in _valores(http, headers, [
+        {"nome": "Corte Masculino", "categoria": "corte", "valor": 50, "duracao_minutos": 30},
+    ]).json()["itens"]}["Corte Masculino"]["servico_id"]
+    http.put(f"{V1}/domicilio/atendimento", json={"atende_domicilio": True}, headers=headers)
+    _, cliente = _usuario("cliente", "c@t.com", latitude=LAT, longitude=LON)
+    cid = _pedir_domicilio(http, cliente, fid, sid).json()["id"]
+
+    # freelancer muda o preço depois do pedido
+    novo = {i["nome"]: i for i in _valores(http, headers, [
+        {"nome": "Corte Masculino", "categoria": "corte", "valor": 70, "duracao_minutos": 30},
+    ]).json()["itens"]}["Corte Masculino"]
+    assert novo["valor"] == 70 and novo["servico_id"] != sid
+
+    c = _chamado(cid)
+    assert c.servico_id == sid and c.valor_total == 50.0
+    pedido = next(p for p in http.get(f"{V1}/cliente/meus_pedidos", headers=cliente).json() if p["id"] == cid)
+    assert pedido["valor"] == 50
+
+    # cliente vê o preço novo; o id antigo não serve mais para pedido novo
+    servicos = http.get(f"{V1}/domicilio/freelancer/{fid}/servicos", headers=cliente).json()["servicos"]
+    assert [(s["id"], s["valor"]) for s in servicos] == [(novo["servico_id"], 70)]
+
+
+def test_precos_domicilio_nao_aparecem_na_barbearia(http):
+    loja = _barbearia()
+    fid, headers, _ = _freelancer(http, "f@t.com", PERTO)
+    nomes = [s["nome"] for s in http.get(f"{V1}/barbearia/{loja['id']}/servicos", headers=headers).json()]
+    assert nomes == ["Corte"]
+    # proprietário não vê os preços particulares do freelancer
+    assert http.get(f"{V1}/domicilio/freelancer/{fid}/servicos", headers=loja["headers"]).status_code == 403

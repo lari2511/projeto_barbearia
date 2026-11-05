@@ -1,35 +1,31 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { House } from 'lucide-react';
 
-// Atendimento A DOMICÍLIO do freelancer: liga/desliga ("Atendo a domicílio") e
-// serviços/preços próprios para atender na casa do cliente.
-// Só quem liga isto + tem serviço ativo aparece em "Freelancers perto de você".
-const CATEGORIAS = [
-  { id: 'corte', nome: 'Corte' },
-  { id: 'barba', nome: 'Barba' },
-  { id: 'combo', nome: 'Combo' },
-  { id: 'sobrancelha', nome: 'Sobrancelha' },
-  { id: 'infantil', nome: 'Infantil' },
-  { id: 'quimica', nome: 'Química' },
-  { id: 'tratamento', nome: 'Tratamento' },
-  { id: 'outros', nome: 'Outros' },
-];
+// "Valores a cobrar a domicílio" (perfil do freelancer).
+// Mesmo padrão do cadastro de serviços do proprietário (ShopDashboard), mas os
+// preços são do freelancer e independentes dos preços da barbearia. Só clientes
+// que escolhem A DOMICÍLIO veem estes valores. Valor vazio = não oferece.
+// Mudar um preço não altera chamados já feitos (o backend versiona o serviço).
 
-const FORM_VAZIO = { nome: '', categoria: 'corte', valor: '', duracao_minutos: '30' };
+const FORM_VAZIO = { nome: '', valor: '', duracao_minutos: '30' };
 
-const formatarPreco = (valor) => {
-  const numero = Number(valor) || 0;
-  const casas = Number.isInteger(numero) ? 0 : 2;
-  return `R$ ${numero.toLocaleString('pt-BR', { minimumFractionDigits: casas, maximumFractionDigits: 2 })}`;
+const paraTexto = (valor) => (valor == null || valor === '' ? '' : String(valor).replace('.', ','));
+const paraNumero = (texto) => {
+  const bruto = String(texto ?? '').trim();
+  // "1.234,50" / "49,90" (vírgula decimal) ou "49.90" (ponto decimal)
+  const limpo = bruto.includes(',') ? bruto.replace(/\./g, '').replace(',', '.') : bruto;
+  if (!limpo) return null;
+  const numero = Number(limpo);
+  return Number.isFinite(numero) ? numero : NaN;
 };
 
 export default function ServicosDomicilioFreelancer({ token, API_URL, notify }) {
   const [ativo, setAtivo] = useState(false);
-  const [servicos, setServicos] = useState([]);
+  const [itens, setItens] = useState([]);   // serviços-modelo (mesmos do proprietário)
+  const [outros, setOutros] = useState([]); // serviços criados pelo freelancer
+  const [valores, setValores] = useState({}); // nome -> texto digitado
   const [carregando, setCarregando] = useState(true);
   const [salvando, setSalvando] = useState(false);
-  const [form, setForm] = useState(FORM_VAZIO);
-  const [mostrarForm, setMostrarForm] = useState(false);
+  const [novo, setNovo] = useState(FORM_VAZIO);
 
   const avisar = useCallback((msg, tipo = 'info') => {
     if (typeof notify === 'function') notify(msg, tipo);
@@ -45,28 +41,93 @@ export default function ServicosDomicilioFreelancer({ token, API_URL, notify }) 
     return data;
   }, [API_URL, token]);
 
+  const aplicar = useCallback((data) => {
+    const modelos = Array.isArray(data?.itens) ? data.itens : [];
+    const extras = Array.isArray(data?.outros) ? data.outros : [];
+    setAtivo(Boolean(data?.atende_domicilio));
+    setItens(modelos);
+    setOutros(extras);
+    const mapa = {};
+    [...modelos, ...extras].forEach((s) => { mapa[s.nome] = paraTexto(s.valor); });
+    setValores(mapa);
+  }, []);
+
   const carregar = useCallback(async () => {
     try {
-      const data = await requisitar('/meus-servicos');
-      setAtivo(Boolean(data?.atende_domicilio));
-      setServicos(Array.isArray(data?.servicos) ? data.servicos.filter((s) => s.ativo) : []);
+      aplicar(await requisitar('/valores'));
     } catch (_err) {
-      // silencioso: o card só não mostra dados
+      // silencioso: a seção só não mostra dados
     } finally {
       setCarregando(false);
     }
-  }, [requisitar]);
+  }, [aplicar, requisitar]);
 
   useEffect(() => { carregar(); }, [carregar]);
 
-  const alternarAtivo = async () => {
-    if (salvando) return;
+  const temValorSalvo = [...itens, ...outros].some((s) => s.valor != null);
+
+  const salvarValores = async () => {
+    const lista = [...itens, ...outros].map((s) => ({
+      nome: s.nome,
+      categoria: s.categoria || 'outros',
+      duracao_minutos: Number(s.duracao_minutos) || 30,
+      valor: paraNumero(valores[s.nome]),
+    }));
+    if (lista.some((i) => Number.isNaN(i.valor) || (i.valor != null && i.valor < 0))) {
+      avisar('Confira os valores: use só números (ex.: 50 ou 49,90)', 'error');
+      return;
+    }
     setSalvando(true);
     try {
-      const data = await requisitar('/atendimento', {
-        method: 'PUT',
-        body: JSON.stringify({ atende_domicilio: !ativo }),
+      aplicar(await requisitar('/valores', { method: 'PUT', body: JSON.stringify({ itens: lista }) }));
+      avisar('Valores a domicílio salvos', 'success');
+    } catch (err) {
+      avisar(err.message || 'Erro ao salvar valores', 'error');
+    } finally {
+      setSalvando(false);
+    }
+  };
+
+  const adicionarServico = async (e) => {
+    e.preventDefault();
+    const valor = paraNumero(novo.valor);
+    const duracao = Number(novo.duracao_minutos);
+    if (novo.nome.trim().length < 2 || !(valor > 0)) {
+      avisar('Preencha nome e valor', 'error');
+      return;
+    }
+    setSalvando(true);
+    try {
+      await requisitar('/meus-servicos', {
+        method: 'POST',
+        body: JSON.stringify({ nome: novo.nome.trim(), categoria: 'outros', valor, duracao_minutos: duracao >= 5 ? duracao : 30 }),
       });
+      setNovo(FORM_VAZIO);
+      avisar('Serviço adicionado!', 'success');
+      await carregar();
+    } catch (err) {
+      avisar(err.message || 'Erro ao salvar serviço', 'error');
+    } finally {
+      setSalvando(false);
+    }
+  };
+
+  const removerOutro = async (servico) => {
+    setSalvando(true);
+    try {
+      await requisitar(`/meus-servicos/${servico.id}`, { method: 'DELETE' });
+      await carregar();
+    } catch (err) {
+      avisar(err.message || 'Erro ao remover serviço', 'error');
+    } finally {
+      setSalvando(false);
+    }
+  };
+
+  const alternarAtivo = async () => {
+    setSalvando(true);
+    try {
+      const data = await requisitar('/atendimento', { method: 'PUT', body: JSON.stringify({ atende_domicilio: !ativo }) });
       setAtivo(Boolean(data?.atende_domicilio));
       avisar(data?.atende_domicilio ? 'Você agora aparece para clientes a domicílio' : 'Atendimento a domicílio desligado', 'success');
     } catch (err) {
@@ -76,141 +137,111 @@ export default function ServicosDomicilioFreelancer({ token, API_URL, notify }) 
     }
   };
 
-  const adicionarServico = async (e) => {
-    e.preventDefault();
-    const valor = Number(String(form.valor).replace(',', '.'));
-    const duracao = Number(form.duracao_minutos);
-    if (form.nome.trim().length < 2) { avisar('Informe o nome do serviço', 'error'); return; }
-    if (!(valor > 0)) { avisar('Informe um preço válido', 'error'); return; }
-    if (!(duracao >= 5)) { avisar('Informe a duração em minutos', 'error'); return; }
-    setSalvando(true);
-    try {
-      await requisitar('/meus-servicos', {
-        method: 'POST',
-        body: JSON.stringify({ nome: form.nome.trim(), categoria: form.categoria, valor, duracao_minutos: duracao }),
-      });
-      setForm(FORM_VAZIO);
-      setMostrarForm(false);
-      avisar('Serviço a domicílio cadastrado', 'success');
-      await carregar();
-    } catch (err) {
-      avisar(err.message, 'error');
-    } finally {
-      setSalvando(false);
-    }
-  };
-
-  const removerServico = async (servico) => {
-    if (salvando) return;
-    setSalvando(true);
-    try {
-      const data = await requisitar(`/meus-servicos/${servico.id}`, { method: 'DELETE' });
-      if (data?.atende_domicilio === false && ativo) avisar('Sem serviços ativos: atendimento a domicílio desligado', 'info');
-      await carregar();
-    } catch (err) {
-      avisar(err.message, 'error');
-    } finally {
-      setSalvando(false);
-    }
-  };
+  const linhaValor = (s, extra = null) => (
+    <div key={s.nome} className="flex items-center justify-between gap-3 bg-black/60 p-3 rounded-lg border border-purple-600/20">
+      <div className="min-w-0">
+        <p className="text-sm font-medium text-white truncate">{s.nome}</p>
+        <p className="text-[11px] text-zinc-500">{s.duracao_minutos || 30} min</p>
+      </div>
+      <div className="flex items-center gap-2 shrink-0">
+        <div className="flex items-center rounded-lg border border-zinc-800 bg-black focus-within:border-purple-500">
+          <span className="pl-2 text-xs text-zinc-500">R$</span>
+          <input
+            inputMode="decimal"
+            aria-label={`Valor a domicílio de ${s.nome}`}
+            placeholder="—"
+            value={valores[s.nome] ?? ''}
+            onChange={(e) => setValores((v) => ({ ...v, [s.nome]: e.target.value.replace(/[^\d.,]/g, '') }))}
+            className="w-20 bg-transparent p-2 text-right text-sm text-green-400 font-bold outline-none"
+          />
+        </div>
+        {extra}
+      </div>
+    </div>
+  );
 
   return (
-    <div className="rounded-2xl border border-zinc-800 bg-zinc-900 p-4 space-y-3">
-      <div className="flex items-center justify-between gap-3">
-        <div className="flex items-center gap-2 min-w-0">
-          <span className="h-9 w-9 shrink-0 rounded-xl bg-zinc-800 text-orange-400 flex items-center justify-center"><House size={18} /></span>
-          <div className="min-w-0">
-            <p className="text-sm font-bold text-white">Atendimento a domicílio</p>
-            <p className="text-[11px] text-zinc-500">Clientes perto de você chamam você direto em casa.</p>
-          </div>
+    <div className="bg-zinc-900/60 p-5 rounded-2xl border border-purple-600/30 space-y-4">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <h3 className="font-bold text-sm flex items-center gap-2 text-purple-400">🏠 Valores a cobrar a domicílio</h3>
+          <p className="mt-1 text-[11px] text-zinc-500">
+            Só clientes que escolhem A DOMICÍLIO veem estes valores. Os preços da barbearia não mudam. Deixe vazio o que você não oferece.
+          </p>
         </div>
         <button
           type="button"
           role="switch"
           aria-checked={ativo}
-          onClick={alternarAtivo}
-          disabled={carregando || salvando || (!ativo && servicos.length === 0)}
-          className={`relative h-7 w-12 shrink-0 rounded-full transition-colors disabled:opacity-50 ${ativo ? 'bg-orange-500' : 'bg-zinc-700'}`}
           aria-label="Atendo a domicílio"
+          onClick={alternarAtivo}
+          disabled={carregando || salvando || (!ativo && !temValorSalvo)}
+          className={`relative mt-0.5 h-7 w-12 shrink-0 rounded-full transition-colors disabled:opacity-50 ${ativo ? 'bg-orange-500' : 'bg-zinc-700'}`}
         >
           <span className={`absolute top-1 h-5 w-5 rounded-full bg-white transition-all ${ativo ? 'left-6' : 'left-1'}`} />
         </button>
       </div>
+      <p className={`text-[11px] font-semibold ${ativo ? 'text-emerald-300' : 'text-zinc-500'}`}>
+        {ativo ? 'Atendendo a domicílio: clientes próximos podem chamar você.' : (temValorSalvo ? 'Ligue o botão para aparecer para clientes a domicílio.' : 'Salve ao menos um valor para poder ligar o atendimento a domicílio.')}
+      </p>
 
-      {!carregando && servicos.length === 0 && (
-        <p className="text-[11px] text-amber-300/90">Cadastre ao menos um serviço com preço para poder ativar.</p>
-      )}
-
-      {servicos.length > 0 && (
-        <div className="space-y-1.5">
-          {servicos.map((s) => (
-            <div key={s.id} className="flex items-center justify-between gap-2 rounded-lg border border-zinc-800 bg-black/30 px-3 py-2">
-              <div className="min-w-0">
-                <p className="text-xs font-semibold text-white truncate">{s.nome}</p>
-                <p className="text-[11px] text-zinc-500">{s.duracao_minutos} min · {formatarPreco(s.valor)}</p>
-              </div>
+      {carregando ? (
+        <p className="text-xs text-zinc-500 text-center py-4">Carregando...</p>
+      ) : (
+        <>
+          <div className="space-y-2">
+            {itens.map((s) => linhaValor(s))}
+            {outros.map((s) => linhaValor(s, (
               <button
                 type="button"
-                onClick={() => removerServico(s)}
+                onClick={() => removerOutro(s)}
                 disabled={salvando}
-                className="shrink-0 text-[11px] font-bold text-red-400 hover:text-red-300 disabled:opacity-50"
+                className="text-[11px] font-bold text-red-400 hover:text-red-300 disabled:opacity-50"
               >
                 Remover
               </button>
-            </div>
-          ))}
-        </div>
-      )}
+            )))}
+          </div>
 
-      {mostrarForm ? (
-        <form onSubmit={adicionarServico} className="space-y-2 rounded-xl border border-zinc-800 bg-black/30 p-3">
-          <input
-            value={form.nome}
-            onChange={(e) => setForm((f) => ({ ...f, nome: e.target.value }))}
-            maxLength={80}
-            placeholder="Nome do serviço (ex.: Corte em casa)"
-            className="bm-input w-full px-3 py-2 rounded-lg border border-zinc-800 outline-none focus:border-orange-500 text-sm text-white"
-          />
-          <select
-            value={form.categoria}
-            onChange={(e) => setForm((f) => ({ ...f, categoria: e.target.value }))}
-            className="bm-input w-full px-3 py-2 rounded-lg border border-zinc-800 outline-none focus:border-orange-500 text-sm text-white bg-zinc-950"
+          <button
+            type="button"
+            onClick={salvarValores}
+            disabled={salvando}
+            className="w-full bg-green-600 hover:bg-green-700 disabled:opacity-60 text-white px-4 py-3 rounded-lg font-bold text-sm transition-all"
           >
-            {CATEGORIAS.map((c) => <option key={c.id} value={c.id}>{c.nome}</option>)}
-          </select>
-          <div className="grid grid-cols-2 gap-2">
+            {salvando ? 'Salvando...' : 'Salvar valores'}
+          </button>
+
+          <form onSubmit={adicionarServico} className="space-y-3 border-t border-zinc-800 pt-4">
+            <p className="text-xs font-bold text-zinc-400">Outro serviço a domicílio</p>
             <input
-              value={form.valor}
-              onChange={(e) => setForm((f) => ({ ...f, valor: e.target.value }))}
-              inputMode="decimal"
-              placeholder="Preço (R$)"
-              className="bm-input w-full px-3 py-2 rounded-lg border border-zinc-800 outline-none focus:border-orange-500 text-sm text-white"
+              className="w-full bg-black rounded-lg p-3 border border-zinc-800 text-sm outline-none focus:border-purple-500 text-white"
+              placeholder="Nome do serviço (ex: Pigmentação)"
+              maxLength={80}
+              value={novo.nome}
+              onChange={(e) => setNovo({ ...novo, nome: e.target.value })}
             />
-            <input
-              value={form.duracao_minutos}
-              onChange={(e) => setForm((f) => ({ ...f, duracao_minutos: e.target.value.replace(/\D/g, '') }))}
-              inputMode="numeric"
-              placeholder="Duração (min)"
-              className="bm-input w-full px-3 py-2 rounded-lg border border-zinc-800 outline-none focus:border-orange-500 text-sm text-white"
-            />
-          </div>
-          <div className="grid grid-cols-2 gap-2">
-            <button type="button" onClick={() => { setMostrarForm(false); setForm(FORM_VAZIO); }} className="rounded-lg border border-zinc-700 py-2 text-xs font-bold text-zinc-300">
-              Cancelar
+            <div className="grid grid-cols-2 gap-3">
+              <input
+                className="bg-black rounded-lg p-3 border border-zinc-800 text-sm outline-none focus:border-purple-500 text-white"
+                inputMode="decimal"
+                placeholder="Valor R$"
+                value={novo.valor}
+                onChange={(e) => setNovo({ ...novo, valor: e.target.value.replace(/[^\d.,]/g, '') })}
+              />
+              <input
+                className="bg-black rounded-lg p-3 border border-zinc-800 text-sm outline-none focus:border-purple-500 text-white"
+                inputMode="numeric"
+                placeholder="Duração (min)"
+                value={novo.duracao_minutos}
+                onChange={(e) => setNovo({ ...novo, duracao_minutos: e.target.value.replace(/\D/g, '') })}
+              />
+            </div>
+            <button type="submit" disabled={salvando} className="w-full bg-orange-600 hover:bg-orange-700 disabled:opacity-60 text-white px-4 py-3 rounded-lg font-bold text-sm transition-all">
+              + Adicionar Serviço
             </button>
-            <button type="submit" disabled={salvando} className="rounded-lg bg-orange-600 py-2 text-xs font-bold text-white hover:bg-orange-500 disabled:opacity-60">
-              {salvando ? 'Salvando...' : 'Salvar serviço'}
-            </button>
-          </div>
-        </form>
-      ) : (
-        <button
-          type="button"
-          onClick={() => setMostrarForm(true)}
-          className="w-full rounded-lg border border-dashed border-zinc-700 py-2 text-xs font-bold text-zinc-300 hover:border-orange-500 hover:text-orange-300"
-        >
-          + Adicionar serviço a domicílio
-        </button>
+          </form>
+        </>
       )}
     </div>
   );

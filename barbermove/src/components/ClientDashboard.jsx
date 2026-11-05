@@ -280,6 +280,7 @@ export default function ClientDashboard({ token, logout, API_URL: apiUrlProp, no
     const [loadingFreelancersDomicilio, setLoadingFreelancersDomicilio] = useState(false);
     const domicilioReqRef = useRef(0); // descarta resposta atrasada ao trocar de modalidade
     const [freelancerDomicilioPreview, setFreelancerDomicilioPreview] = useState(null); // perfil antes de escolher
+    const [valoresDomicilioPreview, setValoresDomicilioPreview] = useState(null); // preços a domicílio do perfil aberto (null = carregando)
     const [freelancerDomicilio, setFreelancerDomicilio] = useState(null); // freelancer escolhido no domicílio
     const [servicosDomicilio, setServicosDomicilio] = useState([]);
     const [servicosDomicilioSelecionados, setServicosDomicilioSelecionados] = useState([]);
@@ -712,6 +713,22 @@ export default function ClientDashboard({ token, logout, API_URL: apiUrlProp, no
             setLoadingFreelancersDomicilio(false);
         }
     }, [sincronizarLocalizacaoCliente, carregarFreelancersDomicilio, notifySafe]);
+
+    // Perfil aberto pela modalidade A DOMICÍLIO: mostra os valores a domicílio do freelancer
+    // (nunca no fluxo da barbearia, que continua com os preços da barbearia).
+    useEffect(() => {
+        const freelancerId = freelancerDomicilioPreview?.id;
+        if (!freelancerId) return undefined;
+        let ativo = true;
+        setValoresDomicilioPreview(null);
+        fetch(`${API_URL}/api/v1/domicilio/freelancer/${freelancerId}/servicos`, {
+            headers: { Authorization: `Bearer ${token}` },
+        })
+            .then((res) => safeReadJson(res, null).then((data) => (res.ok ? data : null)))
+            .then((data) => { if (ativo) setValoresDomicilioPreview(Array.isArray(data?.servicos) ? data.servicos : []); })
+            .catch(() => { if (ativo) setValoresDomicilioPreview([]); });
+        return () => { ativo = false; };
+    }, [freelancerDomicilioPreview?.id, API_URL, token]);
 
     const escolherModalidadeHome = (modalidade) => {
         setModalidadeHome(modalidade);
@@ -2967,6 +2984,24 @@ export default function ClientDashboard({ token, logout, API_URL: apiUrlProp, no
                     <div className="flex justify-between items-center mb-3">
                         <h3 className="text-sm font-bold text-white">Perfil do freelancer</h3>
                         <button onClick={() => setFreelancerDomicilioPreview(null)} className="text-zinc-400">✕</button>
+                    </div>
+                    <div className="mb-4 rounded-2xl border border-orange-500/30 bg-orange-500/5 p-3 space-y-2">
+                        <p className="text-xs font-black uppercase tracking-[0.14em] text-orange-300">🏠 Valores a domicílio</p>
+                        {valoresDomicilioPreview == null ? (
+                            <p className="text-xs text-zinc-500">Carregando valores...</p>
+                        ) : valoresDomicilioPreview.length === 0 ? (
+                            <p className="text-xs text-zinc-500">Nenhum serviço a domicílio cadastrado.</p>
+                        ) : (
+                            valoresDomicilioPreview.map((servico) => (
+                                <div key={servico.id} className="flex items-center justify-between gap-3 rounded-lg border border-zinc-800 bg-black/30 px-3 py-2">
+                                    <span className="min-w-0">
+                                        <span className="block text-sm text-white truncate">{servico.nome}</span>
+                                        <span className="block text-[11px] text-zinc-500">{servico.duracao_minutos || 30} min</span>
+                                    </span>
+                                    <span className="text-sm font-bold text-green-400 shrink-0">{formatarPrecoServico(servico.valor)}</span>
+                                </div>
+                            ))
+                        )}
                     </div>
                     <ProfileCard
                         usuarioId={freelancerDomicilioPreview.id}
