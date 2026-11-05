@@ -93,6 +93,34 @@ def init_db():
                 connection.execute(text("ALTER TABLE usuarios ADD COLUMN data_nascimento DATE"))
                 print("[migracao] Coluna data_nascimento criada")
 
+        # Atendimento a domicílio: opt-in do freelancer (nasce desligado)
+        if "atende_domicilio" not in colunas_existentes:
+            with engine.begin() as connection:
+                connection.execute(text("ALTER TABLE usuarios ADD COLUMN atende_domicilio BOOLEAN DEFAULT FALSE"))
+                print("[migracao] Coluna atende_domicilio criada")
+
+    postgres = engine.dialect.name == "postgresql"
+
+    # Atendimento a domicílio: serviço do freelancer (sem barbearia).
+    # SQLite não suporta DROP NOT NULL; o banco de teste nasce do models (já nullable).
+    if "servicos" in inspector.get_table_names():
+        colunas_servicos = {coluna["name"]: coluna for coluna in inspector.get_columns("servicos")}
+        if "freelancer_id" not in colunas_servicos:
+            with engine.begin() as connection:
+                connection.execute(text("ALTER TABLE servicos ADD COLUMN freelancer_id INTEGER"))
+                print("[migracao] Coluna servicos.freelancer_id criada")
+        if postgres and not colunas_servicos.get("barbearia_id", {}).get("nullable", True):
+            with engine.begin() as connection:
+                connection.execute(text("ALTER TABLE servicos ALTER COLUMN barbearia_id DROP NOT NULL"))
+                print("[migracao] servicos.barbearia_id agora aceita NULL")
+
+    if postgres and "agendamentos_ativos" in inspector.get_table_names():
+        colunas_ativos = {coluna["name"]: coluna for coluna in inspector.get_columns("agendamentos_ativos")}
+        if not colunas_ativos.get("barbearia_id", {}).get("nullable", True):
+            with engine.begin() as connection:
+                connection.execute(text("ALTER TABLE agendamentos_ativos ALTER COLUMN barbearia_id DROP NOT NULL"))
+                print("[migracao] agendamentos_ativos.barbearia_id agora aceita NULL")
+
     if "condicoes_estrutura_barbearia" in inspector.get_table_names():
         colunas_existentes = {coluna["name"] for coluna in inspector.get_columns("condicoes_estrutura_barbearia")}
         # Estrutura oferecida ao freelancer: equipamentos e textos livres do dono
@@ -123,6 +151,11 @@ def init_db():
             "pausado_em": "TIMESTAMP",  # ✅ Novo: timestamp de quando o atendimento foi pausado
             "pausa_acumulada_segundos": "INTEGER DEFAULT 0",  # ✅ Novo: soma das pausas deste atendimento
             "grupo_id": "INTEGER",  # ✅ Novo: liga chamados de uma mesma selecao de multiplos servicos
+            # Modalidade: chamados existentes ficam como atendimento na barbearia
+            "modalidade": "VARCHAR(30) DEFAULT 'ATENDIMENTO_BARBEARIA'",
+            "endereco_atendimento": "VARCHAR(255)",
+            "latitude_atendimento": "FLOAT",
+            "longitude_atendimento": "FLOAT",
         }
 
         with engine.begin() as connection:

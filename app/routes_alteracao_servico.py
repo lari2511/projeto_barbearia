@@ -24,6 +24,20 @@ from app.routes import get_current_user, calcular_split_pagamento, _duracao_serv
 
 router = APIRouter(prefix="/api/v1", tags=["Alteração de serviço"])
 
+
+def _filtro_catalogo(chamado: models.Chamado):
+    """Catálogo do atendimento: serviços da barbearia, ou do freelancer no domicílio."""
+    if models.chamado_domiciliar(chamado):
+        return models.Servico.freelancer_id == chamado.barbeiro_id, models.Servico.barbearia_id.is_(None)
+    return (models.Servico.barbearia_id == chamado.barbearia_id,)
+
+
+def _split(chamado: models.Chamado, valor: float) -> dict:
+    if models.chamado_domiciliar(chamado):
+        from app.routes_domicilio import calcular_split_domiciliar
+        return calcular_split_domiciliar(valor)
+    return calcular_split_pagamento(valor)
+
 CANCELADO = models.StatusAgendamento.CANCELADO.value
 CONCLUIDO = models.StatusAgendamento.CONCLUIDO.value
 EM_ATENDIMENTO = models.StatusAgendamento.EM_ATENDIMENTO.value
@@ -133,7 +147,7 @@ def _aplicar_plano(db: Session, plano, agora: datetime, motivo_cancelamento: str
         if novo_servico_id != membro.servico_id:
             dur_antiga = _duracao_servico_min(db, membro.servico_id)
             servico = db.query(models.Servico).filter(models.Servico.id == novo_servico_id).first()
-            split = calcular_split_pagamento(servico.valor)
+            split = _split(membro, servico.valor)
             membro.servico_id = novo_servico_id
             membro.valor_total = split["valor_total"]
             membro.comissao_plataforma = split["comissao_plataforma"]
@@ -161,13 +175,17 @@ def _aplicar_plano(db: Session, plano, agora: datetime, motivo_cancelamento: str
         criado_em_grupo = max((m.criado_em for m in irmaos if m.criado_em), default=agora)
         for sid in adicionados:
             servico = db.query(models.Servico).filter(models.Servico.id == sid).first()
-            split = calcular_split_pagamento(servico.valor)
+            split = _split(base, servico.valor)
             novo = models.Chamado(
                 cliente_id=base.cliente_id,
                 barbeiro_id=base.barbeiro_id,
                 servico_id=sid,
                 barbearia_id=base.barbearia_id,
                 cadeira_id=base.cadeira_id,
+                modalidade=base.modalidade,
+                endereco_atendimento=base.endereco_atendimento,
+                latitude_atendimento=base.latitude_atendimento,
+                longitude_atendimento=base.longitude_atendimento,
                 grupo_id=base.grupo_id,
                 status=models.StatusAgendamento.CONFIRMADO.value,
                 aprovado_barbeiro=True,
@@ -249,7 +267,7 @@ def obter_alteracao_servico(
 
     membros = _membros_grupo(db, chamado)
     servicos = db.query(models.Servico).filter(
-        models.Servico.barbearia_id == chamado.barbearia_id,
+        *_filtro_catalogo(chamado),
         models.Servico.ativo == True,
     ).order_by(models.Servico.nome.asc()).all()
     concluidos = [m.servico_id for m in membros if str(m.status or "").lower() == CONCLUIDO]
@@ -294,7 +312,7 @@ def solicitar_alteracao_servico(
     validos = {
         s.id for s in db.query(models.Servico).filter(
             models.Servico.id.in_(novos_ids),
-            models.Servico.barbearia_id == chamado.barbearia_id,
+            *_filtro_catalogo(chamado),
         ).all()
     }
     if len(validos) != len(novos_ids):
@@ -387,7 +405,7 @@ def obter_alterar_servico_cliente(
     """Serviços atuais do atendimento em andamento + serviços disponíveis da barbearia."""
     em_atend, membros = _chamado_do_cliente_em_atendimento(db, chamado_id, usuario)
     servicos = db.query(models.Servico).filter(
-        models.Servico.barbearia_id == em_atend.barbearia_id,
+        *_filtro_catalogo(em_atend),
         models.Servico.ativo == True,
     ).order_by(models.Servico.nome.asc()).all()
     por_id = {s.id: s for s in servicos}
@@ -427,7 +445,7 @@ def alterar_servico_cliente(
     validos = {
         s.id for s in db.query(models.Servico).filter(
             models.Servico.id.in_(novos_ids),
-            models.Servico.barbearia_id == em_atend.barbearia_id,
+            *_filtro_catalogo(em_atend),
         ).all()
         if s.ativo or s.id in atuais_ids
     }

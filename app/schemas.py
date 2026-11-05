@@ -321,7 +321,9 @@ class TemplateSevico(BaseModel):
 
 class ChamadoCreate(BaseModel):
     servico_id: int
-    barbearia_id: int
+    # Obrigatório na modalidade ATENDIMENTO_BARBEARIA (validado em criar_chamado);
+    # ausente no ATENDIMENTO_DOMICILIAR (sem vínculo com barbearia).
+    barbearia_id: Optional[int] = None
     barbeiro_id: Optional[int] = None  # Barbeiro específico (opcional)
     barbeiro_selecionado_id: Optional[int] = None  # Confirmação defensiva de origem do frontend
     cadeira_id: Optional[int] = None  # BRB/cadeira (opcional)
@@ -330,6 +332,13 @@ class ChamadoCreate(BaseModel):
     cliente_latitude: float
     cliente_longitude: float
     grupo_id: Optional[int] = None  # Liga chamados criados juntos numa selecao de multiplos servicos
+    # ATENDIMENTO_BARBEARIA (padrão) | ATENDIMENTO_DOMICILIAR
+    modalidade: Optional[str] = None
+    # Domicílio: endereço onde o cliente quer ser atendido (obrigatório nessa modalidade).
+    # Coordenadas opcionais; sem elas usa a localização atual do cliente.
+    endereco_atendimento: Optional[str] = None
+    latitude_atendimento: Optional[float] = None
+    longitude_atendimento: Optional[float] = None
 
 
 class ChamadoResponse(BaseModel):

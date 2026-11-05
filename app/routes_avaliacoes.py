@@ -21,6 +21,7 @@ from sqlalchemy.orm import Session
 from typing import List, Optional
 
 from app.database import get_db
+from app.models import MODALIDADE_BARBEARIA, chamado_domiciliar
 from app.models import (
     Chamado, Usuario, Freelancer, Barbearia, Pagamento,
     AvaliacaoFreelancer, AvaliacaoBarbearia, StatusAgendamento
@@ -445,6 +446,7 @@ def pendentes_cliente(
             Usuario.id == barbearia.usuario_id
         ).first() if barbearia else None
 
+        domiciliar = chamado_domiciliar(chamado)
         aval_free = db.query(AvaliacaoFreelancer).filter(
             AvaliacaoFreelancer.chamado_id == chamado.id,
             AvaliacaoFreelancer.avaliador_id == usuario_atual.id,
@@ -462,10 +464,12 @@ def pendentes_cliente(
             "freelancer_nome": barbeiro.nome if barbeiro else "Freelancer",
             "freelancer_foto": barbeiro.foto_perfil if barbeiro else None,
             "barbearia_id": barbearia.id if barbearia else None,
-            "barbearia_nome": barbearia.nome if barbearia else "Barbearia",
+            "barbearia_nome": barbearia.nome if barbearia else (None if domiciliar else "Barbearia"),
             "barbearia_foto": dono.foto_perfil if dono else None,
+            "modalidade": chamado.modalidade or MODALIDADE_BARBEARIA,
             "avaliacao_freelancer_enviada": bool(aval_free),
-            "avaliacao_barbearia_enviada": bool(aval_barb),
+            # Domicílio não tem barbearia: não há o que avaliar (não interfere nas médias).
+            "avaliacao_barbearia_enviada": domiciliar or bool(aval_barb),
             "pagamento_concluido": bool(pagamento and pagamento.pago_em),
         })
 

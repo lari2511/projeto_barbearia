@@ -8,6 +8,16 @@ from datetime import datetime
 from .database import Base
 import enum
 
+# --- MODALIDADE DO CHAMADO ---
+MODALIDADE_BARBEARIA = "ATENDIMENTO_BARBEARIA"
+MODALIDADE_DOMICILIAR = "ATENDIMENTO_DOMICILIAR"
+
+
+def chamado_domiciliar(chamado) -> bool:
+    """True se o chamado é atendimento a domicílio (sem barbearia/cadeira/fila da barbearia)."""
+    return bool(chamado is not None and getattr(chamado, "modalidade", None) == MODALIDADE_DOMICILIAR)
+
+
 # --- ENUMS (Estados) ---
 class StatusAgendamento(str, enum.Enum):
     """Status possíveis de um agendamento"""
@@ -119,6 +129,9 @@ class Usuario(Base):
     # nasce fechado (None) e volta a fechar quando a presença termina ou muda de
     # barbearia (ver _fechar_cadeado_* abaixo). Independe de online_regiao.
     clientes_app_liberado_barbearia_id = Column(Integer, nullable=True)
+    # Freelancer aceita atendimento a domicílio (opt-in; nasce desligado).
+    # Só aparece em "Freelancers perto de você" com isso ligado + serviço a domicílio ativo.
+    atende_domicilio = Column(Boolean, default=False)
     # Freelancer: tempo de experiência informado no cadastro ("Menos de 1 ano", "1 ano", ..., "5 anos ou mais")
     tempo_experiencia = Column(String, nullable=True)
     # Freelancer: data de nascimento declarada (exige 18 anos completos). Não é pedida a cliente nem a dono.
@@ -233,8 +246,11 @@ class Servico(Base):
     
     id = Column(Integer, primary_key=True, index=True)
     # O SEGREDO: Este serviço pertence EXCLUSIVAMENTE a esta barbearia
-    barbearia_id = Column(Integer, ForeignKey("barbearias.id"), nullable=False, index=True)
-    
+    # (None = serviço a domicílio do freelancer em `freelancer_id`, sem barbearia).
+    barbearia_id = Column(Integer, ForeignKey("barbearias.id"), nullable=True, index=True)
+    # Atendimento a domicílio: serviço/preço próprios do freelancer (Usuario.id).
+    freelancer_id = Column(Integer, ForeignKey("usuarios.id"), nullable=True, index=True)
+
     # ✅ LIBERDADE: O dono escreve o que quiser (nome criativo)
     nome = Column(String, nullable=False)  # Ex: "O Rei do Disfarce"
     descricao = Column(String, nullable=True)
@@ -268,6 +284,14 @@ class Chamado(Base):
     pausado_em = Column(DateTime, nullable=True)  # Timestamp de quando o atendimento em andamento foi pausado
     pausa_acumulada_segundos = Column(Integer, default=0)  # Soma de todas as pausas deste atendimento
     grupo_id = Column(Integer, nullable=True, index=True)  # Liga chamados criados juntos (selecao de multiplos servicos)
+
+    # --- MODALIDADE (barbearia x domicílio) ---
+    # ATENDIMENTO_BARBEARIA (padrão, fluxo de sempre) | ATENDIMENTO_DOMICILIAR (sem barbearia,
+    # sem cadeira, sem fila da barbearia; o endereço abaixo é o local do atendimento).
+    modalidade = Column(String, default=MODALIDADE_BARBEARIA)
+    endereco_atendimento = Column(String, nullable=True)
+    latitude_atendimento = Column(Float, nullable=True)
+    longitude_atendimento = Column(Float, nullable=True)
 
     # --- STATUS (Máquina de estados) ---
     status = Column(String, default=StatusAgendamento.PENDENTE)  # pendente, confirmado, concluído, cancelado
@@ -327,7 +351,7 @@ class AgendamentoAtivo(Base):
     id = Column(Integer, primary_key=True, index=True)
     chamado_id = Column(Integer, ForeignKey("chamados.id"), unique=True, nullable=False, index=True)
     cliente_id = Column(Integer, ForeignKey("usuarios.id"), nullable=False, index=True)
-    barbearia_id = Column(Integer, ForeignKey("barbearias.id"), nullable=False, index=True)
+    barbearia_id = Column(Integer, ForeignKey("barbearias.id"), nullable=True, index=True)  # None no atendimento a domicílio
     barbeiro_id = Column(Integer, ForeignKey("usuarios.id"), nullable=True, index=True)
 
     cliente_lat = Column(Float, nullable=True)

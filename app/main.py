@@ -53,6 +53,7 @@ from .routes_firebase import router as router_firebase  # 🔔 Gerenciamento de 
 from .routes_on_demand import router as router_on_demand  # 📍 Sistema On-Demand com geolocalização (estilo Uber)
 from .routes_pagamento_perfis import router as router_pagamento_perfis  # 💳 Conta do barbeiro e split admin
 from .routes_senha import router as router_senha  # 🔑 Reset de senha
+from .routes_domicilio import router as router_domicilio  # 🏠 Atendimento a domicílio (cliente escolhe freelancer direto)
 from .routes_visibilidade import router as router_visibilidade  # 👁️ Camada de visibilidade do ecossistema local (somente leitura)
 from .routes_interesse import router as router_interesse  # 👀 Interesse de clientes (perfil de barbearia sem cadeira disponivel)
 from .routes_alteracao_servico import router as router_alteracao_servico  # ✂️ Alteração de serviço pelo freelancer (confirmada pelo cliente)
@@ -155,6 +156,7 @@ app.include_router(router_on_demand)  # 📍 On-Demand com geolocalização
 app.include_router(router_admin_avaliacoes)  # 🛡️ Gerenciamento admin de avaliações e bloqueios
 app.include_router(router_pagamento_perfis)  # 💳 Configurações de pagamento
 app.include_router(router_senha)  # 🔑 Reset de senha
+app.include_router(router_domicilio)  # 🏠 Atendimento a domicílio
 app.include_router(router_visibilidade)  # 👁️ Visibilidade do ecossistema local (freelancer vê barbearias / dono vê freelancers)
 app.include_router(router_cobrancas)  # 💠 Cobranças Pix (Mercado Pago)
 app.include_router(router_cadastro)  # 📝 Cadastro rápido e completar perfil

@@ -51,6 +51,9 @@ export default function TrackingPanel({ chamado, token, API_URL, notify, modo = 
         barbeariaDoChamadoId,
     ]);
     const chegadaDoUsuarioConfirmada = isClienteMode ? clienteChegou : (barbeiroChegou || barbeiroPresenteNoLocal);
+    // Atendimento a domicílio: o destino é o endereço do cliente (vem do próprio tracking).
+    const domiciliar = (resumo?.modalidade || chamado?.modalidade) === 'ATENDIMENTO_DOMICILIAR';
+    const noLocal = domiciliar ? 'no endereço do cliente' : 'na barbearia';
     const trackingAtivo = isBarbeariaMode
         ? Boolean(chamadoIdAtual)
         : ['confirmado', 'aceito'].includes(String(statusChamadoAtual || '').toLowerCase());
@@ -110,6 +113,9 @@ export default function TrackingPanel({ chamado, token, API_URL, notify, modo = 
                             }
                             if (cBarbeiro?.lat != null && cBarbeiro?.lon != null) {
                                 setCoordsBarbeiro({ lat: Number(cBarbeiro.lat), lon: Number(cBarbeiro.lon) });
+                            }
+                            if (tracking?.modalidade === 'ATENDIMENTO_DOMICILIAR' && tracking?.barbearia) {
+                                setDestinoInfo(tracking.barbearia);
                             }
                         }
                     } catch (_err) {
@@ -186,7 +192,7 @@ export default function TrackingPanel({ chamado, token, API_URL, notify, modo = 
                     }
 
                     const barbeariaTracking = tracking?.barbearia;
-                    if (barbeariaTracking?.id) {
+                    if (barbeariaTracking?.id || tracking?.modalidade === 'ATENDIMENTO_DOMICILIAR') {
                         setDestinoInfo((prev) => ({ ...prev, ...barbeariaTracking }));
                     }
                 } catch (_err) {
@@ -361,18 +367,19 @@ export default function TrackingPanel({ chamado, token, API_URL, notify, modo = 
     if (compacto && (isClienteMode || isBarbeiroMode)) {
         if (!trackingAtivo) return null;
         const freelancerChegou = barbeiroChegou || barbeiroPresenteNoLocal;
-        const coordsOutraParte = isClienteMode ? coordsBarbeiro : coordsCliente;
+        // Domicílio: o freelancer vê o próprio trajeto até o endereço do cliente.
+        const coordsOutraParte = (isClienteMode || domiciliar) ? coordsBarbeiro : coordsCliente;
         const statusCaminho = isClienteMode
-            ? (freelancerChegou ? '✅ Freelancer chegou na barbearia' : '🚶 Freelancer a caminho')
-            : (freelancerChegou ? '✅ Você chegou na barbearia' : '🚶 Você está a caminho');
+            ? (freelancerChegou ? (domiciliar ? '✅ Freelancer chegou ao seu endereço' : '✅ Freelancer chegou na barbearia') : '🚶 Freelancer a caminho')
+            : (freelancerChegou ? `✅ Você chegou ${noLocal}` : '🚶 Você está a caminho');
         return (
             <div className="w-full space-y-3 text-white">
                 {coordsOutraParte && coordsBarbearia && (
                     <TrackingMapRealtime
                         origem={coordsOutraParte}
                         destino={coordsBarbearia}
-                        titulo={isClienteMode ? 'Freelancer' : 'Cliente'}
-                        subtitulo={isClienteMode ? (freelancerChegou ? 'Chegou na barbearia' : 'A caminho') : (clienteChegou ? 'Chegou na barbearia' : 'A caminho')}
+                        titulo={isClienteMode ? 'Freelancer' : (domiciliar ? 'Você' : 'Cliente')}
+                        subtitulo={isClienteMode ? (freelancerChegou ? `Chegou ${domiciliar ? 'ao seu endereço' : 'na barbearia'}` : 'A caminho') : (domiciliar ? 'Endereço do atendimento' : (clienteChegou ? 'Chegou na barbearia' : 'A caminho'))}
                         height="180px"
                         isMoving={posicaoAtual !== null}
                     />
@@ -380,7 +387,10 @@ export default function TrackingPanel({ chamado, token, API_URL, notify, modo = 
                 <div className={`rounded-xl border px-3 py-2.5 text-sm font-semibold text-center ${freelancerChegou ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-200' : 'border-zinc-700 bg-zinc-900/40 text-zinc-200'}`}>
                     {statusCaminho}
                 </div>
-                {isBarbeiroMode && barbeiroPresenteNoLocal ? (
+                {isClienteMode && domiciliar ? (
+                    // Domicílio: o cliente já está no endereço; só o freelancer confirma chegada.
+                    <p className="text-[11px] text-zinc-500 text-center">O atendimento começa quando o freelancer confirmar a chegada ao seu endereço.</p>
+                ) : isBarbeiroMode && barbeiroPresenteNoLocal ? (
                     // Freelancer já presente na barbearia: sem Cheguei (mesma regra do painel completo).
                     <div className="w-full rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-3 py-2.5 text-sm font-semibold text-emerald-200 text-center">
                         Você já está presente na barbearia. Apenas o cliente precisa confirmar chegada.
@@ -402,7 +412,7 @@ export default function TrackingPanel({ chamado, token, API_URL, notify, modo = 
                                         : 'Aproxime-se para confirmar'}
                         </button>
                         {!chegadaDoUsuarioConfirmada && !dentroDoLimiteParaChegada && (
-                            <p className="text-[11px] text-zinc-500 text-center">Disponível a até 200m da barbearia.</p>
+                            <p className="text-[11px] text-zinc-500 text-center">Disponível a até 200m {domiciliar ? 'do endereço do cliente' : 'da barbearia'}.</p>
                         )}
                     </>
                 )}
