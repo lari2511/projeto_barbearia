@@ -1,6 +1,6 @@
 import { formatarDataHoraSP } from '../utils/dataHora';
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { LogOut, Search, MapPin, Star, Calendar, ArrowRight, CheckCircle, User, MessageSquare, QrCode, Bell, Store, House } from 'lucide-react';
+import { LogOut, Search, MapPin, Star, Calendar, ArrowRight, CheckCircle, User, MessageSquare, QrCode, Bell } from 'lucide-react';
 import TelaPerfilUsuario from './TelaPerfilUsuario';
 import MapEmbed from './MapEmbed';
 import AbaPadronizadaAvaliacoes from './AbaPadronizadaAvaliacoes';
@@ -268,24 +268,6 @@ export default function ClientDashboard({ token, logout, API_URL: apiUrlProp, no
     const [vagasRelampago, setVagasRelampago] = useState([]);
     const [barbeariasProximasHome, setBarbeariasProximasHome] = useState([]); // "Barbearias BarberMove perto de você" (Home)
     const [loadingBarbeariasProximasHome, setLoadingBarbeariasProximasHome] = useState(false);
-    // Home: "Onde você quer ser atendido?" -> 'barbearia' (fluxo de sempre) | 'domicilio'
-    const [modalidadeHome, setModalidadeHome] = useState(() => {
-        try {
-            return window.localStorage.getItem('cliente_modalidade_home') === 'domicilio' ? 'domicilio' : 'barbearia';
-        } catch (_err) {
-            return 'barbearia';
-        }
-    });
-    const [freelancersDomicilio, setFreelancersDomicilio] = useState([]); // "Freelancers perto de você" (só freelancers)
-    const [loadingFreelancersDomicilio, setLoadingFreelancersDomicilio] = useState(false);
-    const domicilioReqRef = useRef(0); // descarta resposta atrasada ao trocar de modalidade
-    const [freelancerDomicilioPreview, setFreelancerDomicilioPreview] = useState(null); // perfil antes de escolher
-    const [valoresDomicilioPreview, setValoresDomicilioPreview] = useState(null); // preços a domicílio do perfil aberto (null = carregando)
-    const [freelancerDomicilio, setFreelancerDomicilio] = useState(null); // freelancer escolhido no domicílio
-    const [servicosDomicilio, setServicosDomicilio] = useState([]);
-    const [servicosDomicilioSelecionados, setServicosDomicilioSelecionados] = useState([]);
-    const [enderecoDomicilio, setEnderecoDomicilio] = useState('');
-    const [enviandoDomicilio, setEnviandoDomicilio] = useState(false);
     const [avaliacaoPendente, setAvaliacaoPendente] = useState(null); // pendencia do fluxo automatico pos-conclusao do servico
     const [passoAvaliacaoForcado, setPassoAvaliacaoForcado] = useState(null); // 'freelancer' | 'barbearia' quando o cliente escolhe direto na Home
     const [pendenciasClienteLista, setPendenciasClienteLista] = useState([]); // todas as pendencias (independente de "ja visto"), usada na Home
@@ -670,187 +652,6 @@ export default function ClientDashboard({ token, logout, API_URL: apiUrlProp, no
         }
     }, [sincronizarLocalizacaoCliente, carregarBarbeariasProximasHome, notifySafe]);
 
-    // ---------- A DOMICÍLIO: só freelancers, direto, sem barbearia ----------
-    // Usa a mesma localização da Home (última salva na conta / GPS sincronizado).
-    const carregarFreelancersDomicilio = useCallback(async ({ mostrarErro = false } = {}) => {
-        if (!token) return;
-        const reqId = ++domicilioReqRef.current;
-        setLoadingFreelancersDomicilio(true);
-        try {
-            const res = await fetch(`${API_URL}/api/v1/domicilio/freelancers-proximos`, {
-                headers: { Authorization: `Bearer ${token}` },
-            });
-            const data = await safeReadJson(res, null);
-            if (!res.ok) throw new Error(data?.detail || `HTTP ${res.status}`);
-            if (reqId !== domicilioReqRef.current) return;
-            const lista = Array.isArray(data?.freelancers) ? data.freelancers : [];
-            setFreelancersDomicilio(lista);
-            if (lista.length === 0 && mostrarErro) {
-                notifySafe(
-                    data?.erro ? 'Ative sua localização para ver freelancers perto de você' : 'Nenhum freelancer a domicílio perto de você agora',
-                    'info'
-                );
-            }
-        } catch (err) {
-            if (reqId !== domicilioReqRef.current) return;
-            setFreelancersDomicilio([]);
-            if (mostrarErro) notifySafe(`Erro ao carregar freelancers: ${err?.message || 'falha de conexão'}`, 'error');
-        } finally {
-            if (reqId === domicilioReqRef.current) setLoadingFreelancersDomicilio(false);
-        }
-    }, [API_URL, token, notifySafe]);
-
-    const atualizarLocalizacaoFreelancersDomicilio = useCallback(async () => {
-        setLoadingFreelancersDomicilio(true);
-        try {
-            await sincronizarLocalizacaoCliente();
-            await carregarFreelancersDomicilio({ mostrarErro: true });
-        } catch (err) {
-            const msg = err?.message === 'Permissão de localização negada'
-                ? 'Permissão de localização negada. Ative nas configurações do celular.'
-                : 'Não foi possível obter sua localização. Ative o GPS e tente novamente.';
-            notifySafe(msg, 'error');
-            setLoadingFreelancersDomicilio(false);
-        }
-    }, [sincronizarLocalizacaoCliente, carregarFreelancersDomicilio, notifySafe]);
-
-    // Perfil aberto pela modalidade A DOMICÍLIO: mostra os valores a domicílio do freelancer
-    // (nunca no fluxo da barbearia, que continua com os preços da barbearia).
-    useEffect(() => {
-        const freelancerId = freelancerDomicilioPreview?.id;
-        if (!freelancerId) return undefined;
-        let ativo = true;
-        setValoresDomicilioPreview(null);
-        fetch(`${API_URL}/api/v1/domicilio/freelancer/${freelancerId}/servicos`, {
-            headers: { Authorization: `Bearer ${token}` },
-        })
-            .then((res) => safeReadJson(res, null).then((data) => (res.ok ? data : null)))
-            .then((data) => { if (ativo) setValoresDomicilioPreview(Array.isArray(data?.servicos) ? data.servicos : []); })
-            .catch(() => { if (ativo) setValoresDomicilioPreview([]); });
-        return () => { ativo = false; };
-    }, [freelancerDomicilioPreview?.id, API_URL, token]);
-
-    const escolherModalidadeHome = (modalidade) => {
-        setModalidadeHome(modalidade);
-        try { window.localStorage.setItem('cliente_modalidade_home', modalidade); } catch (_err) { /* opcional */ }
-    };
-
-    const limparDomicilio = () => {
-        setFreelancerDomicilio(null);
-        setServicosDomicilio([]);
-        setServicosDomicilioSelecionados([]);
-    };
-
-    // Cliente escolheu o freelancer: abre a tela de serviços + endereço (aba Buscar, passo 'domicilio').
-    const iniciarSolicitacaoDomicilio = async (freelancer) => {
-        setFreelancerDomicilio(freelancer);
-        setServicosDomicilio([]);
-        setServicosDomicilioSelecionados([]);
-        setEnderecoDomicilio((atual) => atual || userData?.endereco || '');
-        setTab('buscar');
-        setStep('domicilio');
-        try {
-            const res = await fetch(`${API_URL}/api/v1/domicilio/freelancer/${freelancer.id}/servicos`, {
-                headers: { Authorization: `Bearer ${token}` },
-            });
-            const data = await safeReadJson(res, null);
-            if (!res.ok) throw new Error(data?.detail || `HTTP ${res.status}`);
-            setServicosDomicilio(Array.isArray(data?.servicos) ? data.servicos : []);
-        } catch (err) {
-            notifySafe(`Erro ao carregar serviços: ${err?.message || 'falha de conexão'}`, 'error');
-        }
-    };
-
-    const voltarDoDomicilio = () => {
-        limparDomicilio();
-        setStep('inicio');
-        setTab('inicio');
-    };
-
-    const toggleServicoDomicilio = (servico) => {
-        setServicosDomicilioSelecionados((prev) => (
-            prev.some((s) => s.id === servico.id) ? prev.filter((s) => s.id !== servico.id) : [...prev, servico]
-        ));
-    };
-
-    // Envia o pedido pelo mesmo POST /chamados (modalidade ATENDIMENTO_DOMICILIAR).
-    // Vários serviços = vários chamados ligados por grupo_id, como no fluxo da barbearia.
-    const handleSolicitarDomicilio = async () => {
-        if (!freelancerDomicilio || enviandoDomicilio) return;
-        if (servicosDomicilioSelecionados.length === 0) {
-            notifySafe('Selecione pelo menos um serviço', 'error');
-            return;
-        }
-        const endereco = String(enderecoDomicilio || '').trim();
-        if (endereco.length < 5) {
-            notifySafe('Informe o endereço onde você quer ser atendido', 'error');
-            return;
-        }
-
-        setEnviandoDomicilio(true);
-        let localizacao;
-        try {
-            localizacao = await obterPosicaoAltaPrecisa();
-            setUserLocation(localizacao);
-        } catch (_err) {
-            notifySafe('Não foi possível obter localização precisa. Ative o GPS e tente novamente.', 'error');
-            setEnviandoDomicilio(false);
-            return;
-        }
-
-        const nomes = servicosDomicilioSelecionados.map((s) => s.nome).join(', ');
-        const total = servicosDomicilioSelecionados.reduce((acc, s) => acc + (Number(s.valor) || 0), 0);
-        if (!confirmarAcaoChamada(`Solicitar ${nomes} a domicílio com ${freelancerDomicilio.nome}? R$${total}`)) {
-            setEnviandoDomicilio(false);
-            return;
-        }
-
-        try {
-            const inicio = new Date();
-            let offsetMin = 0;
-            let grupoId = null;
-            let primeiro = null;
-            for (const servico of servicosDomicilioSelecionados) {
-                const startTime = new Date(inicio.getTime() + offsetMin * 60000);
-                offsetMin += Number(servico.duracao_minutos) || 0;
-                const res = await fetch(`${API_URL}/api/v1/chamados`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-                    body: JSON.stringify({
-                        modalidade: 'ATENDIMENTO_DOMICILIAR',
-                        barbeiro_id: freelancerDomicilio.id,
-                        barbeiro_selecionado_id: freelancerDomicilio.id,
-                        servico_id: servico.id,
-                        data_hora_inicio: startTime.toISOString(),
-                        imediato: true,
-                        cliente_latitude: localizacao.latitude,
-                        cliente_longitude: localizacao.longitude,
-                        endereco_atendimento: endereco,
-                        latitude_atendimento: localizacao.latitude,
-                        longitude_atendimento: localizacao.longitude,
-                        ...(grupoId ? { grupo_id: grupoId } : {}),
-                    }),
-                });
-                const data = await res.json().catch(() => ({}));
-                if (!res.ok) throw new Error(data?.detail || `Falha ao solicitar ${servico.nome}`);
-                if (!grupoId && data?.id) {
-                    grupoId = data.id;
-                    primeiro = data;
-                }
-            }
-            if (primeiro) setActiveChamado(primeiro);
-            notifySafe(`🏠 Pedido enviado! ${freelancerDomicilio.nome} vai receber agora.`, 'success');
-            limparDomicilio();
-            setStep('inicio');
-            setTab('agenda');
-            carregarMeusPedidos();
-        } catch (err) {
-            notifySafe(err.message || 'Erro ao solicitar. Tente novamente.', 'error');
-        } finally {
-            setEnviandoDomicilio(false);
-        }
-    };
-
     const carregarMeusPedidos = useCallback(() => {
         fetch(`${API_URL}/api/v1/cliente/meus_pedidos`, { headers: {'Authorization': `Bearer ${token}`} })
             .then(async (response) => {
@@ -1117,8 +918,6 @@ export default function ClientDashboard({ token, logout, API_URL: apiUrlProp, no
 
     useEffect(() => {
         if (tab !== 'buscar') return;
-        // A DOMICÍLIO usa a aba Buscar só para serviços + endereço: sem busca de barbeiros/vagas.
-        if (step === 'domicilio') return;
 
         requestUserLocation();
         carregarVagasRelampago();
@@ -1128,19 +927,15 @@ export default function ClientDashboard({ token, logout, API_URL: apiUrlProp, no
     // (usa a última localização salva na conta, sem pedir GPS novo).
     useEffect(() => {
         if (tab !== 'inicio') return;
-        if (modalidadeHome === 'domicilio') {
-            carregarFreelancersDomicilio();
-            return;
-        }
         carregarBarbeariasProximasHome();
-    }, [tab, modalidadeHome, carregarBarbeariasProximasHome, carregarFreelancersDomicilio]);
+    }, [tab, carregarBarbeariasProximasHome]);
 
     // Quando o GPS do cliente já foi obtido (pelo fluxo padrão do app) enquanto ele
-    // está na Home, sincroniza com a conta e recalcula a lista da modalidade escolhida.
+    // está na Home, sincroniza com a conta e recalcula a lista de barbearias próximas.
     useEffect(() => {
         if (tab !== 'inicio' || !userLocation) return;
         sincronizarLocalizacaoCliente(userLocation)
-            .then(() => (modalidadeHome === 'domicilio' ? carregarFreelancersDomicilio() : carregarBarbeariasProximasHome()))
+            .then(() => carregarBarbeariasProximasHome())
             .catch(() => {});
     }, [tab, userLocation]);
 
@@ -1431,15 +1226,13 @@ export default function ClientDashboard({ token, logout, API_URL: apiUrlProp, no
         if (notificacoesAbertas) { setNotificacoesAbertas(false); return true; }
         if (cancelModalOpen) { setCancelModalOpen(false); return true; }
         if (barbeariaEscolhaPreview) { setBarbeariaEscolhaPreview(null); return true; }
-        if (freelancerDomicilioPreview) { setFreelancerDomicilioPreview(null); return true; }
         if (perfilModal) { setPerfilModal(null); return true; }
-        if (tab === 'buscar' && step === 'domicilio') { voltarDoDomicilio(); return true; }
         if (tab === 'buscar' && step === 'servicos') { voltarParaBarbearias(); return true; }
         if (tab === 'buscar' && step === 'barbearias') { voltarParaBarbeiros(); return true; }
         if (tab === 'buscar' && step === 'barbeiros') { setStep('inicio'); return true; }
         if (tab !== 'inicio') { setTab('inicio'); return true; }
         return false;
-    }, [tab, step, cancelModalOpen, perfilModal, barbeariaEscolhaPreview, freelancerDomicilioPreview, notificacoesAbertas]);
+    }, [tab, step, cancelModalOpen, perfilModal, barbeariaEscolhaPreview, notificacoesAbertas]);
 
     const toggleServiceSelection = (service) => {
         setSelectedServices((prev) => {
@@ -1836,7 +1629,7 @@ export default function ClientDashboard({ token, logout, API_URL: apiUrlProp, no
                     <BotaoVoltar />
                     <div className="min-w-0">
                         <p className="text-[10px] uppercase tracking-[0.2em] text-zinc-500 font-semibold">BarberMove</p>
-                        <h1 className="text-lg font-black tracking-tight">{tab === 'buscar' && step === 'domicilio' ? 'A Domicílio' : 'Buscar Barbeiros'}</h1>
+                        <h1 className="text-lg font-black tracking-tight">Buscar Barbeiros</h1>
                     </div>
                 </div>
                 <button onClick={logout} className="h-10 w-10 rounded-full bg-zinc-900 border border-zinc-800 flex items-center justify-center text-zinc-400 hover:text-white hover:bg-zinc-800 transition-colors" aria-label="Sair da conta">
@@ -2049,9 +1842,7 @@ export default function ClientDashboard({ token, logout, API_URL: apiUrlProp, no
                             <div>
                                 <p className="text-[11px] font-black uppercase tracking-[0.18em] text-emerald-300">✂️ Corte realizado</p>
                                 <p className="text-sm text-zinc-200 mt-1">
-                                    {pagamentoPendenteHome.modalidade === 'ATENDIMENTO_DOMICILIAR'
-                                        ? 'Corte realizado a domicílio.'
-                                        : `Corte realizado na ${pagamentoPendenteHome.barbearia_nome || 'barbearia'}.`}
+                                    Corte realizado na {pagamentoPendenteHome.barbearia_nome || 'barbearia'}.
                                 </p>
                             </div>
                             <div className="flex flex-col gap-2">
@@ -2081,38 +1872,7 @@ export default function ClientDashboard({ token, logout, API_URL: apiUrlProp, no
                         </div>
                     )}
 
-                    {/* Onde você quer ser atendido? — dois cartões grandes, lado a lado */}
-                    <div className="space-y-3">
-                        <h2 className="text-xl font-black text-white tracking-tight">Onde você quer ser atendido?</h2>
-                        <div className="grid grid-cols-2 gap-3" role="radiogroup" aria-label="Modalidade de atendimento">
-                            {[
-                                { id: 'barbearia', rotulo: 'BARBEARIA', Icone: Store },
-                                { id: 'domicilio', rotulo: 'A DOMICÍLIO', Icone: House },
-                            ].map(({ id, rotulo, Icone }) => {
-                                const ativo = modalidadeHome === id;
-                                return (
-                                    <button
-                                        key={id}
-                                        type="button"
-                                        role="radio"
-                                        aria-checked={ativo}
-                                        onClick={() => escolherModalidadeHome(id)}
-                                        className={`aspect-square w-full rounded-2xl border-2 flex flex-col items-center justify-center gap-3 p-3 transition-all ${ativo
-                                            ? 'border-orange-500 bg-orange-500/10 shadow-[0_0_24px_rgba(249,115,22,0.18)]'
-                                            : 'border-zinc-800 bg-zinc-900 hover:border-zinc-600'}`}
-                                    >
-                                        <span className={`h-16 w-16 rounded-2xl flex items-center justify-center ${ativo ? 'bg-orange-500 text-white' : 'bg-zinc-800 text-zinc-300'}`}>
-                                            <Icone size={32} strokeWidth={2} />
-                                        </span>
-                                        <span className={`text-sm font-black tracking-[0.12em] ${ativo ? 'text-white' : 'text-zinc-300'}`}>{rotulo}</span>
-                                    </button>
-                                );
-                            })}
-                        </div>
-                    </div>
-
-                    {modalidadeHome === 'barbearia' && (
-                    /* Barbearias perto de você */
+                    {/* Barbearias perto de você */}
                     <div className="space-y-3">
                         <div className="space-y-1.5">
                             <h2 className="text-xl font-black text-white tracking-tight">Barbearias perto de você</h2>
@@ -2195,91 +1955,6 @@ export default function ClientDashboard({ token, logout, API_URL: apiUrlProp, no
                             Ver outras barbearias
                         </button>
                     </div>
-                    )}
-
-                    {modalidadeHome === 'domicilio' && (
-                    /* A DOMICÍLIO: somente freelancers, direto, ordenados pela distância */
-                    <div className="space-y-3">
-                        <div className="space-y-1.5">
-                            <h2 className="text-xl font-black text-white tracking-tight">Freelancers perto de você</h2>
-                            <div className="flex items-center justify-between gap-2">
-                                <p className="min-w-0 flex items-center gap-1 text-[11px] text-zinc-400">
-                                    <MapPin size={11} className="shrink-0 text-orange-400" />
-                                    <span className="truncate">
-                                        {userData?.endereco
-                                            || (normalizarNumero(userData?.latitude) != null && normalizarNumero(userData?.longitude) != null
-                                                ? 'Sua localização atual'
-                                                : 'Localização não definida')}
-                                    </span>
-                                </p>
-                                <button
-                                    type="button"
-                                    onClick={atualizarLocalizacaoFreelancersDomicilio}
-                                    disabled={loadingFreelancersDomicilio}
-                                    className="shrink-0 flex items-center gap-1 rounded-lg border border-zinc-700 bg-black/30 px-2.5 py-1.5 text-[11px] font-bold text-zinc-300 hover:border-orange-500 hover:text-orange-300 transition-colors disabled:opacity-60"
-                                >
-                                    <MapPin size={12} />
-                                    {loadingFreelancersDomicilio ? 'Atualizando...' : 'Atualizar localização'}
-                                </button>
-                            </div>
-                        </div>
-
-                        {loadingFreelancersDomicilio && freelancersDomicilio.length === 0 ? (
-                            <p className="text-xs text-zinc-500 py-4 text-center">Buscando freelancers perto de você...</p>
-                        ) : freelancersDomicilio.length === 0 ? (
-                            <p className="text-xs text-zinc-500 py-4 text-center">
-                                Nenhum freelancer atendendo a domicílio perto de você agora. Toque em "Atualizar localização" para tentar novamente.
-                            </p>
-                        ) : (
-                            <div className="space-y-2">
-                                {freelancersDomicilio.map((freelancer) => (
-                                    <div
-                                        key={freelancer.id}
-                                        onClick={() => setFreelancerDomicilioPreview(freelancer)}
-                                        role="button"
-                                        tabIndex={0}
-                                        className="bm-card bg-black/30 rounded-xl border border-zinc-800/60 hover:border-orange-500 transition-colors p-2 flex gap-3 items-center cursor-pointer"
-                                    >
-                                        <div className="relative w-14 h-14 shrink-0 rounded-full overflow-hidden bg-gradient-to-r from-zinc-800 to-zinc-900">
-                                            {resolverFotoBarbeiro(freelancer) ? (
-                                                <img
-                                                    src={resolverFotoBarbeiro(freelancer)}
-                                                    alt={freelancer.nome || 'Freelancer'}
-                                                    className="w-full h-full object-cover"
-                                                    onError={(e) => { e.currentTarget.style.display = 'none'; }}
-                                                />
-                                            ) : (
-                                                <div className="w-full h-full flex items-center justify-center text-zinc-400"><User size={22} /></div>
-                                            )}
-                                        </div>
-                                        <div className="min-w-0 flex-1">
-                                            <p className="font-bold text-sm text-white truncate">{freelancer.nome}</p>
-                                            <div className="mt-1 flex items-center gap-2 flex-wrap">
-                                                <span className="inline-flex items-center gap-1 text-[11px] text-zinc-400">
-                                                    <MapPin size={11} className="text-orange-400" />
-                                                    {freelancer.distancia_km} km
-                                                </span>
-                                                <span className="inline-flex items-center gap-1 text-[11px] text-zinc-300">
-                                                    <Star size={11} className="text-orange-400 fill-orange-400" />
-                                                    {Number(freelancer.media_avaliacoes) > 0
-                                                        ? `${Number(freelancer.media_avaliacoes).toFixed(1)}${Number(freelancer.total_avaliacoes) > 0 ? ` (${freelancer.total_avaliacoes})` : ''}`
-                                                        : 'Novo'}
-                                                </span>
-                                                <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${freelancer.disponivel ? 'bg-green-600/80 text-white' : 'bg-zinc-700 text-zinc-300'}`}>
-                                                    {freelancer.disponivel ? 'Disponível' : (freelancer.status_texto || 'Indisponível')}
-                                                </span>
-                                            </div>
-                                            {freelancer.a_partir_de != null && (
-                                                <p className="mt-1 text-[11px] text-zinc-500">A partir de {formatarPrecoServico(freelancer.a_partir_de)}</p>
-                                            )}
-                                        </div>
-                                        <ArrowRight size={16} className="shrink-0 text-zinc-600" />
-                                    </div>
-                                ))}
-                            </div>
-                        )}
-                    </div>
-                    )}
                 </div>
             )}
 
@@ -2487,111 +2162,6 @@ export default function ClientDashboard({ token, logout, API_URL: apiUrlProp, no
                     )}
 
                     {gpsConsentOpen && null}
-
-                    {/* A DOMICÍLIO: serviços do freelancer + endereço do atendimento (sem barbearia) */}
-                    {step === 'domicilio' && freelancerDomicilio && (
-                        <>
-                            <h2 className="text-sm font-semibold text-zinc-300">🏠 Atendimento a domicílio</h2>
-
-                            <div className="rounded-xl border border-zinc-800 bg-[#141417] p-3 space-y-2.5">
-                                <div className="flex items-center gap-3">
-                                    {resolverFotoBarbeiro(freelancerDomicilio) ? (
-                                        <img
-                                            src={resolverFotoBarbeiro(freelancerDomicilio)}
-                                            alt={freelancerDomicilio.nome || 'Freelancer'}
-                                            className="h-11 w-11 shrink-0 rounded-full object-cover border border-zinc-800"
-                                            onError={(e) => { e.currentTarget.style.display = 'none'; }}
-                                        />
-                                    ) : (
-                                        <div className="h-11 w-11 shrink-0 rounded-full border border-zinc-800 bg-zinc-900 flex items-center justify-center text-sm font-semibold text-zinc-300">
-                                            {String(freelancerDomicilio.nome || 'F').trim().charAt(0).toUpperCase()}
-                                        </div>
-                                    )}
-                                    <div className="min-w-0 flex-1">
-                                        <p className="truncate text-sm font-semibold text-white">{freelancerDomicilio.nome}</p>
-                                        <p className="text-xs text-zinc-500">
-                                            {freelancerDomicilio.distancia_km != null ? `${freelancerDomicilio.distancia_km} km de você` : 'Freelancer'}
-                                            {Number(freelancerDomicilio.media_avaliacoes) > 0 ? ` · ★ ${Number(freelancerDomicilio.media_avaliacoes).toFixed(1)}` : ''}
-                                        </p>
-                                    </div>
-                                    <button
-                                        onClick={() => setPerfilModal({ id: freelancerDomicilio.id, tipo: 'barbeiro' })}
-                                        className="shrink-0 rounded-lg border border-zinc-700 bg-transparent px-3 py-2 text-xs font-semibold text-zinc-200 hover:bg-zinc-800"
-                                    >
-                                        Ver perfil
-                                    </button>
-                                </div>
-                            </div>
-
-                            <p className="text-xs font-semibold text-zinc-400">Escolha um ou mais serviços</p>
-                            <div className="space-y-2">
-                                {servicosDomicilio.length > 0 ? servicosDomicilio.map((servico) => {
-                                    const selecionado = servicosDomicilioSelecionados.some((s) => s.id === servico.id);
-                                    return (
-                                        <button
-                                            key={servico.id}
-                                            type="button"
-                                            onClick={() => toggleServicoDomicilio(servico)}
-                                            aria-pressed={selecionado}
-                                            className={`w-full text-left rounded-xl border bg-[#141417] p-3 transition-colors ${selecionado ? 'border-orange-500' : 'border-zinc-800 hover:border-zinc-600'}`}
-                                        >
-                                            <div className="flex items-start justify-between gap-3">
-                                                <div className="min-w-0">
-                                                    <p className="text-sm font-semibold text-white break-words">{selecionado ? '✓ ' : ''}{servico.nome}</p>
-                                                    <p className="mt-0.5 text-xs text-zinc-500">{servico.duracao_minutos || 30} min</p>
-                                                    {servico.descricao && <p className="mt-0.5 text-xs text-zinc-500 break-words">{servico.descricao}</p>}
-                                                </div>
-                                                <p className="shrink-0 text-sm font-semibold text-emerald-300/90">{formatarPrecoServico(servico.valor)}</p>
-                                            </div>
-                                        </button>
-                                    );
-                                }) : (
-                                    <p className="text-zinc-600 text-center py-6 text-xs">Carregando serviços...</p>
-                                )}
-                            </div>
-
-                            <div className="rounded-xl border border-zinc-800 bg-[#141417] p-3 space-y-2">
-                                <label htmlFor="endereco-domicilio" className="text-xs font-semibold text-zinc-300 flex items-center gap-1.5">
-                                    <MapPin size={12} className="text-orange-400" /> Endereço do atendimento
-                                </label>
-                                <input
-                                    id="endereco-domicilio"
-                                    value={enderecoDomicilio}
-                                    onChange={(e) => setEnderecoDomicilio(e.target.value)}
-                                    maxLength={255}
-                                    placeholder="Rua, número, apartamento/bloco"
-                                    className="bm-input w-full px-3 py-2.5 rounded-lg border border-zinc-800 outline-none focus:border-orange-500 text-sm text-white"
-                                />
-                                <p className="text-[11px] text-zinc-500">
-                                    O freelancer é guiado até a sua localização atual. O endereço ajuda a encontrar você (número, portaria, apartamento).
-                                </p>
-                            </div>
-
-                            <div className="rounded-xl border border-zinc-800 bg-[#141417] p-3">
-                                {servicosDomicilioSelecionados.length > 0 ? (
-                                    <div className="flex justify-between text-xs text-zinc-500">
-                                        <span>{servicosDomicilioSelecionados.length} serviço(s)</span>
-                                        <span>{servicosDomicilioSelecionados.reduce((acc, s) => acc + (Number(s.duracao_minutos) || 0), 0)} min</span>
-                                    </div>
-                                ) : (
-                                    <p className="text-xs text-zinc-500">Nenhum serviço selecionado</p>
-                                )}
-                                <div className="mt-1.5 flex items-center justify-between">
-                                    <span className="text-sm font-semibold text-white">Total</span>
-                                    <span className="text-base font-semibold text-white">
-                                        {formatarPrecoServico(servicosDomicilioSelecionados.reduce((acc, s) => acc + (Number(s.valor) || 0), 0))}
-                                    </span>
-                                </div>
-                                <button
-                                    onClick={handleSolicitarDomicilio}
-                                    disabled={enviandoDomicilio || servicosDomicilioSelecionados.length === 0}
-                                    className={`mt-3 min-h-[44px] w-full rounded-lg text-sm font-semibold transition-colors ${!enviandoDomicilio && servicosDomicilioSelecionados.length > 0 ? 'bg-emerald-700 text-white hover:bg-emerald-600' : 'bg-zinc-800 text-zinc-500 cursor-not-allowed'}`}
-                                >
-                                    {enviandoDomicilio ? 'Enviando...' : 'Solicitar atendimento a domicílio'}
-                                </button>
-                            </div>
-                        </>
-                    )}
 
                     {step === 'barbearias' && (
                         <>
@@ -2816,11 +2386,7 @@ export default function ClientDashboard({ token, logout, API_URL: apiUrlProp, no
                                 <div key={order.id} className="bm-card p-3.5 rounded-xl border border-zinc-800/80 text-xs overflow-hidden space-y-1">
                                     <p className="font-bold truncate">{order.barbeiro_nome || 'Barbeiro'}</p>
                                     <p className="text-zinc-400 truncate">{order.servico_nome || order.descricao || 'Servico'}</p>
-                                    <p className="text-zinc-500 truncate">
-                                        {order.modalidade === 'ATENDIMENTO_DOMICILIAR'
-                                            ? `🏠 A domicílio${order.endereco_atendimento ? ` · ${order.endereco_atendimento}` : ''}`
-                                            : (order.nome_barbearia || 'Barbearia')}
-                                    </p>
+                                    <p className="text-zinc-500 truncate">{order.nome_barbearia || 'Barbearia'}</p>
                                     {order.data_hora_inicio && (
                                         <p className="text-zinc-300">{formatarDataHoraSP(order.data_hora_inicio)}</p>
                                     )}
@@ -2972,55 +2538,6 @@ export default function ClientDashboard({ token, logout, API_URL: apiUrlProp, no
                         className="w-full mt-4 bg-orange-600 hover:bg-orange-700 text-white px-4 py-3 rounded-lg font-bold transition-colors"
                     >
                         Escolher esta barbearia
-                    </button>
-                </div>
-            </div>
-        )}
-
-        {/* A DOMICÍLIO: perfil do freelancer antes de escolher (mesmo ProfileCard da busca). */}
-        {freelancerDomicilioPreview && (
-            <div className="fixed inset-0 bg-black/80 z-[2200] flex items-center justify-center p-4">
-                <div className="profile-modal bg-zinc-950 border border-zinc-800 rounded-2xl w-full max-w-[420px] max-h-[90vh] overflow-y-auto p-4">
-                    <div className="flex justify-between items-center mb-3">
-                        <h3 className="text-sm font-bold text-white">Perfil do freelancer</h3>
-                        <button onClick={() => setFreelancerDomicilioPreview(null)} className="text-zinc-400">✕</button>
-                    </div>
-                    <div className="mb-4 rounded-2xl border border-orange-500/30 bg-orange-500/5 p-3 space-y-2">
-                        <p className="text-xs font-black uppercase tracking-[0.14em] text-orange-300">🏠 Valores a domicílio</p>
-                        {valoresDomicilioPreview == null ? (
-                            <p className="text-xs text-zinc-500">Carregando valores...</p>
-                        ) : valoresDomicilioPreview.length === 0 ? (
-                            <p className="text-xs text-zinc-500">Nenhum serviço a domicílio cadastrado.</p>
-                        ) : (
-                            valoresDomicilioPreview.map((servico) => (
-                                <div key={servico.id} className="flex items-center justify-between gap-3 rounded-lg border border-zinc-800 bg-black/30 px-3 py-2">
-                                    <span className="min-w-0">
-                                        <span className="block text-sm text-white truncate">{servico.nome}</span>
-                                        <span className="block text-[11px] text-zinc-500">{servico.duracao_minutos || 30} min</span>
-                                    </span>
-                                    <span className="text-sm font-bold text-green-400 shrink-0">{formatarPrecoServico(servico.valor)}</span>
-                                </div>
-                            ))
-                        )}
-                    </div>
-                    <ProfileCard
-                        usuarioId={freelancerDomicilioPreview.id}
-                        userType="barbeiro"
-                        token={token}
-                        onNotify={notify}
-                    />
-                    <button
-                        onClick={() => {
-                            const freelancer = freelancerDomicilioPreview;
-                            setFreelancerDomicilioPreview(null);
-                            iniciarSolicitacaoDomicilio(freelancer);
-                        }}
-                        disabled={!freelancerDomicilioPreview.disponivel}
-                        className="w-full mt-4 bg-orange-600 hover:bg-orange-700 disabled:bg-zinc-800 disabled:text-zinc-500 disabled:cursor-not-allowed text-white px-4 py-3 rounded-lg font-bold transition-colors"
-                    >
-                        {freelancerDomicilioPreview.disponivel
-                            ? 'Escolher para atendimento a domicílio'
-                            : (freelancerDomicilioPreview.status_texto || 'Indisponível no momento')}
                     </button>
                 </div>
             </div>

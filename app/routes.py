@@ -290,11 +290,6 @@ def _finalizar_chamado_e_avancar_fila(db: Session, chamado: models.Chamado, barb
         barber.ocupado_ate = None
 
     proximo = _buscar_proximo_chamado_fila(db, barbeiro.id, chamado.barbearia_id, exclude_id=chamado.id)
-    # Domicílio não tem fila: só segue para o próximo serviço do MESMO pedido (grupo).
-    if models.chamado_domiciliar(chamado) and not (
-        proximo and chamado.grupo_id and proximo.grupo_id == chamado.grupo_id
-    ):
-        proximo = None
     # Taxa pendente: conclui o atendimento atual, mas nao inicia o proximo da fila.
     if proximo and freelancer_bloqueado(db, barbeiro.id):
         db.add(models.Notificacao(
@@ -515,50 +510,36 @@ def _montar_payload_tracking(db: Session, chamado: models.Chamado, ativo: models
     barbeiro_distancia = None
     barbeiro_eta = None
 
-    # Destino do deslocamento: a barbearia, ou o endereço do cliente no domicílio.
-    domiciliar = models.chamado_domiciliar(chamado)
-    if domiciliar:
-        destino = {
-            "id": None,
-            "nome": "Atendimento a domicílio",
-            "endereco": chamado.endereco_atendimento,
-            "latitude": chamado.latitude_atendimento,
-            "longitude": chamado.longitude_atendimento,
-        }
-    else:
-        destino = {
-            "id": barbearia.id if barbearia else chamado.barbearia_id,
-            "nome": barbearia.nome if barbearia else None,
-            "endereco": barbearia.endereco if barbearia else None,
-            "latitude": barbearia.latitude if barbearia else None,
-            "longitude": barbearia.longitude if barbearia else None,
-        }
-
-    if destino["latitude"] is not None and destino["longitude"] is not None:
-        if cliente_lat is not None and cliente_lon is not None and not domiciliar:
+    if barbearia and barbearia.latitude is not None and barbearia.longitude is not None:
+        if cliente_lat is not None and cliente_lon is not None:
             cliente_distancia, cliente_eta = _calcular_distancia_eta(
                 cliente_lat,
                 cliente_lon,
-                destino["latitude"],
-                destino["longitude"],
+                barbearia.latitude,
+                barbearia.longitude,
             )
 
         if barbeiro_lat is not None and barbeiro_lon is not None:
             barbeiro_distancia, barbeiro_eta = _calcular_distancia_eta(
                 barbeiro_lat,
                 barbeiro_lon,
-                destino["latitude"],
-                destino["longitude"],
+                barbearia.latitude,
+                barbearia.longitude,
             )
 
     return {
         "chamado_id": chamado.id,
         "status": chamado.status,
-        "modalidade": chamado.modalidade or models.MODALIDADE_BARBEARIA,
         "mostrar_mapa": _tracking_ativo_por_status(chamado.status),
         "cliente_chegou": bool(getattr(chamado, "cliente_chegou", False)),
         "barbeiro_chegou": bool(getattr(chamado, "barbeiro_chegou", False)),
-        "barbearia": destino,
+        "barbearia": {
+            "id": barbearia.id if barbearia else chamado.barbearia_id,
+            "nome": barbearia.nome if barbearia else None,
+            "endereco": barbearia.endereco if barbearia else None,
+            "latitude": barbearia.latitude if barbearia else None,
+            "longitude": barbearia.longitude if barbearia else None,
+        },
         "coordenadas_cliente": {
             "lat": cliente_lat,
             "lon": cliente_lon,
@@ -1329,20 +1310,11 @@ def criar_chamado(chamado: schemas.ChamadoCreate, token: str = Depends(oauth2_sc
     # Criar novo chamado (agendamento).
     # Validar token e obter usuário
     user = get_current_user(token=token, db=db)
-
-    modalidade = str(chamado.modalidade or models.MODALIDADE_BARBEARIA).strip().upper()
-    if modalidade == models.MODALIDADE_DOMICILIAR:
-        from app.routes_domicilio import criar_chamado_domiciliar
-        return criar_chamado_domiciliar(chamado, user, db)
-    if modalidade != models.MODALIDADE_BARBEARIA:
-        raise HTTPException(status_code=400, detail="Modalidade de atendimento inválida")
-    if not chamado.barbearia_id:
-        raise HTTPException(status_code=400, detail="Escolha a barbearia")
-
+    
     # Buscar serviço e barbearia
     servico = db.query(models.Servico).filter(models.Servico.id == chamado.servico_id).first()
     barbearia = db.query(models.Barbearia).filter(models.Barbearia.id == chamado.barbearia_id).first()
-
+    
     if not servico or not barbearia:
         raise HTTPException(status_code=404, detail="Serviço ou barbearia não encontrados")
 
@@ -1419,14 +1391,6 @@ def criar_chamado(chamado: schemas.ChamadoCreate, token: str = Depends(oauth2_sc
                 raise HTTPException(
                     status_code=400,
                     detail="Este profissional está atendendo só presencialmente na barbearia agora. Tente outro profissional ou mais tarde."
-                )
-
-            # Regra 2c: atendimento a domicílio em aberto não entra na fila da barbearia.
-            from app.routes_domicilio import freelancer_em_domicilio_ativo
-            if freelancer_em_domicilio_ativo(db, barbeiro.id):
-                raise HTTPException(
-                    status_code=400,
-                    detail="Este profissional está em um atendimento a domicílio agora. Tente outro profissional ou mais tarde."
                 )
 
             # Regra 3: Validar especialidade do barbeiro para o serviço
@@ -1815,7 +1779,6 @@ def listar_chamados_abertos(token: str = Depends(oauth2_scheme), db: Session = D
 
         cliente = db.query(models.Usuario).filter(models.Usuario.id == c.cliente_id).first()
         barbearia = db.query(models.Barbearia).filter(models.Barbearia.id == c.barbearia_id).first()
-        domiciliar = models.chamado_domiciliar(c)
 
         resultado.append({
             "id": c.id,
@@ -1823,8 +1786,6 @@ def listar_chamados_abertos(token: str = Depends(oauth2_scheme), db: Session = D
             "barbeiro_id": c.barbeiro_id,
             "barbearia_id": c.barbearia_id,
             "servico_id": c.servico_id,
-            "modalidade": c.modalidade or models.MODALIDADE_BARBEARIA,
-            "endereco_atendimento": c.endereco_atendimento,
             "nome_cliente": cliente.nome if cliente else "Desconhecido",
             "cliente_telefone": cliente.telefone if cliente else "",
             "cliente_email": cliente.email if cliente else "",
@@ -1832,12 +1793,11 @@ def listar_chamados_abertos(token: str = Depends(oauth2_scheme), db: Session = D
             "cliente_longitude": cliente.longitude if cliente else None,
             "descricao": servico.nome if servico else "Serviço",
             "valor": servico.valor if servico else 0,
-            "endereco": (c.endereco_atendimento if domiciliar else None) or (cliente.endereco if cliente else "Não informado"),
-            # Domicílio: o "local" do card é o endereço do cliente (sem barbearia).
-            "nome_barbearia": "🏠 Atendimento a domicílio" if domiciliar else (barbearia.nome if barbearia else "Barbearia"),
-            "endereco_barbearia": c.endereco_atendimento if domiciliar else (barbearia.endereco if barbearia else ""),
-            "barbearia_latitude": c.latitude_atendimento if domiciliar else (barbearia.latitude if barbearia else None),
-            "barbearia_longitude": c.longitude_atendimento if domiciliar else (barbearia.longitude if barbearia else None),
+            "endereco": cliente.endereco if cliente else "Não informado",
+            "nome_barbearia": barbearia.nome if barbearia else "Barbearia",
+            "endereco_barbearia": barbearia.endereco if barbearia else "",
+            "barbearia_latitude": barbearia.latitude if barbearia else None,
+            "barbearia_longitude": barbearia.longitude if barbearia else None,
             "status": c.status,
             "data_hora_inicio": c.data_hora_inicio.isoformat() if c.data_hora_inicio else None,
             "data_hora_fim": c.data_hora_fim.isoformat() if c.data_hora_fim else None,
@@ -1907,16 +1867,13 @@ def listar_agendamentos_barbeiro(barbeiro_id: int, db: Session = Depends(get_db)
             "pausado_em": chamado.pausado_em.isoformat() if chamado.pausado_em else None,
             "pausa_acumulada_segundos": chamado.pausa_acumulada_segundos or 0,
             "grupo_id": chamado.grupo_id,
-            "modalidade": chamado.modalidade or models.MODALIDADE_BARBEARIA,
-            "endereco_atendimento": chamado.endereco_atendimento,
-            # Domicílio: o "local" exibido é o endereço do cliente (sem barbearia).
-            "barbearia_nome": "🏠 Atendimento a domicílio" if models.chamado_domiciliar(chamado) else (barbearia.nome if barbearia else "Barbearia"),
-            "barbearia_endereco": chamado.endereco_atendimento if models.chamado_domiciliar(chamado) else (barbearia.endereco if barbearia else ""),
-            "barbearia_latitude": chamado.latitude_atendimento if models.chamado_domiciliar(chamado) else (barbearia.latitude if barbearia else None),
-            "barbearia_longitude": chamado.longitude_atendimento if models.chamado_domiciliar(chamado) else (barbearia.longitude if barbearia else None),
+            "barbearia_nome": barbearia.nome if barbearia else "Barbearia",
+            "barbearia_endereco": barbearia.endereco if barbearia else "",
+            "barbearia_latitude": barbearia.latitude if barbearia else None,
+            "barbearia_longitude": barbearia.longitude if barbearia else None,
             "cliente_latitude": cliente.latitude if cliente else None,
             "cliente_longitude": cliente.longitude if cliente else None,
-            "cliente_endereco": (chamado.endereco_atendimento if models.chamado_domiciliar(chamado) else None) or (cliente.endereco if cliente else ""),
+            "cliente_endereco": cliente.endereco if cliente else "",
             "avaliado": ja_avaliado,
             "avaliacao_nota": avaliacao_cliente.nota if avaliacao_cliente else None
         })
@@ -2289,7 +2246,7 @@ def aceitar_chamado(id: int, token: str = Depends(oauth2_scheme), db: Session = 
                     status_code=400,
                     detail=f"Cadeira {cadeira.numero} já possui agendamento confirmado de {horario_conflito}. Não é possível aceitar este agendamento."
                 )
-    elif not models.chamado_domiciliar(chamado):  # domicílio não usa cadeira
+    else:
         # Se o chamado não veio com cadeira definida, tenta alocar automaticamente
         # uma cadeira disponível da barbearia sem conflito de horário.
         cadeiras_disponiveis = db.query(models.Cadeira).filter(
@@ -2328,8 +2285,7 @@ def aceitar_chamado(id: int, token: str = Depends(oauth2_scheme), db: Session = 
     chamado.barbeiro_id = user.id
     chamado.status = models.StatusAgendamento.CONFIRMADO.value  # Usar Enum
     chamado.observacao = None  # Limpar observação quando barbeiro aceita
-    # Domicílio: o cliente já está no endereço do atendimento; só o freelancer se desloca.
-    chamado.cliente_chegou = models.chamado_domiciliar(chamado)
+    chamado.cliente_chegou = False
     chamado.barbeiro_chegou = False
     chamado.aprovado_barbeiro = True
     chamado.aprovado_barbeiro_em = datetime.utcnow()
@@ -2509,23 +2465,15 @@ async def chegar_chamado(id: int, token: str = Depends(oauth2_scheme), db: Sessi
     # Botão "Cheguei" só fica disponível a até 200m do local do atendimento
     # (a barbearia, endereço fixo geocodificado). Vale tanto para cliente quanto
     # para barbeiro - cada um confirma a própria chegada.
-    domiciliar = models.chamado_domiciliar(chamado)
-    if domiciliar:
-        # Domicílio: o local do atendimento é o endereço informado pelo cliente.
-        destino_lat, destino_lon = chamado.latitude_atendimento, chamado.longitude_atendimento
-        if destino_lat is None or destino_lon is None:
-            raise HTTPException(status_code=400, detail="Endereço do atendimento sem localização")
-    else:
-        barbearia_do_chamado = db.query(models.Barbearia).filter(models.Barbearia.id == chamado.barbearia_id).first()
-        if not barbearia_do_chamado or barbearia_do_chamado.latitude is None or barbearia_do_chamado.longitude is None:
-            raise HTTPException(status_code=400, detail="Barbearia sem localização cadastrada")
-        destino_lat, destino_lon = barbearia_do_chamado.latitude, barbearia_do_chamado.longitude
+    barbearia_do_chamado = db.query(models.Barbearia).filter(models.Barbearia.id == chamado.barbearia_id).first()
+    if not barbearia_do_chamado or barbearia_do_chamado.latitude is None or barbearia_do_chamado.longitude is None:
+        raise HTTPException(status_code=400, detail="Barbearia sem localização cadastrada")
     if user.latitude is None or user.longitude is None:
         raise HTTPException(status_code=400, detail="Ative sua localização para confirmar chegada")
 
     distancia_ate_barbearia_km = calcular_distancia_km(
         user.latitude, user.longitude,
-        destino_lat, destino_lon,
+        barbearia_do_chamado.latitude, barbearia_do_chamado.longitude,
     )
     distancia_ate_barbearia_m = distancia_ate_barbearia_km * 1000
     if distancia_ate_barbearia_m > 200:
@@ -2571,7 +2519,7 @@ async def chegar_chamado(id: int, token: str = Depends(oauth2_scheme), db: Sessi
         # "PRESENTE", check-in por GPS ou vaga relampago ficava marcado, e
         # quem so aceitava e comparecia num chamado normal nunca aparecia
         # como presente pro dono da barbearia.
-        if barbeiro and not barbeiro.presente_em_local and not domiciliar:
+        if barbeiro and not barbeiro.presente_em_local:
             barbeiro.presente_em_local = True
             barbeiro.barbearia_atual_id = chamado.barbearia_id
             barbeiro.horario_chegada = datetime.utcnow()
@@ -2616,7 +2564,7 @@ async def chegar_chamado(id: int, token: str = Depends(oauth2_scheme), db: Sessi
         if chamado.cliente_id and chamado.cliente_id != user.id:
             db.add(models.Notificacao(
                 usuario_id=chamado.cliente_id,
-                titulo="💈 O barbeiro chegou à barbearia!" if not domiciliar else "🏠 O barbeiro chegou ao seu endereço!",
+                titulo="💈 O barbeiro chegou à barbearia!",
                 mensagem="✂️ Seu atendimento começou! Bom corte!",
                 tipo="chamado",
                 referencia_id=chamado.id
@@ -2624,7 +2572,7 @@ async def chegar_chamado(id: int, token: str = Depends(oauth2_scheme), db: Sessi
         if chamado.barbeiro_id and chamado.barbeiro_id != user.id:
             db.add(models.Notificacao(
                 usuario_id=chamado.barbeiro_id,
-                titulo="💈 O cliente chegou à barbearia!" if not domiciliar else "🏠 Você chegou ao endereço do cliente!",
+                titulo="💈 O cliente chegou à barbearia!",
                 mensagem="✂️ O atendimento começou! Bom corte!",
                 tipo="chamado",
                 referencia_id=chamado.id
@@ -3153,8 +3101,7 @@ def finalizar_servico_manualmente(id: int, token: str = Depends(oauth2_scheme), 
             cadeira_do_chamado.liberada_em = datetime.now()
 
     # Fluxo legado/fallback: cadeira ocupada pelo freelancer sem chamada vinculada corretamente
-    # (domicílio não usa cadeira: não mexe no controle de cadeira da barbearia)
-    cadeiras_ocupadas = [] if models.chamado_domiciliar(chamado) else db.query(models.Cadeira).filter(
+    cadeiras_ocupadas = db.query(models.Cadeira).filter(
         models.Cadeira.freelancer_id == user.id,
         models.Cadeira.status == models.StatusCadeira.OCUPADA
     ).all()
@@ -3164,7 +3111,7 @@ def finalizar_servico_manualmente(id: int, token: str = Depends(oauth2_scheme), 
         if cadeira.chamado_id == chamado.id:
             cadeira.chamado_id = None
         cadeira.liberada_em = datetime.now()
-
+    
     chamado.concluido_em = datetime.utcnow()
 
     resultado = _finalizar_chamado_e_avancar_fila(db, chamado, barbeiro)
@@ -3722,18 +3669,7 @@ def listar_meus_pedidos_cliente(token: str = Depends(oauth2_scheme), db: Session
                 models.Chamado.status == models.StatusAgendamento.EM_ATENDIMENTO.value,
             ).first()
 
-        domiciliar = models.chamado_domiciliar(chamado)
-        if domiciliar and chamado.latitude_atendimento is not None and chamado.longitude_atendimento is not None:
-            # Domicílio: só o freelancer se desloca até o endereço do cliente.
-            if barbeiro and barbeiro.latitude is not None and barbeiro.longitude is not None:
-                freelancer_distancia = calcular_distancia_km(
-                    barbeiro.latitude,
-                    barbeiro.longitude,
-                    chamado.latitude_atendimento,
-                    chamado.longitude_atendimento,
-                )
-                freelancer_eta = max(1, int(round(freelancer_distancia * 4))) if freelancer_distancia > 0 else 0
-        elif barbearia and barbearia.latitude is not None and barbearia.longitude is not None:
+        if barbearia and barbearia.latitude is not None and barbearia.longitude is not None:
             if user.latitude is not None and user.longitude is not None:
                 cliente_distancia = calcular_distancia_km(
                     user.latitude,
@@ -3787,12 +3723,10 @@ def listar_meus_pedidos_cliente(token: str = Depends(oauth2_scheme), db: Session
             "barbeiro_atendimento_atual_pausado_em": atendimento_atual_barbeiro.pausado_em.isoformat() if atendimento_atual_barbeiro and atendimento_atual_barbeiro.pausado_em else None,
             "barbeiro_atendimento_atual_pausa_acumulada_segundos": (atendimento_atual_barbeiro.pausa_acumulada_segundos or 0) if atendimento_atual_barbeiro else 0,
             "criado_em": chamado.criado_em.isoformat() if chamado.criado_em else None,
-            "modalidade": chamado.modalidade or models.MODALIDADE_BARBEARIA,
-            "endereco_atendimento": chamado.endereco_atendimento,
-            "barbearia_nome": None if domiciliar else (barbearia.nome if barbearia else "Barbearia"),
-            "barbearia_endereco": chamado.endereco_atendimento if domiciliar else (barbearia.endereco if barbearia else None),
-            "barbearia_latitude": chamado.latitude_atendimento if domiciliar else (barbearia.latitude if barbearia else None),
-            "barbearia_longitude": chamado.longitude_atendimento if domiciliar else (barbearia.longitude if barbearia else None),
+            "barbearia_nome": barbearia.nome if barbearia else "Barbearia",
+            "barbearia_endereco": barbearia.endereco if barbearia else None,
+            "barbearia_latitude": barbearia.latitude if barbearia else None,
+            "barbearia_longitude": barbearia.longitude if barbearia else None,
             "barbeiro_nome": barbeiro.nome if barbeiro else None,
             "barbeiro_foto_perfil": barbeiro.foto_perfil if barbeiro else None,
             "cliente_latitude": user.latitude,
@@ -3804,9 +3738,8 @@ def listar_meus_pedidos_cliente(token: str = Depends(oauth2_scheme), db: Session
             "freelancer_distancia_ate_barbearia_km": freelancer_distancia,
             "freelancer_eta_ate_barbearia_min": freelancer_eta,
             "avaliacao_freelancer_enviada": chamado.id in aval_freelancer_ids,
-            # Domicílio não tem barbearia para avaliar: conta como já resolvido.
-            "avaliacao_barbearia_enviada": domiciliar or chamado.id in aval_barbearia_ids,
-            "avaliado": (chamado.id in aval_freelancer_ids and (domiciliar or chamado.id in aval_barbearia_ids)),
+            "avaliacao_barbearia_enviada": chamado.id in aval_barbearia_ids,
+            "avaliado": (chamado.id in aval_freelancer_ids and chamado.id in aval_barbearia_ids),
             "pagamento_id": pagamento.id if pagamento else None,
             "pagamento_concluido": bool(pagamento and pagamento.pago_em),
             "pagamento_pago_em": pagamento.pago_em.isoformat() if pagamento and pagamento.pago_em else None,

@@ -17,7 +17,6 @@ import MinhasVagasSelecionadas from './MinhasVagasSelecionadas';
 import CronometroAtendimento, { parseDataServidorUTC } from './CronometroAtendimento';
 import BotaoVoltar from './BotaoVoltar';
 import { useBackHandler } from '../utils/useBackHandler';
-import ServicosDomicilioFreelancer from './ServicosDomicilioFreelancer';
 
 const TIPO_VAGA_DIARIA = 'vaga_diaria'; // app/vagas.py
 
@@ -1297,16 +1296,6 @@ export default function PainelBarberMovePremium({ token: tokenProp, logout: logo
                     </div>
                   </div>
 
-                  {chamadoAtivo.modalidade === 'ATENDIMENTO_DOMICILIAR' && (
-                    <div className="flex items-start gap-2 border-t border-zinc-800 pt-3">
-                      <MapPin size={16} className="text-orange-400 shrink-0 mt-0.5" />
-                      <div className="min-w-0">
-                        <p className="text-[10px] uppercase tracking-wide text-zinc-500">🏠 Atendimento a domicílio</p>
-                        <p className="text-sm font-bold text-white break-words">{chamadoAtivo.endereco_atendimento || chamadoAtivo.barbearia_endereco || chamadoAtivo.endereco_barbearia}</p>
-                      </div>
-                    </div>
-                  )}
-
                   {['aceito', 'confirmado', 'em_atendimento'].includes(String(chamadoAtivo.status || '').toLowerCase()) && (
                     <AlterarServicoFreelancer
                       chamadoId={chamadoAtivo.id}
@@ -1517,7 +1506,6 @@ export default function PainelBarberMovePremium({ token: tokenProp, logout: logo
               {perfilSection === 'dados' && (
                 <div className="space-y-4">
                   <TelaPerfilUsuario userType="barbeiro" token={token} API_URL={API_URL} onLogout={handleLogout} onNotify={notify} onStatusAtualizado={handleStatusAtualizado} />
-                  <ServicosDomicilioFreelancer token={token} API_URL={API_URL} notify={notify} />
                 </div>
               )}
 
