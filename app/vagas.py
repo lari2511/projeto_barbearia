@@ -30,6 +30,11 @@ from app.routes_cadeiras import _assinatura_ativa_e_limite
 
 TIPO_VAGA_DIARIA = "vaga_diaria"
 
+# Alcance do anúncio de vaga de diária, em km em linha reta a partir da barbearia.
+# Vale para quem é avisado e para quem consegue consultar a vaga; a candidatura
+# continua com as regras próprias (radar ligado e ETA de até 10 min).
+RAIO_ANUNCIO_VAGA_KM = 8.0
+
 STATUS_ABERTA = "disponivel"
 STATUS_AGUARDANDO_DESBLOQUEIO = "aguardando_desbloqueio"
 STATUS_OCUPADA = "ocupada_por_barbeiro"

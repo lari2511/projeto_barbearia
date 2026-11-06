@@ -31,6 +31,7 @@ from app.vagas import (
     STATUS_AGUARDANDO_DESBLOQUEIO,
     STATUS_CANCELADA,
     STATUS_OCUPADA,
+    RAIO_ANUNCIO_VAGA_KM,
     TIPO_VAGA_DIARIA,
     aplicar_freelancer_na_cadeira,
     cadeira_esta_bloqueada,
@@ -263,9 +264,9 @@ class AcionarCadeiraRequest(BaseModel):
 
 class AnunciarVagasRequest(BaseModel):
     # Cadeiras escolhidas pelo dono; sem elas, o backend escolhe `quantidade` cadeiras livres.
+    # O raio nao e escolhido pelo dono: e sempre RAIO_ANUNCIO_VAGA_KM.
     cadeira_ids: Optional[List[int]] = Field(default=None, min_length=1)
     quantidade: Optional[int] = Field(default=None, ge=1)
-    raio_km: float = Field(default=5.0, gt=0)
 
 
 class CadeiraAcionadaResponse(BaseModel):
@@ -900,6 +901,43 @@ def _posicao_do_freelancer(db: Session, freelancer_id: int) -> tuple:
     return (usuario.latitude, usuario.longitude) if usuario else (None, None)
 
 
+def _dentro_do_raio(distancia_km: float, raio_km: float) -> bool:
+    """Inclui quem esta exatamente na borda (1 mm de folga para o arredondamento do haversine)."""
+    return distancia_km <= raio_km + 1e-6
+
+
+def _freelancers_elegiveis_para_aviso_de_vaga(db: Session) -> List[tuple]:
+    """
+    (freelancer_id, latitude, longitude) de todo freelancer aprovado e nao bloqueado pelo
+    ADM, com a ultima posicao conhecida (a do radar, mesmo desligado, ou a do perfil).
+
+    Nao olha `radar.is_online`: ele so indica que o painel esta aberto no celular (liga ao
+    abrir, desliga no logout) e nao e o status ONLINE/OFFLINE escolhido pelo freelancer.
+    """
+    linhas = db.query(
+        Usuario.id,
+        Usuario.latitude,
+        Usuario.longitude,
+        RadarFreelancer.latitude,
+        RadarFreelancer.longitude,
+    ).outerjoin(
+        RadarFreelancer, RadarFreelancer.freelancer_id == Usuario.id
+    ).filter(
+        Usuario.tipo == "barbeiro",
+        Usuario.perfil_aprovado == True,  # noqa: E712
+        Usuario.bloqueado_por_admin.isnot(True),
+        Usuario.cadastro_pendente.isnot(True),
+    ).all()
+
+    destinos = []
+    for freelancer_id, perfil_lat, perfil_lon, radar_lat, radar_lon in linhas:
+        if radar_lat is not None and radar_lon is not None:
+            destinos.append((freelancer_id, radar_lat, radar_lon))
+        elif perfil_lat is not None and perfil_lon is not None:
+            destinos.append((freelancer_id, perfil_lat, perfil_lon))
+    return destinos
+
+
 def _avisar_freelancers_da_vaga(
     db: Session,
     barbearia: Barbearia,
@@ -908,25 +946,26 @@ def _avisar_freelancers_da_vaga(
     autor_id: int,
     nome_servico: str,
     mensagem: str,
-    incluir_com_taxa_pendente: bool = False,
+    todos_os_elegiveis: bool = False,
 ) -> List[int]:
-    """Avisa os freelancers online no raio (sino + push) e devolve os ids avisados."""
-    barbeiros_online = db.query(RadarFreelancer).filter(
-        RadarFreelancer.is_online == True,
-        _radar_elegivel_para_novo_clause(),
-        RadarFreelancer.latitude.isnot(None),
-        RadarFreelancer.longitude.isnot(None),
-    ).all()
+    """
+    Avisa os freelancers no raio (sino + push) e devolve os ids avisados.
 
-    destinos = [(radar.freelancer_id, radar.latitude, radar.longitude) for radar in barbeiros_online]
-    if incluir_com_taxa_pendente:
-        # Taxa pendente deixa o freelancer offline, mas ele ainda pode ver os anuncios.
-        from app.pagamento_diario import freelancers_com_taxa_vencida
-        ja_incluidos = {destino[0] for destino in destinos}
-        for freelancer_id in freelancers_com_taxa_vencida(db) - ja_incluidos:
-            latitude, longitude = _posicao_do_freelancer(db, freelancer_id)
-            if latitude is not None and longitude is not None:
-                destinos.append((freelancer_id, latitude, longitude))
+    todos_os_elegiveis=False (vaga relampago): so quem esta com o radar ligado e livre.
+    todos_os_elegiveis=True (anuncio de vaga de diaria): todo freelancer aprovado com
+    posicao conhecida, ONLINE ou OFFLINE, ocupado ou com taxa pendente. O aviso so
+    informa a oportunidade; a candidatura continua com as regras dela.
+    """
+    if todos_os_elegiveis:
+        destinos = _freelancers_elegiveis_para_aviso_de_vaga(db)
+    else:
+        barbeiros_online = db.query(RadarFreelancer).filter(
+            RadarFreelancer.is_online == True,
+            _radar_elegivel_para_novo_clause(),
+            RadarFreelancer.latitude.isnot(None),
+            RadarFreelancer.longitude.isnot(None),
+        ).all()
+        destinos = [(radar.freelancer_id, radar.latitude, radar.longitude) for radar in barbeiros_online]
 
     avisados = []
     for freelancer_id, latitude, longitude in destinos:
@@ -936,7 +975,7 @@ def _avisar_freelancers_da_vaga(
             latitude,
             longitude,
         )
-        if distancia > raio_km:
+        if not _dentro_do_raio(distancia, raio_km):
             continue
 
         barbeiro = db.query(Usuario).filter(Usuario.id == freelancer_id).first()
@@ -1054,7 +1093,7 @@ async def anunciar_vagas(
             barbearia_id=barbearia.id,
             cadeira_id=cadeira.id,
             status=STATUS_ABERTA,
-            raio_km=float(request.raio_km),
+            raio_km=RAIO_ANUNCIO_VAGA_KM,
             tipo_servico=TIPO_VAGA_DIARIA,
             expira_em=expira_em,
         )
@@ -1067,10 +1106,10 @@ async def anunciar_vagas(
         db,
         barbearia,
         vagas[0],
-        float(request.raio_km),
+        RAIO_ANUNCIO_VAGA_KM,
         current_user.id,
         nome_servico="Vaga de cadeira",
-        incluir_com_taxa_pendente=True,
+        todos_os_elegiveis=True,
         mensagem=(
             f"{barbearia.nome} anunciou {len(vagas)} vagas de cadeira perto de você."
             if len(vagas) > 1
@@ -1202,17 +1241,22 @@ async def listar_cadeiras_acionadas_ativas(
         if not barbearia or barbearia.latitude is None or barbearia.longitude is None:
             continue
 
-        if com_taxa_pendente:
-            # So consulta: ve as vagas de diaria no raio em que e avisado, sem precisar estar online.
+        if current_user.tipo == "barbeiro" and (com_taxa_pendente or vaga.tipo_servico == TIPO_VAGA_DIARIA):
+            # Vaga de diaria: qualquer freelancer ve as vagas no raio em que e avisado, ONLINE
+            # ou OFFLINE (com taxa pendente, so essas). Ver nao e se candidatar: candidatar-se
+            # segue exigindo radar ligado e ETA de ate 10 min.
             if vaga.tipo_servico != TIPO_VAGA_DIARIA:
                 continue
             eta_min = None
             origem_lat, origem_lon = _posicao_do_freelancer(db, current_user.id)
             if origem_lat is not None and origem_lon is not None:
                 distancia_km = calcular_distancia_haversine(barbearia.latitude, barbearia.longitude, origem_lat, origem_lon)
-                if distancia_km > vaga.raio_km:
+                if not _dentro_do_raio(distancia_km, vaga.raio_km):
                     continue
                 eta_min = _estimar_eta_minutos_por_distancia(distancia_km)
+            elif not com_taxa_pendente:
+                # Sem posicao nao da para saber se esta no raio (antes ja exigia o radar).
+                continue
         elif current_user.tipo == "barbeiro":
             radar = db.query(RadarFreelancer).filter(
                 RadarFreelancer.freelancer_id == current_user.id,

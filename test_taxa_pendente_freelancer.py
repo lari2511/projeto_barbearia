@@ -535,9 +535,12 @@ def test_freelancer_sem_debito_continua_normal(http):
 
     http.post(f"{BASE}/anunciar", json={"quantidade": 1}, headers=loja["headers"])
     assert _notificacoes(fid, "vaga_disponivel") == 1
-    # Offline sem débito continua sem aviso e sem lista, como antes.
-    assert _notificacoes(offline, "vaga_disponivel") == 0
-    assert http.get(f"{BASE}/ativas", headers=off_headers).json() == []
+    # Desde 2026-11-05 o anúncio de diária também avisa quem está OFFLINE (raio de 8 km),
+    # e ele pode consultar a vaga; candidatar-se continua exigindo estar online.
+    assert _notificacoes(offline, "vaga_disponivel") == 1
+    vaga_offline = http.get(f"{BASE}/ativas", headers=off_headers).json()
+    assert len(vaga_offline) == 1
+    assert http.post(f"{BASE}/{vaga_offline[0]['id']}/candidatar-se", headers=off_headers).status_code == 400
     ativas = http.get(f"{BASE}/ativas", headers=headers).json()
     assert http.post(f"{BASE}/{ativas[0]['id']}/candidatar-se", headers=headers).status_code == 200
 
