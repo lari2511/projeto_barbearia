@@ -19,6 +19,8 @@ import BotaoVoltar from './BotaoVoltar';
 import { useBackHandler } from '../utils/useBackHandler';
 
 const TIPO_VAGA_DIARIA = 'vaga_diaria'; // app/vagas.py
+// Regioes da capital (app/sao_paulo_capital.py), na ordem em que as vagas de diaria aparecem.
+const ORDEM_REGIOES_SP = ['Zona Leste', 'Zona Sul', 'Zona Norte', 'Zona Oeste', 'Centro'];
 
 function Avatar({ nome, foto, API_URL, size = 44 }) {
   const url = foto ? resolveMediaUrl(foto, API_URL) : '';
@@ -619,6 +621,11 @@ export default function PainelBarberMovePremium({ token: tokenProp, logout: logo
   // Vagas por diaria tem secao propria (com as regras); as demais seguem na lista de relampago.
   const vagasDiaria = vagasRelampago.filter((vaga) => vaga.tipo_servico === TIPO_VAGA_DIARIA);
   const vagasOutras = vagasRelampago.filter((vaga) => vaga.tipo_servico !== TIPO_VAGA_DIARIA);
+  // Vaga de diaria vale para a capital inteira: agrupa pela regiao da barbearia (app/sao_paulo_capital.py).
+  const vagasDiariaPorRegiao = ORDEM_REGIOES_SP
+    .map((regiao) => ({ regiao, vagas: vagasDiaria.filter((vaga) => vaga.barbearia_regiao === regiao) }))
+    .concat([{ regiao: 'Outras', vagas: vagasDiaria.filter((vaga) => !ORDEM_REGIOES_SP.includes(vaga.barbearia_regiao)) }])
+    .filter((grupo) => grupo.vagas.length > 0);
 
   const renderCardVaga = (vaga) => {
     const jaCandidatado = vagasCandidatadas.has(Number(vaga.id));
@@ -647,7 +654,23 @@ export default function PainelBarberMovePremium({ token: tokenProp, logout: logo
             <p className="text-[11px] font-black uppercase tracking-wide text-emerald-300">Vaga de diária</p>
           )}
           <p className="text-sm font-bold text-white">{vaga.barbearia_nome || 'Barbearia'} {vaga.cadeira_numero ? `• Cadeira ${vaga.cadeira_numero}` : ''}</p>
-          <p className="text-xs text-zinc-400">ETA atual: {vaga.eta_min_usuario_atual ?? '-'} min</p>
+          {vaga.tipo_servico === TIPO_VAGA_DIARIA ? (
+            <>
+              {vaga.barbearia_regiao && (
+                <p className="text-xs font-semibold text-emerald-200">
+                  📍 {vaga.barbearia_regiao}{vaga.barbearia_subprefeitura ? ` • ${vaga.barbearia_subprefeitura}` : ''}
+                </p>
+              )}
+              {vaga.barbearia_endereco && (
+                <p className="text-xs text-zinc-300 break-words">{vaga.barbearia_endereco}</p>
+              )}
+              {vaga.eta_min_usuario_atual != null && (
+                <p className="text-xs text-zinc-400">Cerca de {vaga.eta_min_usuario_atual} min de você</p>
+              )}
+            </>
+          ) : (
+            <p className="text-xs text-zinc-400">ETA atual: {vaga.eta_min_usuario_atual ?? '-'} min</p>
+          )}
           {vaga.barbearia_usuario_id && (
             <p className="text-[11px] font-semibold text-orange-300 mt-1">Ver perfil da barbearia ›</p>
           )}
@@ -1230,9 +1253,15 @@ export default function PainelBarberMovePremium({ token: tokenProp, logout: logo
                     <p className="text-xs leading-relaxed text-amber-50">Ao se candidatar e aceitar uma vaga de diária, você assume o compromisso de permanecer nessa barbearia durante todo o dia combinado.</p>
                     <p className="text-xs leading-relaxed text-amber-50">Durante esse período, você não poderá receber nem aceitar chamados de outras barbearias. Seu compromisso será cumprir a diária integralmente no estabelecimento que anunciou a vaga.</p>
                   </div>
-                  <div className="space-y-2">
-                    {vagasDiaria.slice(0, 5).map(renderCardVaga)}
-                  </div>
+                  <p className="text-xs text-emerald-100/80">Vagas em toda a cidade de São Paulo. Confira a região e o endereço antes de se candidatar.</p>
+                  {vagasDiariaPorRegiao.map((grupo) => (
+                    <div key={grupo.regiao} className="space-y-2">
+                      <p className="text-[11px] font-black uppercase tracking-wide text-emerald-300">
+                        {grupo.regiao} <span className="text-emerald-100/60">({grupo.vagas.length})</span>
+                      </p>
+                      {grupo.vagas.map(renderCardVaga)}
+                    </div>
+                  ))}
                 </div>
               )}
 

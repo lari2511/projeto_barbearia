@@ -307,7 +307,9 @@ def test_recebe_notificacao_e_ve_a_vaga_de_diaria_mesmo_offline(http):
     assert ativas[0]["barbearia_usuario_id"] == loja["dono_id"]
 
 
-def test_com_debito_longe_do_raio_nao_recebe_nem_ve(http):
+def test_com_debito_longe_recebe_e_ve_mas_nao_se_candidata(http):
+    # Vaga de diaria vale para a capital inteira, sem raio (2026-11-06): a distancia nao
+    # esconde a vaga. A taxa pendente continua impedindo a candidatura.
     loja = _barbearia()
     fid, headers = _freelancer("f@t.com")
     db = SessionLocal()
@@ -318,9 +320,11 @@ def test_com_debito_longe_do_raio_nao_recebe_nem_ve(http):
     finally:
         db.close()
     _dever_taxa(fid)
-    http.post(f"{BASE}/anunciar", json={"quantidade": 1}, headers=loja["headers"])
-    assert _notificacoes(fid, "vaga_disponivel") == 0
-    assert http.get(f"{BASE}/ativas", headers=headers).json() == []
+    vaga_id = http.post(f"{BASE}/anunciar", json={"quantidade": 1}, headers=loja["headers"]).json()["publicadas"][0]
+    assert _notificacoes(fid, "vaga_disponivel") == 1
+    assert [v["id"] for v in http.get(f"{BASE}/ativas", headers=headers).json()] == [vaga_id]
+    r = http.post(f"{BASE}/{vaga_id}/candidatar-se", headers=headers)
+    assert r.status_code == 403 and r.json()["detail"] == MENSAGEM
 
 
 def test_com_debito_nao_ve_vaga_relampago(http):

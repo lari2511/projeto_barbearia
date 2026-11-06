@@ -30,10 +30,11 @@ from app.routes_cadeiras import _assinatura_ativa_e_limite
 
 TIPO_VAGA_DIARIA = "vaga_diaria"
 
-# Alcance do anúncio de vaga de diária, em km em linha reta a partir da barbearia.
-# Vale para quem é avisado e para quem consegue consultar a vaga; a candidatura
-# continua com as regras próprias (radar ligado e ETA de até 10 min).
-RAIO_ANUNCIO_VAGA_KM = 8.0
+# Alcance do anúncio de vaga de diária: o município de São Paulo inteiro, sem raio em km
+# (2026-11-06; antes era 8 km). Só barbearias dentro do limite oficial da capital anunciam
+# (app/sao_paulo_capital.py), e qualquer freelancer aprovado, de qualquer região, é avisado,
+# vê e se candidata. A vaga guarda raio_km=None. Vaga relâmpago, presença na barbearia e
+# chamados seguem com os próprios raios.
 
 STATUS_ABERTA = "disponivel"
 STATUS_AGUARDANDO_DESBLOQUEIO = "aguardando_desbloqueio"

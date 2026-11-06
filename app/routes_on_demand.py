@@ -26,12 +26,12 @@ from app.models import Usuario, RadarFreelancer, SolicitacaoBarbeiro, Notificaca
 from app.firebase_config import enviar_notificacao_novo_chamado
 from app.realtime import broadcast_event
 from app.routes_vaga_chat import nao_lidas_por_vaga
+from app.sao_paulo_capital import esta_na_capital, localizar_na_capital
 from app.vagas import (
     STATUS_ABERTA,
     STATUS_AGUARDANDO_DESBLOQUEIO,
     STATUS_CANCELADA,
     STATUS_OCUPADA,
-    RAIO_ANUNCIO_VAGA_KM,
     TIPO_VAGA_DIARIA,
     aplicar_freelancer_na_cadeira,
     cadeira_esta_bloqueada,
@@ -264,7 +264,7 @@ class AcionarCadeiraRequest(BaseModel):
 
 class AnunciarVagasRequest(BaseModel):
     # Cadeiras escolhidas pelo dono; sem elas, o backend escolhe `quantidade` cadeiras livres.
-    # O raio nao e escolhido pelo dono: e sempre RAIO_ANUNCIO_VAGA_KM.
+    # Sem raio: a vaga de diaria vale para a capital inteira (ver app/vagas.py).
     cadeira_ids: Optional[List[int]] = Field(default=None, min_length=1)
     quantidade: Optional[int] = Field(default=None, ge=1)
 
@@ -277,7 +277,8 @@ class CadeiraAcionadaResponse(BaseModel):
     status: str
     barbeiro_id: Optional[int] = None
     cliente_id: Optional[int] = None
-    raio_km: float
+    # None na vaga de diaria (vale para a capital inteira).
+    raio_km: Optional[float] = None
     tipo_servico: Optional[str] = None
     valor_oferta: Optional[float] = None
     observacoes: Optional[str] = None
@@ -285,6 +286,10 @@ class CadeiraAcionadaResponse(BaseModel):
     barbearia_usuario_id: Optional[int] = None
     barbearia_latitude: Optional[float] = None
     barbearia_longitude: Optional[float] = None
+    # So na vaga de diaria: onde fica a oportunidade, para o freelancer decidir antes de se candidatar.
+    barbearia_endereco: Optional[str] = None
+    barbearia_regiao: Optional[str] = None
+    barbearia_subprefeitura: Optional[str] = None
     eta_min_usuario_atual: Optional[int] = None
     limite_chegada: Optional[datetime] = None
     expira_em: Optional[datetime] = None
@@ -366,7 +371,16 @@ def _expirar_vagas_vencidas(db: Session) -> None:
 
 def _serializar_cadeira_acionada(vaga: CadeiraAcionada, eta_min_usuario_atual: Optional[int] = None) -> dict:
     barbearia = vaga.barbearia
+    local_diaria = {}
+    if vaga.tipo_servico == TIPO_VAGA_DIARIA and barbearia:
+        local = localizar_na_capital(barbearia.latitude, barbearia.longitude) or {}
+        local_diaria = {
+            "barbearia_endereco": barbearia.endereco,
+            "barbearia_regiao": local.get("regiao"),
+            "barbearia_subprefeitura": local.get("subprefeitura"),
+        }
     return {
+        **local_diaria,
         "id": vaga.id,
         "barbearia_id": vaga.barbearia_id,
         "cadeira_id": vaga.cadeira_id,
@@ -375,7 +389,7 @@ def _serializar_cadeira_acionada(vaga: CadeiraAcionada, eta_min_usuario_atual: O
         "status": vaga.status,
         "barbeiro_id": vaga.barbeiro_id,
         "cliente_id": vaga.cliente_id,
-        "raio_km": vaga.raio_km,
+        "raio_km": None if vaga.tipo_servico == TIPO_VAGA_DIARIA else vaga.raio_km,
         "tipo_servico": vaga.tipo_servico,
         "valor_oferta": vaga.valor_oferta,
         "observacoes": vaga.observacoes,
@@ -906,54 +920,40 @@ def _dentro_do_raio(distancia_km: float, raio_km: float) -> bool:
     return distancia_km <= raio_km + 1e-6
 
 
-def _freelancers_elegiveis_para_aviso_de_vaga(db: Session) -> List[tuple]:
+def _freelancers_elegiveis_para_aviso_de_vaga(db: Session) -> List[int]:
     """
-    (freelancer_id, latitude, longitude) de todo freelancer aprovado e nao bloqueado pelo
-    ADM, com a ultima posicao conhecida (a do radar, mesmo desligado, ou a do perfil).
+    Ids de todo freelancer aprovado e nao bloqueado pelo ADM, de qualquer regiao e com ou
+    sem posicao conhecida: a vaga de diaria vale para a capital inteira, sem raio.
 
     Nao olha `radar.is_online`: ele so indica que o painel esta aberto no celular (liga ao
     abrir, desliga no logout) e nao e o status ONLINE/OFFLINE escolhido pelo freelancer.
     """
-    linhas = db.query(
-        Usuario.id,
-        Usuario.latitude,
-        Usuario.longitude,
-        RadarFreelancer.latitude,
-        RadarFreelancer.longitude,
-    ).outerjoin(
-        RadarFreelancer, RadarFreelancer.freelancer_id == Usuario.id
-    ).filter(
+    linhas = db.query(Usuario.id).filter(
         Usuario.tipo == "barbeiro",
         Usuario.perfil_aprovado == True,  # noqa: E712
         Usuario.bloqueado_por_admin.isnot(True),
         Usuario.cadastro_pendente.isnot(True),
     ).all()
-
-    destinos = []
-    for freelancer_id, perfil_lat, perfil_lon, radar_lat, radar_lon in linhas:
-        if radar_lat is not None and radar_lon is not None:
-            destinos.append((freelancer_id, radar_lat, radar_lon))
-        elif perfil_lat is not None and perfil_lon is not None:
-            destinos.append((freelancer_id, perfil_lat, perfil_lon))
-    return destinos
+    return [freelancer_id for (freelancer_id,) in linhas]
 
 
 def _avisar_freelancers_da_vaga(
     db: Session,
     barbearia: Barbearia,
     vaga: CadeiraAcionada,
-    raio_km: float,
+    raio_km: Optional[float],
     autor_id: int,
     nome_servico: str,
     mensagem: str,
     todos_os_elegiveis: bool = False,
 ) -> List[int]:
     """
-    Avisa os freelancers no raio (sino + push) e devolve os ids avisados.
+    Avisa os freelancers (sino + push) e devolve os ids avisados.
 
-    todos_os_elegiveis=False (vaga relampago): so quem esta com o radar ligado e livre.
-    todos_os_elegiveis=True (anuncio de vaga de diaria): todo freelancer aprovado com
-    posicao conhecida, ONLINE ou OFFLINE, ocupado ou com taxa pendente. O aviso so
+    todos_os_elegiveis=False (vaga relampago): so quem esta com o radar ligado, livre e
+    dentro de `raio_km`.
+    todos_os_elegiveis=True (anuncio de vaga de diaria): todo freelancer aprovado, de
+    qualquer regiao, ONLINE ou OFFLINE, ocupado ou com taxa pendente, sem raio. O aviso so
     informa a oportunidade; a candidatura continua com as regras dela.
     """
     if todos_os_elegiveis:
@@ -965,19 +965,17 @@ def _avisar_freelancers_da_vaga(
             RadarFreelancer.latitude.isnot(None),
             RadarFreelancer.longitude.isnot(None),
         ).all()
-        destinos = [(radar.freelancer_id, radar.latitude, radar.longitude) for radar in barbeiros_online]
+        destinos = [
+            radar.freelancer_id
+            for radar in barbeiros_online
+            if _dentro_do_raio(
+                calcular_distancia_haversine(barbearia.latitude, barbearia.longitude, radar.latitude, radar.longitude),
+                raio_km,
+            )
+        ]
 
     avisados = []
-    for freelancer_id, latitude, longitude in destinos:
-        distancia = calcular_distancia_haversine(
-            barbearia.latitude,
-            barbearia.longitude,
-            latitude,
-            longitude,
-        )
-        if not _dentro_do_raio(distancia, raio_km):
-            continue
-
+    for freelancer_id in destinos:
         barbeiro = db.query(Usuario).filter(Usuario.id == freelancer_id).first()
         # Quem anunciou a vaga nao e notificado do proprio anuncio.
         if not barbeiro or barbeiro.id == autor_id:
@@ -1079,7 +1077,17 @@ async def anunciar_vagas(
 
     barbearia = _barbearia_do_dono(db, current_user)
     if barbearia.latitude is None or barbearia.longitude is None:
-        raise HTTPException(status_code=400, detail="Barbearia sem coordenadas para validar ETA")
+        raise HTTPException(
+            status_code=400,
+            detail="Não encontramos a localização da sua barbearia. Confira o endereço e o CEP no perfil.",
+        )
+    # Vaga de diaria vale para a capital inteira; barbearia de municipio vizinho nao anuncia.
+    local = localizar_na_capital(barbearia.latitude, barbearia.longitude)
+    if not local:
+        raise HTTPException(
+            status_code=400,
+            detail="As vagas de diária atendem apenas barbearias no município de São Paulo (capital).",
+        )
 
     _expirar_vagas_vencidas(db)
 
@@ -1093,7 +1101,7 @@ async def anunciar_vagas(
             barbearia_id=barbearia.id,
             cadeira_id=cadeira.id,
             status=STATUS_ABERTA,
-            raio_km=RAIO_ANUNCIO_VAGA_KM,
+            # Sem raio: a coluna recebe o default, que a vaga de diaria ignora (sai None na API).
             tipo_servico=TIPO_VAGA_DIARIA,
             expira_em=expira_em,
         )
@@ -1106,14 +1114,14 @@ async def anunciar_vagas(
         db,
         barbearia,
         vagas[0],
-        RAIO_ANUNCIO_VAGA_KM,
+        None,
         current_user.id,
         nome_servico="Vaga de cadeira",
         todos_os_elegiveis=True,
         mensagem=(
-            f"{barbearia.nome} anunciou {len(vagas)} vagas de cadeira perto de você."
+            f"{barbearia.nome} anunciou {len(vagas)} vagas de cadeira na {local['regiao']} ({local['subprefeitura']})."
             if len(vagas) > 1
-            else f"{barbearia.nome} anunciou uma vaga de cadeira perto de você."
+            else f"{barbearia.nome} anunciou uma vaga de cadeira na {local['regiao']} ({local['subprefeitura']})."
         ),
     )
 
@@ -1209,7 +1217,10 @@ async def listar_cadeiras_acionadas_ativas(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user)
 ):
-    """Lista vagas acionadas que o usuario atual pode visualizar com filtro de ETA <= 10 min."""
+    """
+    Vagas que o usuario atual pode ver. Vaga de diaria: a capital inteira, sem raio, so para
+    freelancer. Vaga relampago: radar ligado (ou cliente) com ETA <= 10 min.
+    """
     _expirar_vagas_vencidas(db)
 
     vagas = db.query(CadeiraAcionada).filter(
@@ -1242,21 +1253,18 @@ async def listar_cadeiras_acionadas_ativas(
             continue
 
         if current_user.tipo == "barbeiro" and (com_taxa_pendente or vaga.tipo_servico == TIPO_VAGA_DIARIA):
-            # Vaga de diaria: qualquer freelancer ve as vagas no raio em que e avisado, ONLINE
-            # ou OFFLINE (com taxa pendente, so essas). Ver nao e se candidatar: candidatar-se
-            # segue exigindo radar ligado e ETA de ate 10 min.
+            # Vaga de diaria: vale para a capital inteira. Qualquer freelancer ve todas, de
+            # qualquer regiao, ONLINE ou OFFLINE, com ou sem posicao (com taxa pendente, so
+            # essas). Nao ha raio; o ETA so informa, quando a posicao e conhecida.
             if vaga.tipo_servico != TIPO_VAGA_DIARIA:
+                continue
+            if not esta_na_capital(barbearia.latitude, barbearia.longitude):
                 continue
             eta_min = None
             origem_lat, origem_lon = _posicao_do_freelancer(db, current_user.id)
             if origem_lat is not None and origem_lon is not None:
                 distancia_km = calcular_distancia_haversine(barbearia.latitude, barbearia.longitude, origem_lat, origem_lon)
-                if not _dentro_do_raio(distancia_km, vaga.raio_km):
-                    continue
                 eta_min = _estimar_eta_minutos_por_distancia(distancia_km)
-            elif not com_taxa_pendente:
-                # Sem posicao nao da para saber se esta no raio (antes ja exigia o radar).
-                continue
         elif current_user.tipo == "barbeiro":
             radar = db.query(RadarFreelancer).filter(
                 RadarFreelancer.freelancer_id == current_user.id,
@@ -1384,7 +1392,15 @@ async def candidatar_se_cadeira_acionada(
     if freelancer_bloqueado(db, current_user.id):
         raise HTTPException(status_code=403, detail=MENSAGEM_TAXA_PENDENTE)
 
-    if current_user.latitude is None or current_user.longitude is None:
+    _expirar_vagas_vencidas(db)
+
+    vaga = db.query(CadeiraAcionada).filter(CadeiraAcionada.id == vaga_id).first()
+    if not vaga:
+        raise HTTPException(status_code=404, detail="Vaga nao encontrada")
+    vaga_diaria = vaga.tipo_servico == TIPO_VAGA_DIARIA
+
+    # Vaga de diaria vale para a capital inteira: nao pede localizacao do freelancer.
+    if not vaga_diaria and (current_user.latitude is None or current_user.longitude is None):
         raise HTTPException(status_code=400, detail="Localizacao obrigatoria para se candidatar a vaga")
 
     radar = db.query(RadarFreelancer).filter(
@@ -1395,12 +1411,6 @@ async def candidatar_se_cadeira_acionada(
     if not radar:
         raise HTTPException(status_code=400, detail="Fique online no radar para se candidatar a vaga")
 
-    _expirar_vagas_vencidas(db)
-
-    vaga = db.query(CadeiraAcionada).filter(CadeiraAcionada.id == vaga_id).first()
-    if not vaga:
-        raise HTTPException(status_code=404, detail="Vaga nao encontrada")
-
     if vaga.status != "disponivel":
         raise HTTPException(status_code=409, detail=f"Vaga indisponivel (status: {vaga.status})")
 
@@ -1408,14 +1418,29 @@ async def candidatar_se_cadeira_acionada(
     if not barbearia or barbearia.latitude is None or barbearia.longitude is None:
         raise HTTPException(status_code=400, detail="Barbearia sem coordenadas para validar ETA")
 
-    eta_min = _calcular_eta_minutos(
-        current_user.latitude,
-        current_user.longitude,
-        barbearia.latitude,
-        barbearia.longitude,
-    )
-    if eta_min > 10:
-        raise HTTPException(status_code=400, detail="Voce esta muito longe desta barbearia (limite maximo de 10 min)")
+    if vaga_diaria:
+        # Sem limite de distancia/ETA: freelancer de qualquer regiao se candidata a qualquer
+        # vaga da capital. O ETA so acompanha a resposta, quando a posicao e conhecida.
+        if not esta_na_capital(barbearia.latitude, barbearia.longitude):
+            raise HTTPException(
+                status_code=400,
+                detail="As vagas de diária atendem apenas barbearias no município de São Paulo (capital).",
+            )
+        eta_min = None
+        origem_lat, origem_lon = _posicao_do_freelancer(db, current_user.id)
+        if origem_lat is not None and origem_lon is not None:
+            eta_min = _estimar_eta_minutos_por_distancia(
+                calcular_distancia_haversine(barbearia.latitude, barbearia.longitude, origem_lat, origem_lon)
+            )
+    else:
+        eta_min = _calcular_eta_minutos(
+            current_user.latitude,
+            current_user.longitude,
+            barbearia.latitude,
+            barbearia.longitude,
+        )
+        if eta_min > 10:
+            raise HTTPException(status_code=400, detail="Voce esta muito longe desta barbearia (limite maximo de 10 min)")
 
     candidatura = db.query(CadeiraAcionadaCandidatura).filter(
         CadeiraAcionadaCandidatura.vaga_id == vaga_id,
