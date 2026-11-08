@@ -15,6 +15,7 @@ import CronometroAtendimento, { parseDataServidorUTC } from './CronometroAtendim
 import DeslocamentoAtendimento from './DeslocamentoAtendimento';
 import ChatRoom from './ChatRoom';
 import AnunciarVagas from './AnunciarVagas';
+import { textoDistanciaCandidato } from '../utils/vagas';
 
 function AvatarFreelancer({ nome, foto, API_URL, size = 32 }) {
     const url = foto ? resolveMediaUrl(foto, API_URL) : '';
@@ -1403,6 +1404,9 @@ export default function ShopDashboard({ token, logout, notify, API_URL }) {
                                                                 title="Ver perfil do candidato"
                                                             >
                                                                 <p className="text-xs font-bold text-white truncate underline decoration-dotted underline-offset-2">{candidato.nome}</p>
+                                                                {textoDistanciaCandidato(candidato.distancia_km) && (
+                                                                    <p className="text-[11px] text-zinc-400">{textoDistanciaCandidato(candidato.distancia_km)}</p>
+                                                                )}
                                                             </button>
                                                             <button
                                                                 type="button"

@@ -9,6 +9,7 @@ import {
   cancelarVaga,
   desbloquearCadeiraDaVaga,
   escolherCandidatoVaga,
+  textoDistanciaCandidato,
 } from '../utils/vagas';
 
 const INTERVALO_ATUALIZACAO_MS = 10000;
@@ -352,9 +353,16 @@ export default function AnunciarVagas({ API_URL, token, notify, onVerPerfil, onA
                           <button
                             type="button"
                             onClick={() => onVerPerfil(candidato.freelancer_id, candidato.nome)}
-                            className="min-w-0 flex-1 text-left text-xs font-bold text-white truncate underline decoration-dotted underline-offset-2"
+                            className="min-w-0 flex-1 text-left"
                           >
-                            {candidato.nome}
+                            <span className="block text-xs font-bold text-white truncate underline decoration-dotted underline-offset-2">
+                              {candidato.nome}
+                            </span>
+                            {textoDistanciaCandidato(candidato.distancia_km) && (
+                              <span className="block text-[11px] text-zinc-400">
+                                {textoDistanciaCandidato(candidato.distancia_km)}
+                              </span>
+                            )}
                           </button>
                           <button
                             type="button"

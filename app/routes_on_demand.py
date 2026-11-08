@@ -306,6 +306,9 @@ class CandidatoCadeiraAcionadaResponse(BaseModel):
     nome: str
     foto_perfil: Optional[str] = None
     criado_em: datetime
+    # So informativo, sem limite: distancia em linha reta entre o freelancer e a barbearia.
+    # None quando falta a posicao de um dos dois.
+    distancia_km: Optional[float] = None
 
 
 class EscolherFreelancerRequest(BaseModel):
@@ -1499,6 +1502,15 @@ async def listar_candidatos_cadeira_acionada(
         .all()
     )
 
+    def _distancia_ate_barbearia(freelancer_id: int) -> Optional[float]:
+        # Apenas exibicao na lista de candidatos: nao filtra nem limita nada.
+        if barbearia.latitude is None or barbearia.longitude is None:
+            return None
+        lat, lon = _posicao_do_freelancer(db, freelancer_id)
+        if lat is None or lon is None:
+            return None
+        return round(calcular_distancia_haversine(barbearia.latitude, barbearia.longitude, lat, lon), 1)
+
     return [
         CandidatoCadeiraAcionadaResponse(
             id=candidatura.id,
@@ -1506,6 +1518,7 @@ async def listar_candidatos_cadeira_acionada(
             nome=freelancer.nome,
             foto_perfil=getattr(freelancer, "foto_perfil", None),
             criado_em=candidatura.criado_em,
+            distancia_km=_distancia_ate_barbearia(freelancer.id),
         )
         for candidatura, freelancer in candidaturas
     ]

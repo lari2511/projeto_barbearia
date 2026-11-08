@@ -436,3 +436,44 @@ def test_vaga_relampago_continua_limitada_a_10_min(http):
     r = http.post(f"{BASE}/{vaga['id']}/candidatar-se", headers=longe)
     assert r.status_code == 400 and "10 min" in r.json()["detail"]
     assert http.post(f"{BASE}/{vaga['id']}/candidatar-se", headers=perto).status_code == 200
+
+
+# ---------------------------------------------------------------- distancia na lista de candidatos
+
+def test_lista_de_candidatos_mostra_distancia_sem_limite(http):
+    from app.routes_on_demand import calcular_distancia_haversine
+
+    loja = _barbearia(EXTREMO_SUL)
+    _, perto = _freelancer("perto@x.com", ZONA_SUL)
+    _, longe = _freelancer("longe@x.com", EXTREMO_NORTE)   # ~55 km
+    _, sem_gps = _freelancer("semgps@x.com", None)
+    vaga_id = _anunciar(http, loja)[0]
+    for headers in (perto, longe, sem_gps):
+        assert http.post(f"{BASE}/{vaga_id}/candidatar-se", headers=headers).status_code == 200
+
+    r = http.get(f"{BASE}/{vaga_id}/candidatos", headers=loja["headers"])
+
+    assert r.status_code == 200, r.text
+    por_nome = {c["nome"]: c["distancia_km"] for c in r.json()}
+    assert por_nome["perto"] == round(calcular_distancia_haversine(*EXTREMO_SUL, *ZONA_SUL), 1)
+    assert por_nome["longe"] == round(calcular_distancia_haversine(*EXTREMO_SUL, *EXTREMO_NORTE), 1)
+    assert por_nome["longe"] > 50
+    assert por_nome["semgps"] is None
+
+
+def test_distancia_usa_posicao_do_radar_antes_da_do_perfil(http):
+    loja = _barbearia(CENTRO)
+    fid, headers = _freelancer("f@x.com", CENTRO)
+    vaga_id = _anunciar(http, loja)[0]
+    assert http.post(f"{BASE}/{vaga_id}/candidatar-se", headers=headers).status_code == 200
+    db = SessionLocal()
+    try:
+        radar = db.query(models.RadarFreelancer).filter_by(freelancer_id=fid).first()
+        radar.latitude, radar.longitude = EXTREMO_LESTE
+        db.commit()
+    finally:
+        db.close()
+
+    [candidato] = http.get(f"{BASE}/{vaga_id}/candidatos", headers=loja["headers"]).json()
+
+    assert candidato["distancia_km"] > 20

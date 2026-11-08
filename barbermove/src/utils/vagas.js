@@ -38,7 +38,17 @@ export const buscarResumoVagas = (apiBase, token) => requisitar(apiBase, token, 
 export const anunciarVagas = (apiBase, token, cadeiraIds) =>
   requisitar(apiBase, token, '/on-demand/cadeiras-acionadas/anunciar', enviarJson({ cadeira_ids: cadeiraIds }));
 
-export const buscarCandidatosVaga = (apiBase, token, vagaId) =>
+// "a 3,5 km de você" (abaixo de 10 km com uma casa decimal) / "a 18 km de você". Sem posição: null.
+export const textoDistanciaCandidato = (distanciaKm) => {
+  if (distanciaKm === null || distanciaKm === undefined || !Number.isFinite(Number(distanciaKm))) return null;
+  const km = Number(distanciaKm);
+  const valor = km < 10
+    ? km.toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 1 })
+    : Math.round(km).toLocaleString('pt-BR');
+  return `a ${valor} km de você`;
+};
+
+export const buscarCandidatosVaga =(apiBase, token, vagaId) =>
   requisitar(apiBase, token, `/on-demand/cadeiras-acionadas/${vagaId}/candidatos`);
 
 export const escolherCandidatoVaga = (apiBase, token, vagaId, freelancerId) =>
