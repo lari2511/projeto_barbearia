@@ -9,6 +9,7 @@ import { formatarEndereco } from '../utils/address';
 import { useBackHandler } from '../utils/useBackHandler';
 import BotaoVoltar from './BotaoVoltar';
 import ChatSuporte from './ChatSuporte';
+import ExcluirConta from './ExcluirConta';
 import { useSuporteNaoLidas } from '../utils/suporte';
 import { TEMPOS_EXPERIENCIA_PERFIL } from '../utils/cadastroFreelancer';
 import { AVISO_KIT_FREELANCER, ITENS_CONDICOES_ESTRUTURA, TEXTOS_CONDICOES_ESTRUTURA } from './EstruturaBarbearia';
@@ -2358,6 +2359,8 @@ export function TelaPerfilUsuario({
           </div>
         </div>
       )}
+
+      {!editMode && <ExcluirConta token={token} apiBase={apiBase} onExcluida={onLogout} onNotify={onNotify} />}
     </ScreenWrapper>
   );
 }

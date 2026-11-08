@@ -4,6 +4,10 @@ import App from './App.jsx'
 import ErrorBoundary from './components/ErrorBoundary.jsx'
 import { AppProvider } from './contexts/AppContext.jsx'
 import { reportCrashDirect } from './utils/crashReport'
+import { instalarSessao } from './utils/sessao'
+
+// Token curto + refresh token (renovação automática em 401). Antes de qualquer fetch.
+instalarSessao()
 
 // Em app nativo e em desenvolvimento, evita cache antigo de service worker
 // que pode manter bundle velho mesmo após instalar um APK novo.

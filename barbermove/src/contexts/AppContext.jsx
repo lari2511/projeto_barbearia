@@ -1,6 +1,7 @@
 // Contexto de autenticação e estado global do BarberMove
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { getApiBaseUrl } from '../utils/api';
+import { aoAtualizarToken, encerrarSessao } from '../utils/sessao';
 
 const API_URL = getApiBaseUrl();
 const FRONTEND_CRASH_ENDPOINT = `${API_URL}/api/v1/notificacoes/frontend-crash`;
@@ -234,6 +235,11 @@ export const AppProvider = ({ children }) => {
   // verdade no projeto Android.
   const configurarPushNativo = useCallback(async () => {}, []);
 
+  // Token renovado pelo interceptador (utils/sessao.js): mantém o estado em dia.
+  useEffect(() => aoAtualizarToken((novo) => {
+    if (novo) setToken(novo);
+  }), []);
+
   // Verificar se tem token ao carregar
   useEffect(() => {
     if (token && userType) {
@@ -444,6 +450,7 @@ export const AppProvider = ({ children }) => {
   };
 
   const logout = () => {
+    encerrarSessao(); // revoga o refresh token no servidor e apaga do aparelho
     storage.clear();
     setToken(null);
     setUserType(null);
