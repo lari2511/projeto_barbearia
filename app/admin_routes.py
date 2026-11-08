@@ -17,6 +17,7 @@ from app.models import (
     AvaliacaoFreelancer, AvaliacaoBarbearia, ChamadoSuporte, MensagemSuporte,
 )
 from app.routes import get_current_user
+from app.seguranca import url_documento_assinada
 
 router = APIRouter(prefix="/admin", tags=["Admin"])
 
@@ -52,14 +53,13 @@ def _portfolio_de_usuario(db: Session, usuario: Usuario):
 
 # Verificar se é admin ou barbearia (permitir ambos)
 def verificar_admin(usuario = Depends(get_current_user)):
-    print(f"🔍 verificar_admin - Usuário: {usuario.email}, Tipo: {usuario.tipo}")
-    if usuario.tipo not in ["admin", "barbearia"]:
-        print(f"❌ Acesso negado para tipo: {usuario.tipo}")
+    # Segurança: o painel expõe documentos e aprova cadastros; antes aceitava também
+    # "barbearia", o que deixava qualquer dono ver dados de todos os usuários.
+    if usuario.tipo != "admin":
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Acesso negado - apenas admins e barbearias"
+            detail="Acesso negado - apenas admins"
         )
-    print(f"✅ Acesso permitido para {usuario.email}")
     return usuario
 
 
@@ -114,9 +114,9 @@ def listar_pendentes(
         "documento_verso": bool(u.documento_verso_url),
         "selfie": bool(u.selfie_documento_url),
         "email_verificado": u.email_verificado,
-        "documento_frente_url": u.documento_frente_url,
-        "documento_verso_url": u.documento_verso_url,
-        "selfie_documento_url": u.selfie_documento_url,
+        "documento_frente_url": url_documento_assinada(u.documento_frente_url),
+        "documento_verso_url": url_documento_assinada(u.documento_verso_url),
+        "selfie_documento_url": url_documento_assinada(u.selfie_documento_url),
         "tempo_experiencia": u.tempo_experiencia,
         "portfolio": _portfolio_de_usuario(db, u),
     } for u in pendentes]
@@ -139,9 +139,9 @@ def listar_aprovados(
         "tipo": u.tipo,
         "telefone": u.telefone if admin.tipo == "admin" else None,
         "aprovado_em": u.perfil_aprovado_em,
-        "documento_frente_url": u.documento_frente_url,
-        "documento_verso_url": u.documento_verso_url,
-        "selfie_documento_url": u.selfie_documento_url,
+        "documento_frente_url": url_documento_assinada(u.documento_frente_url),
+        "documento_verso_url": url_documento_assinada(u.documento_verso_url),
+        "selfie_documento_url": url_documento_assinada(u.selfie_documento_url),
         "tempo_experiencia": u.tempo_experiencia,
         "portfolio": _portfolio_de_usuario(db, u),
     } for u in aprovados]
@@ -220,9 +220,9 @@ def obter_usuario_detalhes(
         "telefone": usuario.telefone if admin.tipo == "admin" else None,
         "rg": usuario.rg,
         "criado_em": usuario.criado_em,
-        "documento_frente": usuario.documento_frente_url,
-        "documento_verso": usuario.documento_verso_url,
-        "selfie": usuario.selfie_documento_url,
+        "documento_frente": url_documento_assinada(usuario.documento_frente_url),
+        "documento_verso": url_documento_assinada(usuario.documento_verso_url),
+        "selfie": url_documento_assinada(usuario.selfie_documento_url),
         "tempo_experiencia": usuario.tempo_experiencia,
         "portfolio": portfolio,
         "aprovado": usuario.perfil_aprovado,

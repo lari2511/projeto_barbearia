@@ -3,8 +3,7 @@ Atendimento por chat entre usuários (cliente, freelancer, proprietário) e o AD
 
 Cada usuário tem uma única conversa permanente. As rotas do usuário nunca recebem id de
 conversa (sempre resolvem pelo token), e o perfil vem de `usuario.tipo`, nunca do cliente HTTP.
-As rotas do painel exigem tipo "admin" (verificar_somente_admin; verificar_admin também aceita
-barbearia e não serve aqui).
+As rotas do painel exigem tipo "admin" (verificar_somente_admin).
 """
 
 from datetime import datetime

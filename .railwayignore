@@ -31,3 +31,11 @@ barbermove/android/app/build/**
 # Keep only the distributable APK used by /apk/info
 APK_PRONTO/*.apk
 !APK_PRONTO/BarberMove.apk
+
+# Segredos locais nunca vão para o deploy
+.env
+.env.*
+!.env.example
+*.jks
+*.keystore
+barbermove/android/keystore.properties

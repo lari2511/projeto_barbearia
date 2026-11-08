@@ -106,7 +106,10 @@ for origin in mobile_origins:
         cors_origins.append(origin)
 
 # Permite modo de desenvolvimento com CORS aberto definindo DEBUG_ALLOW_ALL_CORS=1
-if os.getenv("DEBUG_ALLOW_ALL_CORS", "0") == "1":
+from .seguranca import _em_producao  # noqa: E402
+
+# Nunca vale em produção, mesmo que a variável fique ligada por engano.
+if os.getenv("DEBUG_ALLOW_ALL_CORS", "0") == "1" and not _em_producao():
     app.add_middleware(
         CORSMiddleware,
         allow_origins=["*"],
@@ -115,10 +118,13 @@ if os.getenv("DEBUG_ALLOW_ALL_CORS", "0") == "1":
         allow_headers=["*"],
     )
 else:
+    # Segurança: em produção só as origens exatas (ALLOWED_ORIGINS + app Capacitor).
+    # IPs de rede local valem apenas fora do Railway (dev/teste em celular na mesma rede).
+    # Removido *.loca.lt: túnel público onde qualquer pessoa cria um subdomínio.
     app.add_middleware(
         CORSMiddleware,
         allow_origins=cors_origins,
-        allow_origin_regex=r"https?://(localhost|127\.0\.0\.1|192\.168\.\d+\.\d+|10\.\d+\.\d+\.\d+|172\.(1[6-9]|2\d|3[0-1])\.\d+\.\d+|[a-z0-9-]+\.loca\.lt)(:\d+)?$",
+        allow_origin_regex=None if _em_producao() else r"https?://(localhost|127\.0\.0\.1|192\.168\.\d+\.\d+|10\.\d+\.\d+\.\d+|172\.(1[6-9]|2\d|3[0-1])\.\d+\.\d+)(:\d+)?$",
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
@@ -155,6 +161,10 @@ app.include_router(router_on_demand)  # 📍 On-Demand com geolocalização
 app.include_router(router_admin_avaliacoes)  # 🛡️ Gerenciamento admin de avaliações e bloqueios
 app.include_router(router_pagamento_perfis)  # 💳 Configurações de pagamento
 app.include_router(router_senha)  # 🔑 Reset de senha
+from .sessoes import router as router_sessoes  # noqa: E402
+app.include_router(router_sessoes)  # 🔐 Refresh token (rotação) e logout
+from .routes_conta import router as router_conta  # noqa: E402
+app.include_router(router_conta)  # 🗑️ LGPD: exclusão da conta pelo usuário
 app.include_router(router_visibilidade)  # 👁️ Visibilidade do ecossistema local (freelancer vê barbearias / dono vê freelancers)
 app.include_router(router_cobrancas)  # 💠 Cobranças Pix (Mercado Pago)
 app.include_router(router_cadastro)  # 📝 Cadastro rápido e completar perfil
@@ -168,7 +178,8 @@ app.include_router(router_vaga_chat)  # 💬 Chat privado da vaga: dono e freela
 app.include_router(router_legais, prefix="/api/v1")
 
 # Diretorio de distribuicao de APKs (configuravel por variavel de ambiente).
-apk_download_dir = pathlib.Path(os.getenv("APK_DOWNLOAD_DIR", "barbermove"))
+# Padrão APK_PRONTO: "barbermove" publicaria o código-fonte e arquivos locais do app.
+apk_download_dir = pathlib.Path(os.getenv("APK_DOWNLOAD_DIR", "APK_PRONTO"))
 if not apk_download_dir.is_absolute():
     apk_download_dir = pathlib.Path.cwd() / apk_download_dir
 apk_download_dir = apk_download_dir.resolve()
@@ -181,6 +192,15 @@ app.mount("/download", StaticFiles(directory=str(apk_download_dir)), name="downl
 # Monta uploads de imagens (perfil, portfólio, etc.)
 uploads_dir = pathlib.Path("uploads")
 uploads_dir.mkdir(parents=True, exist_ok=True)
+
+
+# Documentos (RG/CNH/selfie) não são públicos: precisa vir ANTES do mount de /uploads.
+# O ADM abre por link assinado em /api/v1/documentos/arquivo/{nome}.
+@app.api_route("/uploads/documentos/{caminho:path}", methods=["GET", "HEAD"], include_in_schema=False)
+def _bloquear_documentos_publicos(caminho: str):
+    raise HTTPException(status_code=404, detail="Not Found")
+
+
 app.mount("/uploads", StaticFiles(directory=str(uploads_dir)), name="uploads")
 
 def _identificar_socket(websocket: WebSocket, msg: str) -> None:

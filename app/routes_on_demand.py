@@ -483,17 +483,7 @@ async def atualizar_localizacao_barbeiro(
         RadarFreelancerResponse com localização atualizada
     """
     
-    # DEBUG: logar headers/payload para diagnosticar coordenadas
-    try:
-        print('\n=== [DEBUG] POST /api/v1/on-demand/atualizar-localizacao ===')
-        if http_request is not None:
-            print('Headers:', dict(http_request.headers))
-        try:
-            print('Payload:', request.dict())
-        except Exception:
-            print('Payload (repr):', repr(request))
-    except Exception:
-        pass
+    # Segurança: não logar cabeçalhos (Authorization) nem payload com coordenadas.
 
     # Buscar ou criar o radar
     radar = db.query(RadarFreelancer).filter(
@@ -520,7 +510,7 @@ async def atualizar_localizacao_barbeiro(
     db.commit()
     db.refresh(radar)
     
-    print(f"📍 Localização atualizada: {current_user.nome} @ ({request.latitude}, {request.longitude})")
+    print(f"📍 Localização atualizada: usuario_id={current_user.id}")
     
     return RadarFreelancerResponse.from_orm(radar)
 

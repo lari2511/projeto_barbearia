@@ -21,7 +21,7 @@ load_dotenv()
 router = APIRouter()
 
 # Configurações de JWT
-SECRET_KEY = os.getenv("SECRET_KEY", "INSEGURO_MUDE_ISSO_AGORA")
+from .seguranca import SECRET_KEY
 ALGORITHM = "HS256"
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/login/cliente/")
 

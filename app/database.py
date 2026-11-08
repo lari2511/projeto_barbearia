@@ -38,6 +38,13 @@ def get_db():
 # Inicialização do banco de dados
 def init_db():
     """Cria as tabelas do banco de dados"""
+    _init_db_tabelas()
+    # LGPD: cifra dados pessoais que ainda estejam em texto aberto (só com DADOS_CRIPTO_KEY)
+    from .cripto_campos import criptografar_dados_existentes
+    criptografar_dados_existentes(engine)
+
+
+def _init_db_tabelas():
     # Importa os modelos para registrar as tabelas no metadata
     try:
         from . import models  # noqa: F401
@@ -62,6 +69,12 @@ def init_db():
             with engine.begin() as connection:
                 connection.execute(text("ALTER TABLE usuarios ADD COLUMN token_verificacao VARCHAR(255)"))
                 print("✅ Coluna token_verificacao criada")
+
+        # LGPD: exclusão de conta pelo próprio usuário
+        if "excluido_em" not in colunas_existentes:
+            with engine.begin() as connection:
+                connection.execute(text("ALTER TABLE usuarios ADD COLUMN excluido_em TIMESTAMP"))
+                print("[migracao] Coluna excluido_em criada")
 
         # Etapa 7: saída pendente do freelancer presente (aguardando concluir atendimentos)
         if "saida_pendente" not in colunas_existentes:

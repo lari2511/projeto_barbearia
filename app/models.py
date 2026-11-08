@@ -6,6 +6,7 @@ from sqlalchemy import event
 from sqlalchemy.orm import relationship
 from datetime import datetime
 from .database import Base
+from .cripto_campos import CampoCriptografado  # LGPD: dados pessoais cifrados em repouso
 import enum
 
 # --- ENUMS (Estados) ---
@@ -83,10 +84,10 @@ class Usuario(Base):
     senha_hash = Column(String)
     tipo = Column(String)  # 'cliente', 'barbeiro', 'barbearia'
     endereco = Column(String, nullable=True)
-    telefone = Column(String, nullable=True)
-    cpf = Column(String, nullable=True, unique=True)  # Para clientes e barbeiros
-    cnpj = Column(String, nullable=True, unique=True)  # Para barbearias
-    rg = Column(String, nullable=True)  # RG ou CNH
+    telefone = Column(CampoCriptografado, nullable=True)
+    cpf = Column(CampoCriptografado, nullable=True, unique=True)  # Para clientes e barbeiros
+    cnpj = Column(CampoCriptografado, nullable=True, unique=True)  # Para barbearias
+    rg = Column(CampoCriptografado, nullable=True)  # RG ou CNH
     documento_frente_url = Column(String, nullable=True)  # URL da foto do documento frente
     documento_verso_url = Column(String, nullable=True)  # URL da foto do documento verso
     selfie_documento_url = Column(String, nullable=True)  # Selfie com documento
@@ -135,6 +136,8 @@ class Usuario(Base):
     # ✅ FIREBASE - Push Notifications
     device_token = Column(String, nullable=True)  # FCM token do React Native para notificações push
     device_token_atualizado_em = Column(DateTime, nullable=True)  # Última vez que o token foi atualizado
+    # LGPD: conta excluída pelo próprio usuário (dados pessoais anonimizados, login bloqueado)
+    excluido_em = Column(DateTime, nullable=True)
     
     # Relationships
     chamados_cliente = relationship("Chamado", foreign_keys="Chamado.cliente_id", back_populates="cliente")
@@ -174,7 +177,7 @@ class Barbearia(Base):
     usuario_id = Column(Integer, ForeignKey("usuarios.id"))
     nome = Column(String)
     endereco = Column(String)
-    telefone = Column(String, nullable=True)
+    telefone = Column(CampoCriptografado, nullable=True)
     cep = Column(String, nullable=True)
     # Texto livre informado pelo dono (ex.: "Segunda a sábado, das 08:00 às 20:00").
     # Só exibição no perfil: não abre/fecha nada automaticamente.
@@ -481,8 +484,8 @@ class Saque(Base):
     taxa = Column(Float, default=0.0)  # 10% de taxa
     status = Column(String, default="pendente")  # pendente, processando, concluído, cancelado
     banco = Column(String, nullable=False)
-    agencia = Column(String, nullable=False)
-    conta = Column(String, nullable=False)
+    agencia = Column(CampoCriptografado, nullable=False)
+    conta = Column(CampoCriptografado, nullable=False)
     tipo_conta = Column(String, default="corrente")  # corrente ou poupanca
     criado_em = Column(DateTime, default=datetime.utcnow)
     processado_em = Column(DateTime, nullable=True)
@@ -865,13 +868,13 @@ class ContaPagamentoUsuario(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     usuario_id = Column(Integer, ForeignKey("usuarios.id"), nullable=False, unique=True, index=True)
-    chave_pix = Column(String, nullable=True)
+    chave_pix = Column(CampoCriptografado, nullable=True)
     banco = Column(String, nullable=True)
-    agencia = Column(String, nullable=True)
-    conta = Column(String, nullable=True)
+    agencia = Column(CampoCriptografado, nullable=True)
+    conta = Column(CampoCriptografado, nullable=True)
     tipo_conta = Column(String, default="corrente")
     titular_nome = Column(String, nullable=True)
-    titular_documento = Column(String, nullable=True)
+    titular_documento = Column(CampoCriptografado, nullable=True)
     ativo = Column(Boolean, default=True)
     criado_em = Column(DateTime, default=datetime.utcnow)
     atualizado_em = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
@@ -1464,3 +1467,20 @@ class MensagemSuporte(Base):
     chamado_suporte = relationship("ChamadoSuporte", back_populates="mensagens")
     remetente = relationship("Usuario", foreign_keys=[remetente_id])
 
+
+
+class RefreshToken(Base):
+    """Refresh token de sessão (rotação a cada uso; reuso revoga a família inteira).
+
+    Só o hash SHA-256 fica no banco: o valor aberto existe apenas no aparelho do usuário.
+    """
+    __tablename__ = "refresh_tokens"
+
+    id = Column(Integer, primary_key=True, index=True)
+    usuario_id = Column(Integer, ForeignKey("usuarios.id"), nullable=False, index=True)
+    token_hash = Column(String(64), nullable=False, unique=True, index=True)
+    familia = Column(String(36), nullable=False, index=True)  # uma por login
+    criado_em = Column(DateTime, default=datetime.utcnow, nullable=False)
+    expira_em = Column(DateTime, nullable=False, index=True)
+    usado_em = Column(DateTime, nullable=True)      # trocado por um novo (rotação)
+    revogado_em = Column(DateTime, nullable=True)   # logout, reuso detectado ou conta excluída

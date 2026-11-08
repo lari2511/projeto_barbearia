@@ -2,6 +2,7 @@
 # Módulo de envio de e-mail usando fastapi-mail
 
 import os
+from .seguranca import mascarar_email
 from fastapi_mail import FastMail, MessageSchema, ConnectionConfig, MessageType
 from pydantic import EmailStr
 from dotenv import load_dotenv
@@ -106,7 +107,7 @@ def _send_via_brevo_api(
             timeout=20,
         )
         if response.status_code in (200, 201, 202):
-            print(f"✅ [BREVO API] E-mail enviado para {to_email}")
+            print(f"✅ [BREVO API] E-mail enviado para {mascarar_email(to_email)}")
             return True
 
         print(
@@ -115,7 +116,7 @@ def _send_via_brevo_api(
         )
         return False
     except Exception as exc:  # noqa: BLE001
-        print(f"❌ [BREVO API] Exceção no envio para {to_email}: {exc}")
+        print(f"❌ [BREVO API] Exceção no envio para {mascarar_email(to_email)}: {exc}")
         return False
 
 
@@ -157,7 +158,7 @@ def _send_via_resend_api(
             timeout=20,
         )
         if response.status_code in (200, 201, 202):
-            print(f"✅ [RESEND API] E-mail enviado para {to_email}")
+            print(f"✅ [RESEND API] E-mail enviado para {mascarar_email(to_email)}")
             return True
 
         print(
@@ -166,7 +167,7 @@ def _send_via_resend_api(
         )
         return False
     except Exception as exc:  # noqa: BLE001
-        print(f"❌ [RESEND API] Exceção no envio para {to_email}: {exc}")
+        print(f"❌ [RESEND API] Exceção no envio para {mascarar_email(to_email)}: {exc}")
         return False
 
 
@@ -233,15 +234,15 @@ async def send_verification_email(email_to: EmailStr, token_verification: str, u
         subtype=MessageType.html,
     )
 
-    print(f"--- [DEBUG E-MAIL] Iniciando envio para: {email_to} ---")
+    print(f"--- [DEBUG E-MAIL] Iniciando envio para: {mascarar_email(email_to)} ---")
     print(f"--- [DEBUG E-MAIL] Link de verificação: {verify_link}")
     try:
         await fm.send_message(message, template_name="verification.html")
-        print(f"--- [DEBUG E-MAIL] Sucesso! E-mail enviado para {email_to} ---")
+        print(f"--- [DEBUG E-MAIL] Sucesso! E-mail enviado para {mascarar_email(email_to)} ---")
         return True
     except Exception as e:
         print("\n--- [DEBUG E-MAIL] ERRO CRÍTICO ---")
-        print(f"Não foi possível enviar o e-mail para {email_to}")
+        print(f"Não foi possível enviar o e-mail para {mascarar_email(email_to)}")
         print(f"Erro: {e}")
         print("Tentar fallback SMTP simples...")
         print("------------------------------------\n")
@@ -281,12 +282,12 @@ async def send_welcome_email(email_to: EmailStr, user_name: str = "Usuário"):
     )
 
     try:
-        print(f"📧 Enviando boas-vindas para {email_to}...")
+        print(f"📧 Enviando boas-vindas para {mascarar_email(email_to)}...")
         await fm.send_message(message, template_name="welcome.html")
-        print(f"✅ Email de boas-vindas enviado para {email_to}!")
+        print(f"✅ Email de boas-vindas enviado para {mascarar_email(email_to)}!")
         return True
     except Exception as e:
-        print(f"❌ Erro ao enviar email de boas-vindas para {email_to}: {str(e)}")
+        print(f"❌ Erro ao enviar email de boas-vindas para {mascarar_email(email_to)}: {str(e)}")
         try:
             from .email_utils import send_email
 
@@ -331,12 +332,12 @@ async def send_perfil_awaiting_approval_email(email_to: EmailStr, user_name: str
     )
 
     try:
-        print(f"📧 Enviando email de avaliação pendente para {email_to}...")
+        print(f"📧 Enviando email de avaliação pendente para {mascarar_email(email_to)}...")
         await fm.send_message(message, template_name="awaiting_approval.html")
-        print(f"✅ Email de avaliação enviado para {email_to}!")
+        print(f"✅ Email de avaliação enviado para {mascarar_email(email_to)}!")
         return True
     except Exception as e:
-        print(f"❌ Erro ao enviar email de avaliação para {email_to}: {str(e)}")
+        print(f"❌ Erro ao enviar email de avaliação para {mascarar_email(email_to)}: {str(e)}")
         try:
             from .email_utils import send_email
 
@@ -382,12 +383,12 @@ async def send_perfil_approved_email(email_to: EmailStr, user_name: str = "Usuá
     )
 
     try:
-        print(f"📧 Enviando email de aprovação para {email_to}...")
+        print(f"📧 Enviando email de aprovação para {mascarar_email(email_to)}...")
         await fm.send_message(message, template_name="profile_approved.html")
-        print(f"✅ Email de aprovação enviado para {email_to}!")
+        print(f"✅ Email de aprovação enviado para {mascarar_email(email_to)}!")
         return True
     except Exception as e:
-        print(f"❌ Erro ao enviar email de aprovação para {email_to}: {str(e)}")
+        print(f"❌ Erro ao enviar email de aprovação para {mascarar_email(email_to)}: {str(e)}")
         try:
             from .email_utils import send_email
 

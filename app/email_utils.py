@@ -1,6 +1,8 @@
 import logging
 import os
 import smtplib
+
+from .seguranca import mascarar_email
 import ssl
 from email.message import EmailMessage
 from typing import Optional
@@ -54,14 +56,14 @@ def _send_via_brevo_api(to_email: str, subject: str, html_body: str, text_body: 
             timeout=20,
         )
         if response.status_code in (200, 201, 202):
-            logger.info("[BREVO API] email enviado para %s", to_email)
+            logger.info("[BREVO API] email enviado para %s", mascarar_email(to_email))
             return True
 
         logger.warning("[BREVO API] falha no envio para %s: HTTP %s - %s",
                        to_email, response.status_code, response.text[:300])
         return False
     except Exception as exc:  # noqa: BLE001
-        logger.warning("[BREVO API] excecao ao enviar para %s: %s: %s", to_email, type(exc).__name__, exc)
+        logger.warning("[BREVO API] excecao ao enviar para %s: %s: %s", mascarar_email(to_email), type(exc).__name__, exc)
         return False
 
 
@@ -87,14 +89,14 @@ def _send_via_resend_api(to_email: str, subject: str, html_body: str, text_body:
             timeout=20,
         )
         if response.status_code in (200, 201, 202):
-            logger.info("[RESEND API] email enviado para %s", to_email)
+            logger.info("[RESEND API] email enviado para %s", mascarar_email(to_email))
             return True
 
         logger.warning("[RESEND API] falha no envio para %s: HTTP %s - %s",
                        to_email, response.status_code, response.text[:300])
         return False
     except Exception as exc:  # noqa: BLE001
-        logger.warning("[RESEND API] excecao ao enviar para %s: %s: %s", to_email, type(exc).__name__, exc)
+        logger.warning("[RESEND API] excecao ao enviar para %s: %s: %s", mascarar_email(to_email), type(exc).__name__, exc)
         return False
 
 
@@ -121,7 +123,7 @@ def send_email(subject: str, to_email: str, html_body: str, text_body: Optional[
     message.add_alternative(html_body, subtype="html")
 
     try:
-        logger.info("tentando enviar email para %s via SMTP %s:%s", to_email, SMTP_HOST, SMTP_PORT)
+        logger.info("tentando enviar email para %s via SMTP %s:%s", mascarar_email(to_email), SMTP_HOST, SMTP_PORT)
 
         if SMTP_USE_SSL:
             context = ssl.create_default_context()
@@ -136,9 +138,9 @@ def send_email(subject: str, to_email: str, html_body: str, text_body: Optional[
                 server.login(SMTP_USER, SMTP_PASSWORD)
                 server.send_message(message)
         
-        logger.info("[SMTP] email enviado para %s", to_email)
+        logger.info("[SMTP] email enviado para %s", mascarar_email(to_email))
         return True
     except Exception as exc:  # noqa: BLE001
-        logger.warning("[SMTP] erro ao enviar para %s: %s: %s", to_email, type(exc).__name__, exc)
+        logger.warning("[SMTP] erro ao enviar para %s: %s: %s", mascarar_email(to_email), type(exc).__name__, exc)
         return False
 

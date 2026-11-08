@@ -1,7 +1,8 @@
 # --- ARQUIVO: app/routes_documentos.py ---
 # Endpoints para validação de documentos
 
-from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Query
+from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 from datetime import datetime
 import os
@@ -11,12 +12,33 @@ from pathlib import Path
 from . import models, schemas
 from .database import get_db
 from .routes import get_current_user
+from .seguranca import assinatura_documento_valida, url_documento_assinada
 
 router = APIRouter()
 
 # Diretório para armazenar documentos
 DOCUMENTS_DIR = Path("uploads/documentos")
 DOCUMENTS_DIR.mkdir(parents=True, exist_ok=True)
+
+
+@router.get("/arquivo/{nome_arquivo}")
+def baixar_documento_assinado(
+    nome_arquivo: str,
+    exp: int = Query(...),
+    sig: str = Query(...),
+):
+    """Serve RG/CNH/selfie só com link assinado e temporário (gerado para o ADM).
+
+    A pasta uploads/documentos não é mais pública: /uploads/documentos/* responde 404.
+    """
+    if "/" in nome_arquivo or "\\" in nome_arquivo or ".." in nome_arquivo:
+        raise HTTPException(status_code=404, detail="Arquivo não encontrado")
+    if not assinatura_documento_valida(nome_arquivo, exp, sig):
+        raise HTTPException(status_code=403, detail="Link expirado ou inválido")
+    caminho = DOCUMENTS_DIR / nome_arquivo
+    if not caminho.is_file():
+        raise HTTPException(status_code=404, detail="Arquivo não encontrado")
+    return FileResponse(caminho, headers={"Cache-Control": "private, no-store"})
 
 
 @router.post("/upload-files", status_code=status.HTTP_200_OK)
@@ -124,11 +146,11 @@ def verificar_documento(
     Admin/Barbearia verifica e aprova ou rejeita documentos.
     Admin e barbearias podem verificar documentos.
     """
-    # Admin e barbearias podem verificar documentos
-    if current_user.tipo not in ["barbearia", "admin"]:
+    # Segurança: só o ADM aprova documentos (antes qualquer barbearia podia).
+    if current_user.tipo != "admin":
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Apenas admins e barbearias podem verificar documentos"
+            detail="Apenas o ADM pode verificar documentos"
         )
     
     # Busca o usuário a ser verificado
@@ -184,10 +206,11 @@ def listar_documentos_pendentes(
     Lista todos os usuários com documentos pendentes de verificação.
     Apenas barbearias podem acessar.
     """
-    if current_user.tipo != "barbearia":
+    # Segurança: lista RG e fotos de documento de terceiros; só o ADM.
+    if current_user.tipo != "admin":
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Apenas barbearias podem listar documentos pendentes"
+            detail="Apenas o ADM pode listar documentos pendentes"
         )
     
     # Busca usuários com documentos enviados mas não verificados
@@ -206,9 +229,9 @@ def listar_documentos_pendentes(
                 "email": u.email,
                 "tipo": u.tipo,
                 "rg": u.rg,
-                "documento_frente_url": u.documento_frente_url,
-                "documento_verso_url": u.documento_verso_url,
-                "selfie_documento_url": u.selfie_documento_url,
+                "documento_frente_url": url_documento_assinada(u.documento_frente_url),
+                "documento_verso_url": url_documento_assinada(u.documento_verso_url),
+                "selfie_documento_url": url_documento_assinada(u.selfie_documento_url),
             }
             for u in usuarios_pendentes
         ]
@@ -246,9 +269,9 @@ def listar_documentos_pendentes_admin(
                 "email": u.email,
                 "tipo": u.tipo,
                 "cpf": u.cpf,
-                "documento_frente_url": u.documento_frente_url,
-                "documento_verso_url": u.documento_verso_url,
-                "selfie_documento_url": u.selfie_documento_url,
+                "documento_frente_url": url_documento_assinada(u.documento_frente_url),
+                "documento_verso_url": url_documento_assinada(u.documento_verso_url),
+                "selfie_documento_url": url_documento_assinada(u.selfie_documento_url),
                 "documento_verificado": u.documento_verificado,
                 "documento_rejeitado_motivo": u.documento_rejeitado_motivo,
             }
@@ -287,9 +310,9 @@ def listar_todos_documentos_admin(
                 "email": u.email,
                 "tipo": u.tipo,
                 "cpf": u.cpf,
-                "documento_frente_url": u.documento_frente_url,
-                "documento_verso_url": u.documento_verso_url,
-                "selfie_documento_url": u.selfie_documento_url,
+                "documento_frente_url": url_documento_assinada(u.documento_frente_url),
+                "documento_verso_url": url_documento_assinada(u.documento_verso_url),
+                "selfie_documento_url": url_documento_assinada(u.selfie_documento_url),
                 "documento_verificado": u.documento_verificado,
                 "documento_rejeitado_motivo": u.documento_rejeitado_motivo,
                 "perfil_aprovado": u.perfil_aprovado,

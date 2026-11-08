@@ -16,6 +16,7 @@ import base64
 import os
 
 from app.database import get_db
+from app.limite_requisicoes import limite_cadastro
 from app.models import (
     Usuario, Freelancer, EspecialidadeFreelancer, PortfolioFreelancer,
     AvaliacaoFreelancer, Comissao, Chamado, OrigemCliente,
@@ -88,7 +89,7 @@ def _registrar_movimentacao(
     return mov
 
 
-@router.post("/cadastro", response_model=dict)
+@router.post("/cadastro", response_model=dict, dependencies=[Depends(limite_cadastro)])
 def cadastrar_freelancer(
     dados: FreelancerCreate,
     db: Session = Depends(get_db),

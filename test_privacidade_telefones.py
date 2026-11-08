@@ -215,9 +215,9 @@ def test_adm_continua_vendo_os_contatos(cena):
 
 def test_proprietario_nao_usa_rotas_do_painel_adm_para_pegar_numeros(cena):
     http, ids, dono = cena["http"], cena["ids"], cena["h"]["dono"]
+    # Painel ADM agora é só do ADM: o proprietário nem chega aos dados.
     r = http.get(f"/admin/api/usuario/{ids['free']}", headers=dono)
-    assert r.status_code == 200 and FONE_FREE not in r.text
-    assert r.json()["nome"] == "free" and r.json()["telefone"] is None
+    assert r.status_code == 403 and FONE_FREE not in r.text
 
 
 def test_chat_do_chamado_continua_funcionando(cena):

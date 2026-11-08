@@ -26,6 +26,8 @@ PREFIXOS_LIBERADOS = (
     "/api/v1/politica-privacidade",
     "/api/v1/firebase/",
     "/api/v1/notificacoes/frontend-",
+    "/api/v1/auth/",   # renovar/encerrar sessão
+    "/api/v1/conta/",  # LGPD: quem recusa os termos precisa conseguir excluir a conta
 )
 LEITURAS_LIBERADAS = (
     "/api/v1/usuarios/me",

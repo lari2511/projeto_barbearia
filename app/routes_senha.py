@@ -14,7 +14,8 @@ from .email_utils import send_email
 router = APIRouter(prefix="/api/v1", tags=["senha"])
 logger = logging.getLogger(__name__)
 
-SECRET_KEY = os.getenv("SECRET_KEY", "INSEGURO_MUDE_ISSO_AGORA")
+from .limite_requisicoes import limite_reset_confirmar, limite_reset_solicitar, registrar_tentativa
+from .seguranca import SECRET_KEY, mascarar_email
 ALGORITHM = "HS256"
 FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:5173")
 
@@ -47,17 +48,19 @@ def _verificar_token_reset(token: str) -> str | None:
         return None
 
 
-@router.post("/senha/solicitar-reset")
+@router.post("/senha/solicitar-reset", dependencies=[Depends(limite_reset_solicitar)])
 def solicitar_reset(dados: SolicitarResetRequest, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
     email = normalize_email(dados.email)
+    # Até 3 pedidos de reset por e-mail a cada 15 min (evita bombardear a caixa de alguém).
+    registrar_tentativa(f"reset_solicitar:email:{email}", 3, 15 * 60)
     usuario = db.query(models.Usuario).filter(func.lower(models.Usuario.email) == email).first()
 
     # Sempre retorna 200 para não revelar se email existe
     if not usuario:
-        logger.info("reset de senha solicitado para email SEM conta: %r", email)
+        logger.info("reset de senha solicitado para email SEM conta: %s", mascarar_email(email))
         return {"mensagem": "Se o email existir, você receberá as instruções."}
 
-    logger.info("reset de senha: gerando token e enviando email para %s (id=%s)", usuario.email, usuario.id)
+    logger.info("reset de senha: gerando token e enviando email (id=%s)", usuario.id)
     token = _gerar_token_reset(usuario.email)
     link = f"{FRONTEND_URL}?reset_token={token}"
 
@@ -80,13 +83,12 @@ def solicitar_reset(dados: SolicitarResetRequest, background_tasks: BackgroundTa
         text_body=f"Acesse: {link}"
     )
 
-    # Mostra o link no log para testes sem SMTP
-    logger.info("[RESET SENHA] link para %s: %s", usuario.email, link)
+    # Segurança: o link contém o token de reset; nunca vai para o log.
 
     return {"mensagem": "Se o email existir, você receberá as instruções."}
 
 
-@router.post("/senha/confirmar-reset")
+@router.post("/senha/confirmar-reset", dependencies=[Depends(limite_reset_confirmar)])
 def confirmar_reset(dados: ConfirmarResetRequest, db: Session = Depends(get_db)):
     email = _verificar_token_reset(dados.token)
     if not email:
@@ -102,6 +104,9 @@ def confirmar_reset(dados: ConfirmarResetRequest, db: Session = Depends(get_db))
 
     from .routes import get_password_hash
     usuario.senha_hash = get_password_hash(dados.nova_senha)
+    # Senha trocada: derruba os logins abertos (refresh tokens) em outros aparelhos.
+    from .sessoes import revogar_sessoes_do_usuario
+    revogar_sessoes_do_usuario(db, usuario.id)
     db.commit()
 
     return {"mensagem": "Senha redefinida com sucesso! Faça login com a nova senha."}

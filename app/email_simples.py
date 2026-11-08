@@ -3,6 +3,7 @@ Email simples com FastAPI-Mail
 Sem templates, sem complexidade
 """
 import os
+from .seguranca import mascarar_email
 from fastapi_mail import FastMail, MessageSchema, ConnectionConfig, MessageType
 from dotenv import load_dotenv
 
@@ -51,4 +52,4 @@ async def enviar_verificacao(email: str, token: str):
     )
     
     await fm.send_message(message)
-    print(f"✅ Email enviado para {email}")
+    print(f"✅ Email enviado para {mascarar_email(email)}")

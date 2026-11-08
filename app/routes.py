@@ -67,7 +67,9 @@ def teste():
     return {"status": "ok", "mensagem": "API está funcionando"}
 
 # --- Configuração de Segurança ---
-SECRET_KEY = os.getenv("SECRET_KEY", "INSEGURO_MUDE_ISSO_AGORA")
+from .limite_requisicoes import limitar_login, limite_cadastro
+from .seguranca import SECRET_KEY, mascarar_email
+from .sessoes import emitir_sessao  # sem valor padrão: produção não sobe sem chave forte
 ALGORITHM = os.getenv("ALGORITHM", "HS256")
 ACCESS_TOKEN_EXPIRE_DAYS = int(os.getenv("ACCESS_TOKEN_EXPIRE_DAYS", "7"))
 REQUIRE_EMAIL_VERIFIED = os.getenv("REQUIRE_EMAIL_VERIFIED", "0") == "1"
@@ -742,7 +744,7 @@ def create_access_token(data: dict, expires_delta: timedelta | None = None) -> s
         expire = datetime.now() + expires_delta
     else:
         expire = datetime.now() + timedelta(days=ACCESS_TOKEN_EXPIRE_DAYS)
-    to_encode.update({"exp": expire})
+    to_encode.update({"exp": expire, "iat": datetime.utcnow()})
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt
 
@@ -786,7 +788,10 @@ def usuario_opcional(
         user_id = int(payload.get("sub"))
     except (JWTError, ValueError, TypeError):
         return None
-    return db.query(models.Usuario).filter(models.Usuario.id == user_id).first()
+    usuario = db.query(models.Usuario).filter(models.Usuario.id == user_id).first()
+    if usuario is not None and getattr(usuario, "excluido_em", None) is not None:
+        return None
+    return usuario
 
 
 def telefone_visivel_para(usuario: models.Usuario, visitante: models.Usuario | None) -> str | None:
@@ -822,7 +827,6 @@ def dispatch_verification_email(user: models.Usuario) -> None:
     )
 
 def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
-    print(f"get_current_user - Token recebido: {token[:50]}...")
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Credenciais inválidas",
@@ -839,18 +843,18 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
         raise credentials_exception
     
     user = db.query(models.Usuario).filter(models.Usuario.id == user_id).first()
-    if user is None:
-        print(f"Usuário não encontrado: ID {user_id}")
+    if user is None or getattr(user, "excluido_em", None) is not None:
+        print(f"Usuário não encontrado ou excluído: ID {user_id}")
         raise credentials_exception
-    print(f"Usuário autenticado: {user.email} (tipo: {user.tipo})")
     return user
 
 # --- ENDPOINTS DE CADASTRO ---
 
-@router.post("/clientes/", response_model=schemas.RegistroResponse)
+@router.post("/clientes/", response_model=schemas.RegistroResponse, dependencies=[Depends(limite_cadastro)])
 def cadastrar_cliente(
     cliente: schemas.ClienteCreate, 
     background_tasks: BackgroundTasks,
+    request: Request,
     db: Session = Depends(get_db)
 ):
     # Cadastrar novo cliente; já devolve o token (entra direto, sem confirmar e-mail).
@@ -888,20 +892,24 @@ def cadastrar_cliente(
     db.refresh(novo_usuario)
     
     # Gerar token de acesso
-    access_token = create_access_token(data={"sub": str(novo_usuario.id), "tipo": novo_usuario.tipo})
+    sessao = emitir_sessao(db, novo_usuario, request)
+    access_token = sessao["access_token"]
     
     usuario_serializado = schemas.UsuarioPublic.model_validate(novo_usuario)
     return schemas.RegistroResponse(
         usuario=usuario_serializado,
         access_token=access_token,
+        refresh_token=sessao.get("refresh_token"),
+        expires_in=sessao.get("expires_in"),
         token_type="bearer"
     )
 
 
-@router.post("/barbeiros/", response_model=schemas.RegistroResponse)
+@router.post("/barbeiros/", response_model=schemas.RegistroResponse, dependencies=[Depends(limite_cadastro)])
 def cadastrar_barbeiro(
     barbeiro: schemas.BarbeiroCreate, 
     background_tasks: BackgroundTasks,
+    request: Request,
     db: Session = Depends(get_db)
 ):
     # Cadastrar novo barbeiro; já devolve o token (entra direto, sem confirmar e-mail).
@@ -960,19 +968,23 @@ def cadastrar_barbeiro(
     # )
     
     # Gerar token de acesso para upload de documentos
-    access_token = create_access_token(data={"sub": str(novo_usuario.id), "tipo": novo_usuario.tipo})
+    sessao = emitir_sessao(db, novo_usuario, request)
+    access_token = sessao["access_token"]
     
     usuario_serializado = schemas.UsuarioPublic.model_validate(novo_usuario)
     return schemas.RegistroResponse(
         usuario=usuario_serializado,
         access_token=access_token,
+        refresh_token=sessao.get("refresh_token"),
+        expires_in=sessao.get("expires_in"),
         token_type="bearer"
     )
 
-@router.post("/barbearias/", response_model=schemas.RegistroResponse)
+@router.post("/barbearias/", response_model=schemas.RegistroResponse, dependencies=[Depends(limite_cadastro)])
 def cadastrar_barbearia(
     barbearia: schemas.BarbeariaCreate, 
     background_tasks: BackgroundTasks,
+    request: Request,
     db: Session = Depends(get_db)
 ):
     # Cadastrar nova barbearia e vincular usuário/barbearia.
@@ -1042,12 +1054,15 @@ def cadastrar_barbearia(
     # )
     
     # Gerar token de acesso para upload de documentos
-    access_token = create_access_token(data={"sub": str(novo_usuario.id), "tipo": novo_usuario.tipo})
+    sessao = emitir_sessao(db, novo_usuario, request)
+    access_token = sessao["access_token"]
 
     usuario_serializado = schemas.UsuarioPublic.model_validate(novo_usuario)
     return schemas.RegistroResponse(
         usuario=usuario_serializado,
         access_token=access_token,
+        refresh_token=sessao.get("refresh_token"),
+        expires_in=sessao.get("expires_in"),
         token_type="bearer"
     )
 
@@ -1115,8 +1130,8 @@ def verificar_email_simples(email: str, db: Session = Depends(get_db)):
         "email_verificado": u.email_verificado
     }
 
-@router.post("/login/cliente/")
-def login_cliente(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
+@router.post("/login/cliente/", dependencies=[Depends(limitar_login)])
+def login_cliente(request: Request, form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
     # Login para cliente.
     email = normalize_email(form_data.username)
     senha = form_data.password
@@ -1142,9 +1157,12 @@ def login_cliente(form_data: OAuth2PasswordRequestForm = Depends(), db: Session 
     # Sem trava de verificacao de email: quem se cadastrou com email + senha
     # entra direto (inclusive contas antigas ainda marcadas como nao verificadas).
     
-    access_token = create_access_token(data={"sub": str(usuario.id), "tipo": usuario.tipo})
+    sessao = emitir_sessao(db, usuario, request)
+    access_token = sessao["access_token"]
     return {
         "access_token": access_token,
+        "refresh_token": sessao.get("refresh_token"),
+        "expires_in": sessao.get("expires_in"),
         "token_type": "bearer",
         "user_id": usuario.id,
         "email": usuario.email,
@@ -1154,8 +1172,8 @@ def login_cliente(form_data: OAuth2PasswordRequestForm = Depends(), db: Session 
         "mensagem": f"Bem-vindo, {usuario.nome}!"
     }
 
-@router.post("/login/barbeiro/")
-def login_barbeiro(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
+@router.post("/login/barbeiro/", dependencies=[Depends(limitar_login)])
+def login_barbeiro(request: Request, form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
     # Login para barbeiro.
     email = normalize_email(form_data.username)
     senha = form_data.password
@@ -1182,22 +1200,25 @@ def login_barbeiro(form_data: OAuth2PasswordRequestForm = Depends(), db: Session
     # com email + senha tem que conseguir entrar de novo com a mesma senha
     # depois de sair do app.
 
-    access_token = create_access_token(data={"sub": str(usuario.id), "tipo": usuario.tipo})
+    sessao = emitir_sessao(db, usuario, request)
+    access_token = sessao["access_token"]
     return {
         "access_token": access_token,
+        "refresh_token": sessao.get("refresh_token"),
+        "expires_in": sessao.get("expires_in"),
         "token_type": "bearer",
         "user_id": usuario.id,
         "tipo": usuario.tipo,
         "mensagem": f"Bem-vindo, {usuario.nome}!"
     }
 
-@router.post("/login/barbearia/")
-def login_barbearia(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
+@router.post("/login/barbearia/", dependencies=[Depends(limitar_login)])
+def login_barbearia(request: Request, form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
     # Login para barbearia.
     email = normalize_email(form_data.username)
     senha = form_data.password
     
-    print(f"🔍 LOGIN BARBEARIA - Email: {email}")
+    print(f"🔍 LOGIN BARBEARIA - Email: {mascarar_email(email)}")
     
     usuario = db.query(models.Usuario).filter(
         func.lower(models.Usuario.email) == email,
@@ -1213,7 +1234,7 @@ def login_barbearia(form_data: OAuth2PasswordRequestForm = Depends(), db: Sessio
                 status_code=400,
                 detail=f"Este email está cadastrado como {usuario_outro_tipo.tipo}. Selecione o perfil correto para entrar.",
             )
-        print(f"❌ Usuário não encontrado: {email}")
+        print(f"❌ Usuário não encontrado: {mascarar_email(email)}")
         raise HTTPException(status_code=401, detail="Email ou senha incorretos")
     
     print(f"✅ Usuário encontrado: {usuario.nome} (tipo: {usuario.tipo})")
@@ -1221,24 +1242,27 @@ def login_barbearia(form_data: OAuth2PasswordRequestForm = Depends(), db: Sessio
     print(f"🔐 Senha válida: {senha_ok}")
     
     if not senha_ok:
-        print(f"❌ Senha incorreta para {email}")
+        print(f"❌ Senha incorreta para {mascarar_email(email)}")
         raise HTTPException(status_code=401, detail="Email ou senha incorretos")
 
     # Sem trava de verificacao de email / aprovacao manual: quem se cadastrou
     # com email + senha tem que conseguir entrar de novo com a mesma senha
     # depois de sair do app.
 
-    access_token = create_access_token(data={"sub": str(usuario.id), "tipo": usuario.tipo})
+    sessao = emitir_sessao(db, usuario, request)
+    access_token = sessao["access_token"]
     return {
         "access_token": access_token,
+        "refresh_token": sessao.get("refresh_token"),
+        "expires_in": sessao.get("expires_in"),
         "token_type": "bearer",
         "user_id": usuario.id,
         "tipo": usuario.tipo,
         "mensagem": f"Bem-vindo, {usuario.nome}!"
     }
 
-@router.post("/login/admin/")
-def login_admin(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
+@router.post("/login/admin/", dependencies=[Depends(limitar_login)])
+def login_admin(request: Request, form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
     # Login para admin.
     email = normalize_email(form_data.username)
     senha = form_data.password
@@ -1251,9 +1275,12 @@ def login_admin(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = 
     if not usuario or not verify_password(senha, usuario.senha_hash):
         raise HTTPException(status_code=401, detail="Email ou senha incorretos")
     
-    access_token = create_access_token(data={"sub": str(usuario.id), "tipo": usuario.tipo})
+    sessao = emitir_sessao(db, usuario, request)
+    access_token = sessao["access_token"]
     return {
         "access_token": access_token,
+        "refresh_token": sessao.get("refresh_token"),
+        "expires_in": sessao.get("expires_in"),
         "token_type": "bearer",
         "user_id": usuario.id,
         "tipo": usuario.tipo,
@@ -1329,7 +1356,6 @@ def criar_chamado(chamado: schemas.ChamadoCreate, token: str = Depends(oauth2_sc
 
     user.latitude = chamado.cliente_latitude
     user.longitude = chamado.cliente_longitude
-    print(f"[criar_chamado] cliente coords: {chamado.cliente_latitude},{chamado.cliente_longitude}")
 
     # Validação defensiva: evita criação para barbeiro diferente do selecionado na UI.
     if chamado.barbeiro_id and chamado.barbeiro_selecionado_id and chamado.barbeiro_id != chamado.barbeiro_selecionado_id:
@@ -1806,9 +1832,17 @@ def listar_chamados_abertos(token: str = Depends(oauth2_scheme), db: Session = D
     return resultado
 
 @router.get("/barbeiro/{barbeiro_id}/agendamentos")
-def listar_agendamentos_barbeiro(barbeiro_id: int, db: Session = Depends(get_db)):
+def listar_agendamentos_barbeiro(
+    barbeiro_id: int,
+    token: str = Depends(oauth2_scheme),
+    db: Session = Depends(get_db),
+):
     # Lista todos os agendamentos de um barbeiro específico.
-    
+    # Segurança: traz nome, telefone e coordenadas dos clientes; só o próprio freelancer ou o ADM.
+    solicitante = get_current_user(token=token, db=db)
+    if solicitante.id != barbeiro_id and solicitante.tipo != "admin":
+        raise HTTPException(status_code=403, detail="Acesso não autorizado.")
+
     barbeiro = db.query(models.Usuario).filter(models.Usuario.id == barbeiro_id).first()
     if not barbeiro:
         raise HTTPException(status_code=404, detail="Barbeiro não encontrado")
@@ -3788,8 +3822,6 @@ async def atualizar_posicao_cliente_tracking(
     try:
         print('\n=== AUDITORIA GPS: posicao-cliente ===')
         print(f'Chamado: {chamado_id} | Usuario: {user.id}')
-        print(f'Coordenadas recebidas -> lat: {payload.latitude}, lon: {payload.longitude}')
-        print(f'Coordenadas ativas no DB -> cliente_lat: {ativo.cliente_lat}, cliente_lon: {ativo.cliente_lon}')
     except Exception:
         pass
     ativo.cliente_lat = payload.latitude
@@ -3829,8 +3861,6 @@ async def atualizar_posicao_barbeiro_tracking(
     try:
         print('\n=== AUDITORIA GPS: posicao-barbeiro ===')
         print(f'Chamado: {chamado_id} | Usuario: {user.id}')
-        print(f'Coordenadas recebidas -> lat: {payload.latitude}, lon: {payload.longitude}')
-        print(f'Coordenadas ativas no DB -> barbeiro_lat: {ativo.barbeiro_lat}, barbeiro_lon: {ativo.barbeiro_lon}')
     except Exception:
         pass
     ativo.barbeiro_lat = payload.latitude
@@ -3865,13 +3895,8 @@ async def atualizar_localizacao_compat(
     # DEBUG: registrar headers e payload para diagnosticar GPS
     try:
         print('\n=== [DEBUG] POST /api/v1/atualizar-localizacao (compat) ===')
-        if http_request is not None:
-            print('Headers:', dict(http_request.headers))
+        # Segurança: sem cabeçalhos (Authorization) nem payload/coordenadas no log.
         print('Has token:', bool(token))
-        try:
-            print('Payload:', payload.dict())
-        except Exception:
-            print('Payload (repr):', repr(payload))
     except Exception:
         pass
     user.latitude = payload.latitude

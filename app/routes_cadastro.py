@@ -11,7 +11,7 @@ Enquanto `cadastro_pendente` for True:
 
 from datetime import datetime
 
-from fastapi import APIRouter, Body, Depends, HTTPException
+from fastapi import APIRouter, Body, Depends, HTTPException, Request
 from pydantic import ValidationError
 from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
@@ -19,6 +19,8 @@ from sqlalchemy.orm import Session
 
 from app import models, schemas
 from app.database import get_db
+from app.limite_requisicoes import limite_cadastro
+from app.sessoes import emitir_sessao
 from app.routes import create_access_token, get_current_user, get_password_hash, normalize_email
 from app.termos.regras import exigir_maioridade_freelancer, interpretar_data_nascimento
 
@@ -28,8 +30,8 @@ EMAIL_JA_CADASTRADO = "Este e-mail já está cadastrado."
 MIN_FOTOS_PORTFOLIO = 1
 
 
-@router.post("/cadastro-rapido/", response_model=schemas.RegistroResponse)
-def cadastro_rapido(dados: schemas.CadastroRapido, db: Session = Depends(get_db)):
+@router.post("/cadastro-rapido/", response_model=schemas.RegistroResponse, dependencies=[Depends(limite_cadastro)])
+def cadastro_rapido(dados: schemas.CadastroRapido, request: Request, db: Session = Depends(get_db)):
     email = normalize_email(dados.email)
     if db.query(models.Usuario.id).filter(func.lower(models.Usuario.email) == email).first():
         raise HTTPException(status_code=400, detail=EMAIL_JA_CADASTRADO)
@@ -68,10 +70,12 @@ def cadastro_rapido(dados: schemas.CadastroRapido, db: Session = Depends(get_db)
         raise HTTPException(status_code=400, detail=EMAIL_JA_CADASTRADO)
     db.refresh(usuario)
 
-    token = create_access_token(data={"sub": str(usuario.id), "tipo": usuario.tipo})
+    sessao = emitir_sessao(db, usuario, request)
     return schemas.RegistroResponse(
         usuario=schemas.UsuarioPublic.model_validate(usuario),
-        access_token=token,
+        access_token=sessao["access_token"],
+        refresh_token=sessao.get("refresh_token"),
+        expires_in=sessao.get("expires_in"),
         token_type="bearer",
     )
 

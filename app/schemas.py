@@ -58,6 +58,8 @@ class RegistroResponse(BaseModel):
     usuario: UsuarioPublic
     access_token: str
     token_type: str
+    refresh_token: Optional[str] = None  # só quando o app envia X-Suporta-Refresh: 1
+    expires_in: Optional[int] = None
 
 
 class ClienteCreate(UsuarioBase):
