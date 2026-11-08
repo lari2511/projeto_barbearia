@@ -24,7 +24,11 @@ const ROTAS_DE_SESSAO = /\/api\/v1\/auth\//;
 
 let fetchOriginal = null;
 let renovacaoEmAndamento = null;
-let pluginSeguro; // undefined = ainda não verificado; null = indisponível
+// undefined = ainda não verificado; null = indisponível; senão { api: <plugin> }.
+// O plugin do Capacitor é um Proxy que responde a QUALQUER propriedade, inclusive `.then`:
+// devolvê-lo direto de uma função async faz o `await` chamar `SecureStorage.then()` e
+// rejeitar. Por isso ele sempre anda embrulhado num objeto comum.
+let pluginSeguro;
 
 // --- armazenamento ---------------------------------------------------------------------
 
@@ -34,7 +38,7 @@ async function obterPluginSeguro() {
   try {
     if (Capacitor.isNativePlatform() && Capacitor.isPluginAvailable('SecureStorage')) {
       const modulo = await import('@aparajita/capacitor-secure-storage');
-      pluginSeguro = modulo.SecureStorage;
+      pluginSeguro = { api: modulo.SecureStorage };
     }
   } catch (_e) {
     pluginSeguro = null;
@@ -54,7 +58,8 @@ function gravarLocal(chave, valor) {
 }
 
 export async function lerRefreshToken() {
-  const seguro = await obterPluginSeguro();
+  const embrulho = await obterPluginSeguro().catch(() => null);
+  const seguro = embrulho?.api;
   if (seguro) {
     try {
       const valor = await seguro.getItem(CHAVE_REFRESH);
@@ -74,7 +79,8 @@ export async function lerRefreshToken() {
 }
 
 export async function gravarRefreshToken(valor) {
-  const seguro = await obterPluginSeguro();
+  const embrulho = await obterPluginSeguro().catch(() => null);
+  const seguro = embrulho?.api;
   if (seguro) {
     try {
       if (valor) await seguro.setItem(CHAVE_REFRESH, valor);
@@ -247,9 +253,11 @@ export function instalarSessao() {
     return fetchOriginal(url, comCabecalho(init, 'Authorization', `Bearer ${atual}`));
   };
 
-  migrarSessaoAntiga();
-  setInterval(renovarSeEstiverVencendo, 60 * 1000);
+  // Nada disso pode derrubar o app: falha aqui só significa "renova depois".
+  const semFalha = (fn) => () => { Promise.resolve().then(fn).catch(() => {}); };
+  semFalha(migrarSessaoAntiga)();
+  setInterval(semFalha(renovarSeEstiverVencendo), 60 * 1000);
   document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible') renovarSeEstiverVencendo();
+    if (document.visibilityState === 'visible') semFalha(renovarSeEstiverVencendo)();
   });
 }
