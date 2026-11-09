@@ -1,7 +1,7 @@
 import { formatarDataHoraSP } from '../utils/dataHora';
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { getWsBaseUrl, resolveMediaUrl } from '../utils/api';
-import { Store, LogOut, CheckCircle, AlertCircle, User, CreditCard, Calendar, Search, Star, TrendingUp, Users, Bell, Pencil, Trash2, X, Check } from 'lucide-react';
+import { Store, LogOut, CheckCircle, AlertCircle, User, CreditCard, Calendar, Search, Star, TrendingUp, Users, Bell, Pencil, Trash2, X, Check, History, ChevronDown, Armchair, Scissors, Lock } from 'lucide-react';
 import PaymentSection from './PaymentSection';
 import AbaPadronizadaAvaliacoes from './AbaPadronizadaAvaliacoes';
 import AvaliacaoModal from './AvaliacaoModal';
@@ -79,6 +79,24 @@ function BotaoCadeadoClientesApp({ liberado, carregando, onClick }) {
     );
 }
 
+// Quantos atendimentos concluídos o histórico da aba Chamadas mostra por vez ao abrir.
+const HISTORICO_LOTE = 20;
+
+// Título das seções da aba Chamadas: barrinha laranja + rótulo em caixa alta + contador opcional.
+function TituloSecaoChamadas({ id, texto, contador }) {
+    return (
+        <h2 id={id} className="flex items-center gap-2 text-xs font-extrabold uppercase tracking-wider text-zinc-200">
+            <span className="w-1 h-4 rounded-full bg-orange-500" aria-hidden="true" />
+            {texto}
+            {contador > 0 && (
+                <span className="rounded-full bg-orange-500/15 border border-orange-500/30 px-1.5 py-0.5 text-[10px] font-extrabold text-orange-300 leading-none">
+                    {contador}
+                </span>
+            )}
+        </h2>
+    );
+}
+
 export default function ShopDashboard({ token, logout, notify, API_URL }) {
     const TABS_VALIDAS = ['inicio', 'barbeiros', 'servicos', 'freelancers', 'agenda', 'avaliar', 'assinatura', 'perfil', 'pagamento'];
     const [services, setServices] = useState([]);
@@ -125,7 +143,16 @@ export default function ShopDashboard({ token, logout, notify, API_URL }) {
     const [freelancerParaBloquear, setFreelancerParaBloquear] = useState(null); // { id, nome } — bloqueio discreto (perfil/avaliação)
     const [motivoBloqueioInput, setMotivoBloqueioInput] = useState('');
     const [bloqueandoFreelancer, setBloqueandoFreelancer] = useState(false);
-    const [historicoConcluidosExpandido, setHistoricoConcluidosExpandido] = useState(true);
+    // Histórico de concluídos na aba Chamadas: começa fechado e só monta os cards ao abrir,
+    // em lotes (HISTORICO_LOTE) para não renderizar centenas de cards de uma vez.
+    const [historicoConcluidosExpandido, setHistoricoConcluidosExpandido] = useState(false);
+    const [historicoLimite, setHistoricoLimite] = useState(HISTORICO_LOTE);
+    useEffect(() => {
+        if (tab === 'agenda') {
+            setHistoricoConcluidosExpandido(false);
+            setHistoricoLimite(HISTORICO_LOTE);
+        }
+    }, [tab]);
     // Toque no card do freelancer: abre APENAS o perfil (id real do usuário).
     const abrirPerfilFreelancer = (id, nome) => {
         const idNum = Number(id || 0);
@@ -264,16 +291,49 @@ export default function ShopDashboard({ token, logout, notify, API_URL }) {
         return filaDeEspera.filter((ag) => String(ag.status || '').toLowerCase() === 'confirmado');
     }, [filaDeEspera]);
 
-    // Histórico (aba Chamadas -> lista "Agendamentos"): ativos/pendentes sempre visíveis;
-    // concluídos ficam num bloco recolhível (sem apagar dados) — vem do backend já
-    // ordenado do mais recente para o mais antigo.
-    const agendamentosHistoricoAtivos = useMemo(() => (
-        agendamentos.filter((ag) => String(ag.status || '').toLowerCase() !== 'concluido')
-    ), [agendamentos]);
+    // Atendimentos em andamento da aba Chamadas: todo chamado em_atendimento, um card por
+    // grupo de serviços (grupo_id) com os nomes de todos os serviços do grupo, e a cadeira
+    // ocupada pelo freelancer quando houver. Só leitura dos mesmos `agendamentos`.
+    const atendimentosEmAndamento = useMemo(() => {
+        const vistos = new Set();
+        const resultado = [];
+        agendamentos.forEach((ag) => {
+            if (String(ag.status || '').toLowerCase() !== 'em_atendimento') return;
+            const chave = ag.grupo_id ? `g${ag.grupo_id}` : `c${ag.id}`;
+            if (vistos.has(chave)) return;
+            vistos.add(chave);
+            const membros = ag.grupo_id
+                ? agendamentos.filter((c) => c.grupo_id === ag.grupo_id && String(c.status || '').toLowerCase() !== 'cancelado')
+                : [ag];
+            const servicos = [...new Set(membros.map((c) => c.servico_nome || c.descricao).filter(Boolean))];
+            const cadeira = cadeirasComAtendimento.find((c) => (
+                c.status === 'ocupada' && ag.barbeiro_id != null && Number(c.cadeira.freelancer_id) === Number(ag.barbeiro_id)
+            ));
+            resultado.push({ chamado: ag, servicos, numeroCadeira: cadeira ? cadeira.numeroExibido : null });
+        });
+        return resultado;
+    }, [agendamentos, cadeirasComAtendimento]);
 
+    // Contagem da "Situação das cadeiras" da aba Chamadas (mesma fonte dos chips por cadeira).
+    const contagemCadeirasChamadas = useMemo(() => {
+        const resumo = { livres: 0, ocupadas: 0, bloqueadas: 0 };
+        cadeirasComAtendimento.forEach(({ status }) => {
+            if (status === 'ocupada') resumo.ocupadas += 1;
+            else if (status === 'bloqueada') resumo.bloqueadas += 1;
+            else resumo.livres += 1;
+        });
+        return resumo;
+    }, [cadeirasComAtendimento]);
+
+    // Concluídos (histórico recolhível, sem apagar dados) — vem do backend já ordenado do
+    // mais recente para o mais antigo.
     const agendamentosHistoricoConcluidos = useMemo(() => (
         agendamentos.filter((ag) => String(ag.status || '').toLowerCase() === 'concluido')
     ), [agendamentos]);
+
+    const totalAvaliacoesPendentes = useMemo(() => (
+        agendamentosHistoricoConcluidos.filter((ag) => !(ag.avaliado_por_barbearia ?? ag.avaliado)).length
+    ), [agendamentosHistoricoConcluidos]);
 
     // Freelancers que ja tem ao menos um atendimento concluido nesta barbearia
     // (historico real, nunca proximidade/disponibilidade) — usado para so
@@ -1775,24 +1835,52 @@ export default function ShopDashboard({ token, logout, notify, API_URL }) {
                             <button type="button" onClick={() => setTab('agenda')} className="rounded-xl px-3 py-2 text-xs font-bold bg-orange-500 text-white">Chamadas</button>
                             <button type="button" onClick={() => setTab('avaliar')} className="rounded-xl px-3 py-2 text-xs font-bold bg-zinc-800 text-zinc-300 hover:bg-zinc-700">Avaliar</button>
                         </div>
-                        {cadeirasComAtendimento.length > 0 && (
-                            <div className="space-y-2.5">
-                                <h2 className="text-sm font-bold text-zinc-300 uppercase tracking-wide">Atendimentos em andamento</h2>
+                        <section className="space-y-2.5" aria-labelledby="secao-em-andamento">
+                            <TituloSecaoChamadas id="secao-em-andamento" texto="Atendimentos em andamento" contador={atendimentosEmAndamento.length} />
 
-                                {cadeirasComAtendimento.some((c) => c.chamado) ? (
-                                    <div className="space-y-2">
-                                        {cadeirasComAtendimento.filter((c) => c.chamado).map(({ cadeira, numeroExibido, chamado }) => (
-                                            <div key={cadeira.id} className="bm-card border border-emerald-600/40 bg-emerald-950/10 p-3.5 space-y-2">
-                                                <div className="flex items-center justify-between gap-2">
-                                                    <p className="font-bold text-sm text-white">Cadeira {numeroExibido} — Ocupada</p>
-                                                    <span className="inline-flex items-center gap-1 text-[11px] font-extrabold text-emerald-300 bg-emerald-600/20 px-2 py-1 rounded-full whitespace-nowrap">
-                                                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" /> Em atendimento
-                                                    </span>
+                            {atendimentosEmAndamento.length > 0 ? (
+                                <div className="space-y-2">
+                                    {atendimentosEmAndamento.map(({ chamado, servicos, numeroCadeira }) => (
+                                        <div key={chamado.id} className="rounded-2xl border border-zinc-800 border-l-4 border-l-emerald-500 bg-zinc-900 p-3.5 space-y-2.5 overflow-hidden">
+                                            <div className="flex items-start justify-between gap-2">
+                                                <div className="min-w-0">
+                                                    <p className="text-[10px] font-bold uppercase tracking-wide text-zinc-500">Cliente</p>
+                                                    <p className="font-bold text-sm text-white truncate">{chamado.cliente_nome || chamado.nome_cliente}</p>
                                                 </div>
-                                                <p className="text-xs text-zinc-300 truncate">Freelancer: <span className="font-semibold text-white">{chamado.barbeiro_nome || chamado.nome_barbeiro}</span></p>
-                                                <p className="text-xs text-zinc-300 truncate">Cliente: <span className="font-semibold text-white">{chamado.cliente_nome || chamado.nome_cliente}</span></p>
-                                                <p className="text-xs text-zinc-300 truncate">Serviço: <span className="font-semibold text-white">{chamado.servico_nome || chamado.descricao || 'Serviço'}</span></p>
-                                                <CronometroAtendimento
+                                                <span className="shrink-0 inline-flex items-center gap-1.5 text-[11px] font-extrabold text-emerald-300 bg-emerald-600/15 border border-emerald-600/30 px-2 py-1 rounded-full whitespace-nowrap">
+                                                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" /> Em andamento
+                                                </span>
+                                            </div>
+                                            <div className="space-y-1.5 text-xs text-zinc-300">
+                                                <p className="flex items-center gap-2 min-w-0">
+                                                    <Scissors size={13} className="shrink-0 text-orange-400" />
+                                                    <span className="truncate font-semibold text-white">{servicos.length > 0 ? servicos.join(' + ') : 'Serviço'}</span>
+                                                </p>
+                                                <p className="flex items-center gap-2 min-w-0">
+                                                    <User size={13} className="shrink-0 text-orange-400" />
+                                                    <span className="truncate">
+                                                        Freelancer:{' '}
+                                                        {chamado.barbeiro_id ? (
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => abrirPerfilFreelancer(chamado.barbeiro_id, chamado.barbeiro_nome || chamado.nome_barbeiro)}
+                                                                className="font-semibold text-white underline decoration-dotted underline-offset-2"
+                                                            >
+                                                                {chamado.barbeiro_nome || chamado.nome_barbeiro}
+                                                            </button>
+                                                        ) : (
+                                                            <span className="font-semibold text-white">{chamado.barbeiro_nome || chamado.nome_barbeiro}</span>
+                                                        )}
+                                                    </span>
+                                                </p>
+                                                {numeroCadeira && (
+                                                    <p className="flex items-center gap-2">
+                                                        <Armchair size={13} className="shrink-0 text-orange-400" />
+                                                        <span>Cadeira {numeroCadeira}</span>
+                                                    </p>
+                                                )}
+                                            </div>
+                                            <CronometroAtendimento
                                                     chamado={chamado}
                                                     chamadosGrupo={agendamentos}
                                                     chamadoAtivoId={chamado.id}
@@ -1800,37 +1888,62 @@ export default function ShopDashboard({ token, logout, notify, API_URL }) {
                                                     pausadoEmMs={chamado.pausado_em ? parseDataServidorUTC(chamado.pausado_em) : null}
                                                     pausaAcumuladaMs={Math.round((Number(chamado.pausa_acumulada_segundos) || 0) * 1000)}
                                                     agoraMs={agoraMsCronometro}
-                                                    variante="dono"
-                                                    compacto
-                                                />
-                                                <ChatRoom chamadoId={chamado.id} token={token} API_URL={API_URL} compact />
-                                            </div>
-                                        ))}
-                                    </div>
-                                ) : (
-                                    <p className="text-zinc-600 text-xs">Nenhum atendimento em andamento no momento.</p>
-                                )}
-
-                                <div className="flex flex-wrap gap-2">
-                                    {cadeirasComAtendimento.map(({ cadeira, numeroExibido, status }) => (
-                                        <span
-                                            key={cadeira.id}
-                                            className={`text-[11px] font-bold px-2 py-1 rounded-full border ${
-                                                status === 'ocupada' ? 'bg-emerald-600/15 text-emerald-300 border-emerald-600/30' :
-                                                status === 'bloqueada' ? 'bg-red-600/15 text-red-300 border-red-600/30' :
-                                                'bg-zinc-800 text-zinc-400 border-zinc-700'
-                                            }`}
-                                        >
-                                            Cadeira {numeroExibido} — {status === 'ocupada' ? '🟢 Ocupada' : status === 'bloqueada' ? '🔒 Bloqueada' : '⚪ Livre'}
-                                        </span>
+                                                variante="dono"
+                                                compacto
+                                            />
+                                            <ChatRoom chamadoId={chamado.id} token={token} API_URL={API_URL} compact />
+                                        </div>
                                     ))}
                                 </div>
-                            </div>
-                        )}
+                            ) : (
+                                <div className="rounded-2xl border border-dashed border-zinc-800 bg-zinc-900/50 px-4 py-6 text-center">
+                                    <p className="text-xs text-zinc-500">Nenhum atendimento em andamento no momento.</p>
+                                </div>
+                            )}
+                        </section>
+
+                        <section className="rounded-2xl border border-zinc-800 bg-zinc-900 p-3.5 space-y-3" aria-labelledby="secao-cadeiras">
+                            <TituloSecaoChamadas id="secao-cadeiras" texto="Situação das cadeiras" />
+                            {cadeirasComAtendimento.length === 0 ? (
+                                <p className="text-xs text-zinc-500">Nenhuma cadeira cadastrada.</p>
+                            ) : (
+                                <>
+                                    <div className="grid grid-cols-3 gap-2">
+                                        <div className="rounded-xl border border-zinc-700 bg-zinc-800/60 px-2 py-2 text-center">
+                                            <p className="text-lg font-black text-zinc-100 leading-none">{contagemCadeirasChamadas.livres}</p>
+                                            <p className="mt-1 text-[10px] font-bold uppercase tracking-wide text-zinc-400">Livres</p>
+                                        </div>
+                                        <div className="rounded-xl border border-emerald-600/30 bg-emerald-600/10 px-2 py-2 text-center">
+                                            <p className="text-lg font-black text-emerald-300 leading-none">{contagemCadeirasChamadas.ocupadas}</p>
+                                            <p className="mt-1 text-[10px] font-bold uppercase tracking-wide text-emerald-400/80">Ocupadas</p>
+                                        </div>
+                                        <div className="rounded-xl border border-red-600/30 bg-red-600/10 px-2 py-2 text-center">
+                                            <p className="text-lg font-black text-red-300 leading-none">{contagemCadeirasChamadas.bloqueadas}</p>
+                                            <p className="mt-1 text-[10px] font-bold uppercase tracking-wide text-red-400/80">Bloqueadas</p>
+                                        </div>
+                                    </div>
+                                    <div className="flex flex-wrap gap-2">
+                                        {cadeirasComAtendimento.map(({ cadeira, numeroExibido, status }) => (
+                                            <span
+                                                key={cadeira.id}
+                                                className={`inline-flex items-center gap-1 text-[11px] font-bold px-2 py-1 rounded-full border ${
+                                                    status === 'ocupada' ? 'bg-emerald-600/15 text-emerald-300 border-emerald-600/30' :
+                                                    status === 'bloqueada' ? 'bg-red-600/15 text-red-300 border-red-600/30' :
+                                                    'bg-zinc-800 text-zinc-400 border-zinc-700'
+                                                }`}
+                                            >
+                                                {status === 'bloqueada' ? <Lock size={11} /> : <span className={`w-1.5 h-1.5 rounded-full ${status === 'ocupada' ? 'bg-emerald-400' : 'bg-zinc-500'}`} />}
+                                                Cadeira {numeroExibido} — {status === 'ocupada' ? 'Ocupada' : status === 'bloqueada' ? 'Bloqueada' : 'Livre'}
+                                            </span>
+                                        ))}
+                                    </div>
+                                </>
+                            )}
+                        </section>
 
                         {filaDeEspera.length > 0 && (
                             <div className="space-y-2.5">
-                                <h2 className="text-sm font-bold text-zinc-300 uppercase tracking-wide">Fila de espera</h2>
+                                <TituloSecaoChamadas texto="Fila de espera" contador={filaDeEspera.length} />
                                 <div className="space-y-2">
                                     {filaDeEspera.map((ag) => {
                                         const emAndamento = String(ag.status || '').toLowerCase() === 'confirmado';
@@ -1855,7 +1968,7 @@ export default function ShopDashboard({ token, logout, notify, API_URL }) {
 
                         {deslocamentosAtivos.length > 0 && (
                             <div className="space-y-2.5">
-                                <h2 className="text-sm font-bold text-zinc-300 uppercase tracking-wide">Deslocamento</h2>
+                                <TituloSecaoChamadas texto="Deslocamento" />
                                 <div className="space-y-2">
                                     {deslocamentosAtivos.map((ag) => (
                                         <DeslocamentoAtendimento key={ag.id} chamado={ag} token={token} API_URL={API_URL} />
@@ -1864,37 +1977,66 @@ export default function ShopDashboard({ token, logout, notify, API_URL }) {
                             </div>
                         )}
 
-                        <h2 className="text-sm font-bold text-zinc-300 uppercase tracking-wide">Agendamentos</h2>
+                        {/* Histórico de concluídos: começa fechado; os cards só são montados ao abrir,
+                            em lotes. Os dados são os mesmos `agendamentos` (nenhuma consulta extra). */}
+                        <section className="rounded-2xl border border-zinc-800 bg-zinc-900 overflow-hidden">
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    setHistoricoConcluidosExpandido((v) => !v);
+                                    setHistoricoLimite(HISTORICO_LOTE);
+                                }}
+                                aria-expanded={historicoConcluidosExpandido}
+                                aria-controls="lista-historico-chamadas"
+                                className="w-full flex items-start gap-3 p-3.5 text-left hover:bg-zinc-800/40 transition-colors"
+                            >
+                                <span className="shrink-0 w-10 h-10 rounded-xl bg-orange-500/15 text-orange-400 flex items-center justify-center">
+                                    <History size={20} />
+                                </span>
+                                <span className="flex-1 min-w-0">
+                                    <span className="flex items-center gap-2">
+                                        <span className="font-bold text-sm text-white truncate">Histórico de atendimentos</span>
+                                        <span className="shrink-0 rounded-full bg-zinc-800 border border-zinc-700 px-2 py-0.5 text-[11px] font-extrabold text-zinc-200">
+                                            {agendamentosHistoricoConcluidos.length}
+                                        </span>
+                                    </span>
+                                    <span className="block mt-0.5 text-[11px] text-zinc-400">Consulte atendimentos concluídos e avaliações pendentes.</span>
+                                    {totalAvaliacoesPendentes > 0 && (
+                                        <span className="block mt-1 text-[11px] font-bold text-amber-400">
+                                            ⚠️ {totalAvaliacoesPendentes} {totalAvaliacoesPendentes === 1 ? 'avaliação pendente' : 'avaliações pendentes'}
+                                        </span>
+                                    )}
+                                    <span className="mt-2 inline-flex items-center rounded-lg bg-orange-500 px-3 py-1.5 text-xs font-bold text-white">
+                                        {historicoConcluidosExpandido ? 'Recolher histórico' : 'Ver histórico de chamadas'}
+                                    </span>
+                                </span>
+                                <ChevronDown
+                                    size={20}
+                                    className={`shrink-0 self-center text-zinc-400 transition-transform duration-200 ${historicoConcluidosExpandido ? 'rotate-180' : ''}`}
+                                />
+                            </button>
 
-                        {agendamentos.length === 0 ? (
-                            <p className="text-zinc-600 text-center py-12 text-xs">Nenhum agendamento</p>
-                        ) : (
-                            <div className="space-y-4 max-w-2xl mx-auto w-full">
-                                {agendamentosHistoricoAtivos.length > 0 && (
-                                    <div className="space-y-2">
-                                        {agendamentosHistoricoAtivos.map(renderCardAgendamentoHistorico)}
-                                    </div>
-                                )}
-
-                                {agendamentosHistoricoConcluidos.length > 0 && (
-                                    <div className="space-y-2">
-                                        <button
-                                            type="button"
-                                            onClick={() => setHistoricoConcluidosExpandido((v) => !v)}
-                                            className="w-full flex items-center justify-between rounded-lg bg-zinc-900/60 border border-zinc-800 px-3 py-2 text-xs font-bold text-zinc-300 hover:bg-zinc-900"
-                                        >
-                                            <span>Concluídos ({agendamentosHistoricoConcluidos.length})</span>
-                                            <span className="text-zinc-500">{historicoConcluidosExpandido ? '▲ Recolher' : '▼ Expandir'}</span>
-                                        </button>
-                                        {historicoConcluidosExpandido && (
-                                            <div className="space-y-2">
-                                                {agendamentosHistoricoConcluidos.map(renderCardAgendamentoHistorico)}
-                                            </div>
-                                        )}
-                                    </div>
-                                )}
-                            </div>
-                        )}
+                            {historicoConcluidosExpandido && (
+                                <div id="lista-historico-chamadas" className="border-t border-zinc-800 p-2.5 space-y-2">
+                                    {agendamentosHistoricoConcluidos.length === 0 ? (
+                                        <p className="text-xs text-zinc-500 text-center py-4">Nenhum atendimento concluído ainda.</p>
+                                    ) : (
+                                        <>
+                                            {agendamentosHistoricoConcluidos.slice(0, historicoLimite).map(renderCardAgendamentoHistorico)}
+                                            {agendamentosHistoricoConcluidos.length > historicoLimite && (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setHistoricoLimite((n) => n + HISTORICO_LOTE)}
+                                                    className="w-full rounded-xl border border-zinc-700 bg-zinc-800/60 hover:bg-zinc-800 px-3 py-2 text-xs font-bold text-zinc-200"
+                                                >
+                                                    Mostrar mais ({agendamentosHistoricoConcluidos.length - historicoLimite} restantes)
+                                                </button>
+                                            )}
+                                        </>
+                                    )}
+                                </div>
+                            )}
+                        </section>
                     </div>
                 )}
 
