@@ -15,6 +15,7 @@ regras de proximidade continuam com os próprios raios.
 """
 import json
 import os
+import re
 from functools import lru_cache
 from typing import List, Optional, Tuple
 
@@ -121,6 +122,39 @@ def esta_na_capital(latitude: Optional[float], longitude: Optional[float]) -> bo
     x, y = float(longitude), float(latitude)
     dados = _dados()
     return _na_caixa(x, y, dados["caixa"]) and _nos_poligonos(x, y, dados["municipio"])
+
+
+_CIDADE_UF = re.compile(r"^(?P<cidade>.+?)\s*[/-]\s*(?P<uf>[A-Za-z]{2})$")
+_NUMERO = re.compile(r"^(n[º°o.]?\s*)?\d+[\w-]*$|^s/?n$", re.IGNORECASE)
+_NUMERO_E_BAIRRO = re.compile(r"^(n[º°o.]?\s*)?\d+[\w-]*\s+-\s+(?P<bairro>.+)$", re.IGNORECASE)
+
+
+def bairro_do_endereco(endereco: Optional[str]) -> Optional[str]:
+    """
+    Bairro escrito no endereço cadastrado da barbearia, ou None quando não dá para saber.
+
+    O cadastro e o "endereço pelo CEP" gravam "Logradouro[, número], Bairro, Cidade/UF" (bairro do
+    ViaCEP). A subprefeitura de localizar_na_capital NÃO é bairro: Artur Alvim, por exemplo, fica na
+    subprefeitura da Penha. Sem bairro reconhecível (endereço por GPS, texto livre), devolve None e a
+    tela mostra só a região, em vez de um bairro errado.
+    """
+    partes = [parte.strip() for parte in str(endereco or "").split(",") if parte.strip()]
+    if len(partes) < 3:  # pelo menos logradouro, bairro e cidade/UF
+        return None
+    cidade_uf = _CIDADE_UF.match(partes[-1])
+    if not cidade_uf:
+        return None
+    candidato = partes[-2]
+    combinado = _NUMERO_E_BAIRRO.match(candidato)  # "123 - Artur Alvim"
+    if combinado:
+        candidato = combinado.group("bairro").strip()
+    elif len(partes) == 3 and _NUMERO.match(partes[1]):
+        return None  # "Rua X, 123, São Paulo/SP": sem bairro
+    if not candidato or _NUMERO.match(candidato) or re.fullmatch(r"\d{5}-?\d{3}", candidato):
+        return None
+    if candidato.casefold() == cidade_uf.group("cidade").strip().casefold():
+        return None
+    return candidato
 
 
 def localizar_na_capital(latitude: Optional[float], longitude: Optional[float]) -> Optional[dict]:

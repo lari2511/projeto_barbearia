@@ -25,7 +25,7 @@ from app import models, routes_on_demand  # noqa: E402
 from app.database import Base, SessionLocal, engine, init_db  # noqa: E402
 from app.main import app  # noqa: E402
 from app.routes import create_access_token  # noqa: E402
-from app.sao_paulo_capital import esta_na_capital, localizar_na_capital  # noqa: E402
+from app.sao_paulo_capital import bairro_do_endereco, esta_na_capital, localizar_na_capital  # noqa: E402
 
 BASE = "/api/v1/on-demand/cadeiras-acionadas"
 
@@ -271,6 +271,50 @@ def test_vaga_mostra_endereco_regiao_e_subprefeitura(http):
     assert vaga["barbearia_endereco"] == "Av. Santo Amaro, 5000"
     assert vaga["raio_km"] is None
     assert vaga["eta_min_usuario_atual"] > 10  # Norte -> Sul: longe, e mesmo assim aparece
+
+
+ARTUR_ALVIM = (-23.5408, -46.4848)  # distrito Artur Alvim, dentro da subprefeitura da Penha
+
+
+def test_vaga_mostra_o_bairro_do_endereco_e_nao_a_subprefeitura(http):
+    loja = _barbearia(
+        ARTUR_ALVIM, endereco="Rua Doutor Campos Moura, 120, Artur Alvim, São Paulo/SP"
+    )
+    _, headers = _freelancer("f@x.com", ZONA_SUL)
+
+    vaga_id = _anunciar(http, loja)[0]
+    vaga = _vagas_visiveis(http, headers)[vaga_id]
+
+    assert vaga["barbearia_regiao"] == "Zona Leste"
+    assert vaga["barbearia_subprefeitura"] == "Penha"
+    assert vaga["barbearia_bairro"] == "Artur Alvim"
+
+
+def test_vaga_sem_bairro_no_endereco_nao_inventa_bairro(http):
+    loja = _barbearia(ZONA_SUL, endereco="Av. Santo Amaro, 5000")
+    _, headers = _freelancer("f@x.com", ZONA_NORTE)
+
+    vaga_id = _anunciar(http, loja)[0]
+    vaga = _vagas_visiveis(http, headers)[vaga_id]
+
+    assert vaga["barbearia_regiao"] == "Zona Sul"
+    assert vaga["barbearia_bairro"] is None
+
+
+@pytest.mark.parametrize("endereco, bairro", [
+    ("Rua A, 120, Artur Alvim, São Paulo/SP", "Artur Alvim"),          # endereco pelo CEP, com numero
+    ("Rua A, Artur Alvim, São Paulo/SP", "Artur Alvim"),               # cadastro, sem numero
+    ("Rua A, 120 - Artur Alvim, São Paulo - SP", "Artur Alvim"),       # digitado com hifen
+    ("Rua A, 120, São Paulo/SP", None),                                # CEP sem bairro
+    ("Rua A, São Paulo/SP", None),
+    ("Av. Santo Amaro, 5000", None),
+    ("120, Rua A, Artur Alvim, Penha, São Paulo, SP, 03590-000, Brasil", None),  # GPS (Nominatim)
+    ("Lat -23.540800, Lon -46.484800", None),
+    ("", None),
+    (None, None),
+])
+def test_bairro_do_endereco(endereco, bairro):
+    assert bairro_do_endereco(endereco) == bairro
 
 
 def test_aviso_diz_a_regiao_da_vaga(http):

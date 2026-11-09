@@ -26,7 +26,7 @@ from app.models import Usuario, RadarFreelancer, SolicitacaoBarbeiro, Notificaca
 from app.firebase_config import enviar_notificacao_novo_chamado
 from app.realtime import broadcast_event
 from app.routes_vaga_chat import nao_lidas_por_vaga
-from app.sao_paulo_capital import esta_na_capital, localizar_na_capital
+from app.sao_paulo_capital import bairro_do_endereco, esta_na_capital, localizar_na_capital
 from app.vagas import (
     STATUS_ABERTA,
     STATUS_AGUARDANDO_DESBLOQUEIO,
@@ -290,6 +290,7 @@ class CadeiraAcionadaResponse(BaseModel):
     barbearia_endereco: Optional[str] = None
     barbearia_regiao: Optional[str] = None
     barbearia_subprefeitura: Optional[str] = None
+    barbearia_bairro: Optional[str] = None
     eta_min_usuario_atual: Optional[int] = None
     limite_chegada: Optional[datetime] = None
     expira_em: Optional[datetime] = None
@@ -381,6 +382,8 @@ def _serializar_cadeira_acionada(vaga: CadeiraAcionada, eta_min_usuario_atual: O
             "barbearia_endereco": barbearia.endereco,
             "barbearia_regiao": local.get("regiao"),
             "barbearia_subprefeitura": local.get("subprefeitura"),
+            # Bairro do endereco cadastrado (a subprefeitura nao e bairro: Artur Alvim fica na Penha).
+            "barbearia_bairro": bairro_do_endereco(barbearia.endereco),
         }
     return {
         **local_diaria,

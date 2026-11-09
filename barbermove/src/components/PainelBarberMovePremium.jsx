@@ -658,7 +658,7 @@ export default function PainelBarberMovePremium({ token: tokenProp, logout: logo
             <>
               {vaga.barbearia_regiao && (
                 <p className="text-xs font-semibold text-emerald-200">
-                  📍 {vaga.barbearia_regiao}{vaga.barbearia_subprefeitura ? ` • ${vaga.barbearia_subprefeitura}` : ''}
+                  📍 {vaga.barbearia_regiao}{vaga.barbearia_bairro ? ` • ${vaga.barbearia_bairro}` : ''}
                 </p>
               )}
               {vaga.barbearia_endereco && (
