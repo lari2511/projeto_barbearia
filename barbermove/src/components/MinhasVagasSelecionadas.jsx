@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { MessageCircle } from 'lucide-react';
 import ChatVaga from './ChatVaga';
-import { aoReceberMensagemVaga, buscarMinhasSelecoes } from '../utils/vagas';
+import { aoReceberMensagemVaga, buscarMinhasSelecoes, textoPercentual } from '../utils/vagas';
 
 const INTERVALO_ATUALIZACAO_MS = 15000;
 
@@ -39,6 +39,11 @@ export default function MinhasVagasSelecionadas({ API_URL, token }) {
         <div key={vaga.id} className="flex items-center justify-between gap-3 rounded-xl border border-zinc-800 bg-zinc-900/80 p-3">
           <div className="min-w-0">
             <p className="text-sm font-bold text-white truncate">{vaga.barbearia_nome}</p>
+            {textoPercentual(vaga.percentual_freelancer) && (
+              <p className="text-xs font-semibold text-emerald-300">
+                Combinado: {textoPercentual(vaga.percentual_freelancer)} de cada serviço realizado
+              </p>
+            )}
             <p className="text-xs text-zinc-400">
               {vaga.cadeira_bloqueada
                 ? 'A barbearia libera a cadeira quando você chegar. Até lá, você não recebe chamados dela.'

@@ -115,7 +115,7 @@ def _freelancer(email, local, online=True, radar=True, **extras):
 
 
 def _anunciar(http, loja, quantidade=1):
-    r = http.post(f"{BASE}/anunciar", json={"quantidade": quantidade}, headers=loja["headers"])
+    r = http.post(f"{BASE}/anunciar", json={"percentual_freelancer": 50, "quantidade": quantidade}, headers=loja["headers"])
     assert r.status_code == 201, r.text
     return r.json()["publicadas"]
 
@@ -333,7 +333,7 @@ def test_aviso_diz_a_regiao_da_vaga(http):
 
 def test_vaga_gravada_sem_raio_mesmo_se_o_dono_mandar_um(http):
     loja = _barbearia(CENTRO)
-    r = http.post(f"{BASE}/anunciar", json={"quantidade": 1, "raio_km": 2}, headers=loja["headers"])
+    r = http.post(f"{BASE}/anunciar", json={"percentual_freelancer": 50, "quantidade": 1, "raio_km": 2}, headers=loja["headers"])
     assert r.status_code == 201, r.text
     vaga = next(v for v in r.json()["vagas"] if v["id"] == r.json()["publicadas"][0])
     assert vaga["raio_km"] is None
@@ -348,7 +348,7 @@ def test_barbearia_de_municipio_vizinho_nao_anuncia(http, local):
     loja = _barbearia(local)
     fid, _ = _freelancer("f@x.com", ZONA_LESTE)
 
-    r = http.post(f"{BASE}/anunciar", json={"quantidade": 1}, headers=loja["headers"])
+    r = http.post(f"{BASE}/anunciar", json={"percentual_freelancer": 50, "quantidade": 1}, headers=loja["headers"])
 
     assert r.status_code == 400
     assert "município de São Paulo" in r.json()["detail"]
@@ -362,7 +362,7 @@ def test_barbearia_de_municipio_vizinho_nao_anuncia(http, local):
 
 def test_barbearia_sem_coordenadas_nao_anuncia(http):
     loja = _barbearia((None, None))
-    r = http.post(f"{BASE}/anunciar", json={"quantidade": 1}, headers=loja["headers"])
+    r = http.post(f"{BASE}/anunciar", json={"percentual_freelancer": 50, "quantidade": 1}, headers=loja["headers"])
     assert r.status_code == 400
     assert "endereço" in r.json()["detail"]
 

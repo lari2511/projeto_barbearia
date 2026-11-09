@@ -1175,6 +1175,9 @@ class CadeiraAcionada(Base):
     tipo_servico = Column(String, nullable=True)
     valor_oferta = Column(Float, nullable=True)
     observacoes = Column(String, nullable=True)
+    # So na vaga de diaria: percentual de cada servico que o dono oferece ao freelancer (0 a 100),
+    # definido no anuncio. E so o combinado exibido na vaga: nao entra na divisao financeira.
+    percentual_freelancer = Column(Float, nullable=True)
 
     criado_em = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
     atualizado_em = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)

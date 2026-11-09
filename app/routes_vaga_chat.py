@@ -117,6 +117,7 @@ def minhas_selecoes(db: Session = Depends(get_db), usuario: Usuario = Depends(ge
             "barbearia_nome": vaga.barbearia.nome if vaga.barbearia else "Barbearia",
             "status": vaga.status,
             "cadeira_bloqueada": cadeira_esta_bloqueada(vaga.cadeira),
+            "percentual_freelancer": vaga.percentual_freelancer,
             "nao_lidas": nao_lidas.get(vaga.id, 0),
         }
         for vaga in vagas

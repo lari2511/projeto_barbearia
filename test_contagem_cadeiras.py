@@ -231,7 +231,7 @@ def test_barbearia_cancelada_sem_cadeiras_fica_zerada_e_pode_contratar_de_novo(h
         assinatura.valor_mensalidade = 0
         db.commit()
         assert _contar(_resumo(http, loja)) == (0, 0, 0, 0)
-        assert http.post("/api/v1/on-demand/cadeiras-acionadas/anunciar", json={"quantidade": 1}, headers=loja["headers"]).status_code in (400, 402)
+        assert http.post("/api/v1/on-demand/cadeiras-acionadas/anunciar", json={"percentual_freelancer": 50, "quantidade": 1}, headers=loja["headers"]).status_code in (400, 402)
 
         aplicar_contratacao_cadeiras(db, db.get(models.Barbearia, loja["id"]), 1, "pix")
         db.commit()

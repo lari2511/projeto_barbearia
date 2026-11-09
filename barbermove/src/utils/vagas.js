@@ -35,8 +35,27 @@ const enviarJson = (dados) => ({
 
 export const buscarResumoVagas = (apiBase, token) => requisitar(apiBase, token, '/on-demand/cadeiras-acionadas/resumo');
 
-export const anunciarVagas = (apiBase, token, cadeiraIds) =>
-  requisitar(apiBase, token, '/on-demand/cadeiras-acionadas/anunciar', enviarJson({ cadeira_ids: cadeiraIds }));
+export const anunciarVagas = (apiBase, token, cadeiraIds, percentualFreelancer) =>
+  requisitar(
+    apiBase,
+    token,
+    '/on-demand/cadeiras-acionadas/anunciar',
+    enviarJson({ cadeira_ids: cadeiraIds, percentual_freelancer: percentualFreelancer })
+  );
+
+// Percentual digitado pelo dono ("50", "50%", "37,5") -> número de 0 a 100; inválido ou vazio: null.
+export const lerPercentualFreelancer = (texto) => {
+  const limpo = String(texto ?? '').replace('%', '').trim().replace(',', '.');
+  if (!/^\d{1,3}(\.\d{1,2})?$/.test(limpo)) return null;
+  const valor = Number(limpo);
+  return valor >= 0 && valor <= 100 ? valor : null;
+};
+
+// 50 -> "50%", 37.5 -> "37,5%". Sem percentual: null.
+export const textoPercentual = (percentual) => {
+  if (percentual === null || percentual === undefined || !Number.isFinite(Number(percentual))) return null;
+  return `${Number(percentual).toLocaleString('pt-BR', { maximumFractionDigits: 2 })}%`;
+};
 
 // "a 3,5 km de você" (abaixo de 10 km com uma casa decimal) / "a 18 km de você". Sem posição: null.
 export const textoDistanciaCandidato = (distanciaKm) => {

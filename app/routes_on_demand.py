@@ -267,6 +267,8 @@ class AnunciarVagasRequest(BaseModel):
     # Sem raio: a vaga de diaria vale para a capital inteira (ver app/vagas.py).
     cadeira_ids: Optional[List[int]] = Field(default=None, min_length=1)
     quantidade: Optional[int] = Field(default=None, ge=1)
+    # Percentual de cada servico realizado que vai para o freelancer. Sem padrao: o dono digita.
+    percentual_freelancer: float = Field(..., ge=0, le=100, allow_inf_nan=False)
 
 
 class CadeiraAcionadaResponse(BaseModel):
@@ -291,6 +293,7 @@ class CadeiraAcionadaResponse(BaseModel):
     barbearia_regiao: Optional[str] = None
     barbearia_subprefeitura: Optional[str] = None
     barbearia_bairro: Optional[str] = None
+    percentual_freelancer: Optional[float] = None
     eta_min_usuario_atual: Optional[int] = None
     limite_chegada: Optional[datetime] = None
     expira_em: Optional[datetime] = None
@@ -398,6 +401,7 @@ def _serializar_cadeira_acionada(vaga: CadeiraAcionada, eta_min_usuario_atual: O
         "raio_km": None if vaga.tipo_servico == TIPO_VAGA_DIARIA else vaga.raio_km,
         "tipo_servico": vaga.tipo_servico,
         "valor_oferta": vaga.valor_oferta,
+        "percentual_freelancer": vaga.percentual_freelancer,
         "observacoes": vaga.observacoes,
         "barbearia_nome": barbearia.nome if barbearia else None,
         "barbearia_usuario_id": barbearia.usuario_id if barbearia else None,
@@ -1099,6 +1103,7 @@ async def anunciar_vagas(
             status=STATUS_ABERTA,
             # Sem raio: a coluna recebe o default, que a vaga de diaria ignora (sai None na API).
             tipo_servico=TIPO_VAGA_DIARIA,
+            percentual_freelancer=round(request.percentual_freelancer, 2),
             expira_em=expira_em,
         )
         for cadeira in cadeiras

@@ -173,4 +173,11 @@ def _init_db_tabelas():
                 if nome_coluna not in colunas_existentes:
                     connection.execute(text(f"ALTER TABLE radar_freelancer ADD COLUMN {nome_coluna} {definicao}"))
 
+    if "cadeiras_acionadas" in inspector.get_table_names():
+        colunas_existentes = {coluna["name"] for coluna in inspector.get_columns("cadeiras_acionadas")}
+        if "percentual_freelancer" not in colunas_existentes:
+            with engine.begin() as connection:
+                connection.execute(text("ALTER TABLE cadeiras_acionadas ADD COLUMN percentual_freelancer FLOAT"))
+                print("[migracao] Coluna cadeiras_acionadas.percentual_freelancer criada")
+
     print("--- Banco de dados inicializado com sucesso ---")

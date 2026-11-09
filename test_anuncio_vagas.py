@@ -106,7 +106,7 @@ def _resumo(http, loja):
 
 
 def _anunciar(http, loja, quantidade):
-    return http.post(f"{BASE}/anunciar", json={"quantidade": quantidade}, headers=loja["headers"])
+    return http.post(f"{BASE}/anunciar", json={"percentual_freelancer": 50, "quantidade": quantidade}, headers=loja["headers"])
 
 
 def _publicar(http, loja, quantidade):
@@ -388,7 +388,7 @@ def test_anuncios_repetidos_nao_aumentam_a_numeracao_nem_duplicam_cadeira(http):
         assert (ativas[primeira]["cadeira_numero"], ativas[segunda]["cadeira_numero"]) == (1, 2)
         assert ativas[primeira]["cadeira_id"] != ativas[segunda]["cadeira_id"]
         # Sem cadeira livre, nao ha terceira vaga nem numero inexistente.
-        extra = http.post(f"{BASE}/anunciar", json={"quantidade": 1}, headers=loja["headers"])
+        extra = http.post(f"{BASE}/anunciar", json={"percentual_freelancer": 50, "quantidade": 1}, headers=loja["headers"])
         assert extra.status_code == 409
         for vaga in (primeira, segunda):
             assert http.post(f"{BASE}/{vaga}/cancelar", headers=loja["headers"]).status_code == 200
@@ -902,7 +902,7 @@ def test_dono_anuncia_na_cadeira_escolhida_mesmo_com_outra_bloqueada(http):
     finally:
         db.close()
 
-    r = http.post(f"{BASE}/anunciar", json={"cadeira_ids": [ids[1]]}, headers=loja["headers"])
+    r = http.post(f"{BASE}/anunciar", json={"percentual_freelancer": 50, "cadeira_ids": [ids[1]]}, headers=loja["headers"])
     assert r.status_code == 201, r.text
     assert [v["cadeira_id"] for v in r.json()["vagas"]] == [ids[1]]
     assert [c["id"] for c in r.json()["cadeiras_livres"]] == [ids[0]]
@@ -911,7 +911,7 @@ def test_dono_anuncia_na_cadeira_escolhida_mesmo_com_outra_bloqueada(http):
 def test_escolher_as_duas_cadeiras_publica_duas_vagas(http):
     loja = _barbearia("ambas@t.com", 2)
     ids = [c[0] for c in _cadeiras(loja["id"])]
-    r = http.post(f"{BASE}/anunciar", json={"cadeira_ids": ids}, headers=loja["headers"])
+    r = http.post(f"{BASE}/anunciar", json={"percentual_freelancer": 50, "cadeira_ids": ids}, headers=loja["headers"])
     assert r.status_code == 201, r.text
     assert sorted(v["cadeira_id"] for v in r.json()["vagas"]) == sorted(ids)
     assert r.json()["cadeiras_livres"] == []
@@ -920,7 +920,7 @@ def test_escolher_as_duas_cadeiras_publica_duas_vagas(http):
 def test_cadeira_repetida_vira_uma_vaga_so(http):
     loja = _barbearia("repetida@t.com", 2)
     ids = [c[0] for c in _cadeiras(loja["id"])]
-    r = http.post(f"{BASE}/anunciar", json={"cadeira_ids": [ids[0], ids[0]]}, headers=loja["headers"])
+    r = http.post(f"{BASE}/anunciar", json={"percentual_freelancer": 50, "cadeira_ids": [ids[0], ids[0]]}, headers=loja["headers"])
     assert r.status_code == 201, r.text
     assert len(r.json()["publicadas"]) == 1
 
@@ -931,22 +931,80 @@ def test_escolha_invalida_nao_publica_nada(http):
     ids = [c[0] for c in _cadeiras(loja["id"])]
     alheia = _cadeiras(outra["id"])[0][0]
 
-    assert http.post(f"{BASE}/anunciar", json={"cadeira_ids": [ids[0], alheia]}, headers=loja["headers"]).status_code == 404
+    assert http.post(f"{BASE}/anunciar", json={"percentual_freelancer": 50, "cadeira_ids": [ids[0], alheia]}, headers=loja["headers"]).status_code == 404
     assert _resumo(http, loja)["vagas_anunciadas"] == 0
 
-    assert http.post(f"{BASE}/anunciar", json={"cadeira_ids": [ids[0]]}, headers=loja["headers"]).status_code == 201
-    assert http.post(f"{BASE}/anunciar", json={"cadeira_ids": [ids[0], ids[1]]}, headers=loja["headers"]).status_code == 409
+    assert http.post(f"{BASE}/anunciar", json={"percentual_freelancer": 50, "cadeira_ids": [ids[0]]}, headers=loja["headers"]).status_code == 201
+    assert http.post(f"{BASE}/anunciar", json={"percentual_freelancer": 50, "cadeira_ids": [ids[0], ids[1]]}, headers=loja["headers"]).status_code == 409
     assert _resumo(http, loja)["vagas_anunciadas"] == 1
 
 
 def test_escolha_acima_das_pagas_e_recusada(http):
     loja = _barbearia("acima@t.com", 1, linhas=2)
     ids = [c[0] for c in _cadeiras(loja["id"])]
-    assert http.post(f"{BASE}/anunciar", json={"cadeira_ids": ids}, headers=loja["headers"]).status_code == 409
+    assert http.post(f"{BASE}/anunciar", json={"percentual_freelancer": 50, "cadeira_ids": ids}, headers=loja["headers"]).status_code == 409
     assert _resumo(http, loja)["vagas_anunciadas"] == 0
 
 
 def test_anunciar_sem_cadeira_nem_quantidade_e_recusado(http):
     loja = _barbearia("vazio@t.com", 1)
-    assert http.post(f"{BASE}/anunciar", json={}, headers=loja["headers"]).status_code == 400
-    assert http.post(f"{BASE}/anunciar", json={"cadeira_ids": []}, headers=loja["headers"]).status_code == 422
+    assert http.post(f"{BASE}/anunciar", json={"percentual_freelancer": 50}, headers=loja["headers"]).status_code == 400
+    assert http.post(f"{BASE}/anunciar", json={"percentual_freelancer": 50, "cadeira_ids": []}, headers=loja["headers"]).status_code == 422
+
+
+# ---------------------------------------------------------------- percentual do freelancer
+
+
+def _anunciar_com_percentual(http, loja, percentual, quantidade=1):
+    return http.post(
+        f"{BASE}/anunciar", json={"percentual_freelancer": percentual, "quantidade": quantidade}, headers=loja["headers"]
+    )
+
+
+def test_percentual_anunciado_fica_na_vaga_e_o_freelancer_ve_antes_e_depois_de_escolhido(http):
+    loja = _barbearia("dono@t.com", 1)
+    r = _anunciar_com_percentual(http, loja, 37.5)
+    assert r.status_code == 201, r.text
+    vaga = r.json()["publicadas"][0]
+    assert r.json()["vagas"][0]["percentual_freelancer"] == 37.5  # o dono ve o que anunciou
+
+    fre = _freelancer("f1@t.com")
+    visivel = {v["id"]: v for v in http.get(f"{BASE}/ativas", headers=fre[1]).json()}[vaga]
+    assert visivel["percentual_freelancer"] == 37.5  # antes de se candidatar
+
+    _selecionar(http, loja, vaga, fre)
+    selecao = http.get("/api/v1/vagas/minhas-selecoes", headers=fre[1]).json()[0]
+    assert selecao["id"] == vaga and selecao["percentual_freelancer"] == 37.5
+
+    db = SessionLocal()
+    try:
+        assert db.get(models.CadeiraAcionada, vaga).percentual_freelancer == 37.5
+    finally:
+        db.close()
+
+
+def test_cada_vaga_guarda_o_proprio_percentual(http):
+    loja = _barbearia("dono@t.com", 2)
+    a = _anunciar_com_percentual(http, loja, 30).json()["publicadas"][0]
+    b = _anunciar_com_percentual(http, loja, 50).json()["publicadas"][0]
+    por_id = {v["id"]: v["percentual_freelancer"] for v in _resumo(http, loja)["vagas"]}
+    assert por_id == {a: 30, b: 50}
+
+
+@pytest.mark.parametrize("percentual", [0, 100, 45])
+def test_percentual_aceita_de_0_a_100(http, percentual):
+    loja = _barbearia("dono@t.com", 1)
+    assert _anunciar_com_percentual(http, loja, percentual).status_code == 201
+
+
+@pytest.mark.parametrize("percentual", [-1, 100.01, 150, "abc", None])
+def test_percentual_invalido_nao_publica(http, percentual):
+    loja = _barbearia("dono@t.com", 1)
+    assert _anunciar_com_percentual(http, loja, percentual).status_code == 422
+    assert _resumo(http, loja)["vagas_anunciadas"] == 0
+
+
+def test_anuncio_sem_percentual_e_recusado(http):
+    loja = _barbearia("dono@t.com", 1)
+    assert http.post(f"{BASE}/anunciar", json={"quantidade": 1}, headers=loja["headers"]).status_code == 422
+    assert _resumo(http, loja)["vagas_anunciadas"] == 0

@@ -296,7 +296,7 @@ def test_recebe_notificacao_e_ve_a_vaga_de_diaria_mesmo_offline(http):
     loja = _barbearia()
     fid, headers = _freelancer("f@t.com")
     _dever_taxa(fid)
-    assert http.post(f"{BASE}/anunciar", json={"quantidade": 1}, headers=loja["headers"]).status_code == 201
+    assert http.post(f"{BASE}/anunciar", json={"percentual_freelancer": 50, "quantidade": 1}, headers=loja["headers"]).status_code == 201
 
     assert _notificacoes(fid, "vaga_disponivel") == 1
     ativas = http.get(f"{BASE}/ativas", headers=headers).json()
@@ -320,7 +320,7 @@ def test_com_debito_longe_recebe_e_ve_mas_nao_se_candidata(http):
     finally:
         db.close()
     _dever_taxa(fid)
-    vaga_id = http.post(f"{BASE}/anunciar", json={"quantidade": 1}, headers=loja["headers"]).json()["publicadas"][0]
+    vaga_id = http.post(f"{BASE}/anunciar", json={"percentual_freelancer": 50, "quantidade": 1}, headers=loja["headers"]).json()["publicadas"][0]
     assert _notificacoes(fid, "vaga_disponivel") == 1
     assert [v["id"] for v in http.get(f"{BASE}/ativas", headers=headers).json()] == [vaga_id]
     r = http.post(f"{BASE}/{vaga_id}/candidatar-se", headers=headers)
@@ -341,7 +341,7 @@ def test_nao_consegue_se_candidatar_e_recebe_a_mensagem(http):
     loja = _barbearia()
     fid, headers = _freelancer("f@t.com")
     _dever_taxa(fid)
-    vaga = http.post(f"{BASE}/anunciar", json={"quantidade": 1}, headers=loja["headers"]).json()
+    vaga = http.post(f"{BASE}/anunciar", json={"percentual_freelancer": 50, "quantidade": 1}, headers=loja["headers"]).json()
     vaga_id = http.get(f"{BASE}/ativas", headers=headers).json()[0]["id"]
     assert vaga is not None
 
@@ -479,7 +479,7 @@ def test_conclui_o_atual_mas_a_fila_nao_inicia_o_proximo(http):
 def test_dono_nao_consegue_escolher_quem_tem_taxa_pendente(http):
     loja = _barbearia()
     fid, headers = _freelancer("f@t.com", online=True)
-    http.post(f"{BASE}/anunciar", json={"quantidade": 1}, headers=loja["headers"])
+    http.post(f"{BASE}/anunciar", json={"percentual_freelancer": 50, "quantidade": 1}, headers=loja["headers"])
     vaga_id = http.get(f"{BASE}/ativas", headers=headers).json()[0]["id"]
     assert http.post(f"{BASE}/{vaga_id}/candidatar-se", headers=headers).status_code == 200
 
@@ -508,7 +508,7 @@ def test_pagamento_confirmado_retira_as_restricoes_automaticamente(http):
 
     assert http.get(f"{V1}/usuario/{fid}", headers=cliente).json()["indisponivel"] is False
     assert http.post(f"{V1}/on-demand/ligar-radar", json={"latitude": LAT, "longitude": LON, "is_online": True}, headers=headers).json()["is_online"] is True
-    http.post(f"{BASE}/anunciar", json={"quantidade": 1}, headers=loja["headers"])
+    http.post(f"{BASE}/anunciar", json={"percentual_freelancer": 50, "quantidade": 1}, headers=loja["headers"])
     vaga_id = http.get(f"{BASE}/ativas", headers=headers).json()[0]["id"]
     assert http.post(f"{BASE}/{vaga_id}/candidatar-se", headers=headers).status_code == 200
     # Nenhum aviso de interesse depois de quitar.
@@ -537,7 +537,7 @@ def test_freelancer_sem_debito_continua_normal(http):
     offline, off_headers = _freelancer("off@t.com")
     cid, cliente = _usuario("cliente", "c@t.com")
 
-    http.post(f"{BASE}/anunciar", json={"quantidade": 1}, headers=loja["headers"])
+    http.post(f"{BASE}/anunciar", json={"percentual_freelancer": 50, "quantidade": 1}, headers=loja["headers"])
     assert _notificacoes(fid, "vaga_disponivel") == 1
     # Desde 2026-11-05 o anúncio de diária também avisa quem está OFFLINE (raio de 8 km),
     # e ele pode consultar a vaga; candidatar-se continua exigindo estar online.

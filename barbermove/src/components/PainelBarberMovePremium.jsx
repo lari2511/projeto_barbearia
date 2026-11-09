@@ -17,6 +17,7 @@ import MinhasVagasSelecionadas from './MinhasVagasSelecionadas';
 import CronometroAtendimento, { parseDataServidorUTC } from './CronometroAtendimento';
 import BotaoVoltar from './BotaoVoltar';
 import { useBackHandler } from '../utils/useBackHandler';
+import { textoPercentual } from '../utils/vagas';
 
 const TIPO_VAGA_DIARIA = 'vaga_diaria'; // app/vagas.py
 // Regioes da capital (app/sao_paulo_capital.py), na ordem em que as vagas de diaria aparecem.
@@ -666,6 +667,16 @@ export default function PainelBarberMovePremium({ token: tokenProp, logout: logo
               )}
               {vaga.eta_min_usuario_atual != null && (
                 <p className="text-xs text-zinc-400">Cerca de {vaga.eta_min_usuario_atual} min de você</p>
+              )}
+              {textoPercentual(vaga.percentual_freelancer) && (
+                <div className="mt-2 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-2.5 py-1.5" data-testid="remuneracao-vaga">
+                  <p className="text-[11px] font-black uppercase tracking-wide text-emerald-300">
+                    Remuneração do freelancer: {textoPercentual(vaga.percentual_freelancer)}
+                  </p>
+                  <p className="text-[11px] text-emerald-100/80">
+                    {textoPercentual(vaga.percentual_freelancer)} do valor de cada serviço realizado.
+                  </p>
+                </div>
               )}
             </>
           ) : (

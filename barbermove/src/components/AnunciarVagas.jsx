@@ -9,7 +9,9 @@ import {
   cancelarVaga,
   desbloquearCadeiraDaVaga,
   escolherCandidatoVaga,
+  lerPercentualFreelancer,
   textoDistanciaCandidato,
+  textoPercentual,
 } from '../utils/vagas';
 
 const INTERVALO_ATUALIZACAO_MS = 10000;
@@ -44,6 +46,8 @@ export default function AnunciarVagas({ API_URL, token, notify, onVerPerfil, onA
   const [acaoEmAndamento, setAcaoEmAndamento] = useState(null);
   const [cancelamentoPendenteId, setCancelamentoPendenteId] = useState(null);
   const [chatVaga, setChatVaga] = useState(null);
+  // Texto livre: o dono digita o percentual que quiser oferecer (sem valor padrão).
+  const [percentualTexto, setPercentualTexto] = useState('');
 
   const carregar = useCallback(async () => {
     try {
@@ -128,13 +132,25 @@ export default function AnunciarVagas({ API_URL, token, notify, onVerPerfil, onA
     }
   };
 
+  const percentualFreelancer = lerPercentualFreelancer(percentualTexto);
+  const percentualInvalido = percentualTexto.trim() !== '' && percentualFreelancer === null;
+
+  const fecharSeletor = () => {
+    setSeletorAberto(false);
+    setCadeirasEscolhidas([]);
+    setPercentualTexto('');
+  };
+
   const confirmarAnuncio = async () => {
+    if (percentualFreelancer === null) {
+      notify('Informe a porcentagem do freelancer, de 0% a 100%.', 'error');
+      return;
+    }
     setPublicando(true);
     try {
-      const dados = await anunciarVagas(API_URL, token, cadeirasEscolhidas);
+      const dados = await anunciarVagas(API_URL, token, cadeirasEscolhidas, percentualFreelancer);
       setResumo(dados);
-      setSeletorAberto(false);
-      setCadeirasEscolhidas([]);
+      fecharSeletor();
       notify(`${textoVagas(dados.publicadas.length)} ${dados.publicadas.length === 1 ? 'anunciada' : 'anunciadas'}!`, 'success');
     } catch (error) {
       notify(error?.message || 'Não foi possível anunciar as vagas', 'error');
@@ -242,10 +258,36 @@ export default function AnunciarVagas({ API_URL, token, notify, onVerPerfil, onA
             })}
           </div>
           <p className="text-center text-[11px] text-zinc-400">Você pode anunciar até {textoVagas(maximo)}</p>
+          <div className="space-y-1">
+            <label htmlFor="percentual-freelancer" className="block text-xs font-bold text-white">
+              Valor da porcentagem ao freelancer
+            </label>
+            <div className="relative">
+              <input
+                id="percentual-freelancer"
+                data-testid="percentual-freelancer"
+                type="text"
+                inputMode="decimal"
+                autoComplete="off"
+                placeholder="Ex.: 50"
+                value={percentualTexto}
+                onChange={(e) => setPercentualTexto(e.target.value)}
+                disabled={publicando}
+                aria-invalid={percentualInvalido}
+                className={`w-full rounded-xl border bg-zinc-800 px-3 py-2.5 pr-8 text-sm text-white placeholder-zinc-500 outline-none focus:border-orange-500 ${percentualInvalido ? 'border-red-500' : 'border-zinc-700'}`}
+              />
+              <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-sm font-bold text-zinc-400">%</span>
+            </div>
+            <p className={`text-[11px] ${percentualInvalido ? 'text-red-400' : 'text-zinc-500'}`}>
+              {percentualInvalido
+                ? 'Digite um percentual de 0 a 100.'
+                : 'Percentual de cada serviço realizado (corte, barba, sobrancelha e demais) que vai para o freelancer.'}
+            </p>
+          </div>
           <button
             type="button"
             onClick={confirmarAnuncio}
-            disabled={publicando || cadeirasEscolhidas.length === 0}
+            disabled={publicando || cadeirasEscolhidas.length === 0 || percentualFreelancer === null}
             className="w-full rounded-xl bg-orange-500 px-3 py-2.5 text-sm font-black uppercase tracking-wide text-white hover:bg-orange-600 disabled:opacity-50"
           >
             {publicando
@@ -256,7 +298,7 @@ export default function AnunciarVagas({ API_URL, token, notify, onVerPerfil, onA
           </button>
           <button
             type="button"
-            onClick={() => { setSeletorAberto(false); setCadeirasEscolhidas([]); }}
+            onClick={fecharSeletor}
             disabled={publicando}
             className="w-full text-xs font-semibold text-zinc-400 hover:text-white"
           >
@@ -293,6 +335,11 @@ export default function AnunciarVagas({ API_URL, token, notify, onVerPerfil, onA
                       {titulo}{vaga.cadeira_bloqueada ? ' · 🔒 Bloqueada' : ''}
                     </p>
                     <p className="text-[11px] text-zinc-400 truncate">{descreverVaga(vaga)}</p>
+                    {textoPercentual(vaga.percentual_freelancer) && (
+                      <p className="text-[11px] font-semibold text-emerald-300">
+                        Freelancer recebe {textoPercentual(vaga.percentual_freelancer)} de cada serviço
+                      </p>
+                    )}
                   </div>
                   {temChat && (
                     <button
