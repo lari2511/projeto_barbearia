@@ -439,6 +439,26 @@ def pagina_baixar_app():
     return FileResponse(str(pagina), media_type="text/html", headers=_INDEX_NO_CACHE_HEADERS)
 
 
+# Páginas institucionais do site. Lista fechada: o nome na URL nunca vira caminho de arquivo.
+_ARQUIVOS_SITE = {
+    "freelancer": ("freelancer.html", "text/html"),
+    "proprietario": ("proprietario.html", "text/html"),
+    "financeiro": ("financeiro.html", "text/html"),
+    "perguntas": ("perguntas.html", "text/html"),
+    "site.css": ("site.css", "text/css"),
+}
+
+
+@app.api_route("/baixar/{pagina}", methods=["GET", "HEAD"], include_in_schema=False)
+def pagina_site_institucional(pagina: str):
+    arquivo = _ARQUIVOS_SITE.get(pagina)
+    if not arquivo:
+        raise HTTPException(status_code=404, detail="Not Found")
+    nome, media_type = arquivo
+    caminho = pathlib.Path(__file__).resolve().parent / "site" / nome
+    return FileResponse(str(caminho), media_type=media_type, headers=_INDEX_NO_CACHE_HEADERS)
+
+
 @app.get("/sw.js")
 @app.get("/registerSW.js")
 @app.get("/manifest.webmanifest")

@@ -13,38 +13,9 @@
 <meta property="og:description" content="Clientes, barbeiros freelancers e barbearias da sua região no mesmo app.">
 <meta property="og:url" content="https://projetobarbearia-production.up.railway.app/baixar">
 <meta property="og:image" content="https://projetobarbearia-production.up.railway.app/brand-logo.png">
+<link rel="stylesheet" href="/baixar/site.css">
 <style>
-  :root {
-    --navy: #03224c;
-    --texto: #33445c;
-    --suave: #5d6b7e;
-    --linha: #dde3ea;
-    --fundo-alt: #f3f6f9;
-    --vermelho: #e8212e;
-    --azul: #0a66d0;
-  }
-  * { box-sizing: border-box; }
-  html { scroll-behavior: smooth; -webkit-text-size-adjust: 100%; }
-  body {
-    margin: 0;
-    background: #fff;
-    color: var(--texto);
-    font: 17px/1.55 system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-  }
-  h1, h2, h3 { color: var(--navy); line-height: 1.15; margin: 0; }
-  a { color: var(--azul); }
-  a:focus-visible, summary:focus-visible { outline: 3px solid var(--azul); outline-offset: 3px; }
-  .faixa {
-    height: 10px;
-    background: repeating-linear-gradient(135deg,
-      var(--vermelho) 0 22px, #fff 22px 44px, var(--azul) 44px 66px, #fff 66px 88px);
-    border-bottom: 1px solid var(--linha);
-  }
-  .largura { max-width: 1040px; margin: 0 auto; padding: 0 20px; }
-  header .largura { display: flex; align-items: center; justify-content: space-between; height: 68px; }
-  .marca { color: var(--navy); font-size: 22px; font-weight: 800; letter-spacing: -.02em; text-decoration: none; }
-  .link-entrar { font-weight: 600; text-decoration: none; }
-
+  /* Só o que é exclusivo da página de download; o resto está em /baixar/site.css. */
   .hero .largura {
     display: grid;
     grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr);
@@ -55,19 +26,6 @@
   }
   h1 { font-size: clamp(36px, 6vw, 58px); font-weight: 800; letter-spacing: -.03em; }
   .chamada { font-size: 19px; margin: 20px 0 28px; max-width: 34em; }
-  .botao {
-    display: inline-block;
-    min-height: 52px;
-    padding: 13px 28px;
-    border-radius: 8px;
-    background: var(--navy);
-    color: #fff;
-    font-size: 18px;
-    font-weight: 700;
-    text-align: center;
-    text-decoration: none;
-  }
-  .botao:hover { background: #0a3a78; }
   .detalhe { margin: 12px 0 0; font-size: 15px; color: var(--suave); }
   .arte { text-align: center; }
   .arte img { width: 100%; max-width: 380px; height: auto; }
@@ -82,42 +40,18 @@
   [data-aparelho="computador"] .qr { display: flex; }
   [data-aparelho="iphone"] #instalar-iphone { order: -1; }
 
-  section { padding: 64px 0; }
-  .alt { background: var(--fundo-alt); }
-  h2 { font-size: clamp(28px, 4vw, 36px); font-weight: 800; letter-spacing: -.02em; margin-bottom: 32px; }
-  h3 { font-size: 21px; font-weight: 700; margin-bottom: 12px; }
-
-  .perfis { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 40px; }
-  .perfis > div { border-top: 4px solid var(--navy); padding-top: 18px; }
-  .perfis > div:nth-child(2) { border-color: var(--vermelho); }
-  .perfis > div:nth-child(3) { border-color: var(--azul); }
-  .perfis ul { margin: 0; padding-left: 20px; }
-  .perfis li { margin-bottom: 8px; }
-
   .instalar { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 48px; }
   .instalar ol { margin: 0 0 16px; padding-left: 22px; }
   .instalar li { margin-bottom: 10px; }
   .instalar li::marker { color: var(--navy); font-weight: 700; }
-  .nota { font-size: 15px; margin: 0; color: var(--suave); }
-
-  details { border-bottom: 1px solid var(--linha); padding: 16px 0; max-width: 720px; }
-  summary { color: var(--navy); font-weight: 700; cursor: pointer; }
-  details p { margin: 10px 0 0; }
-
-  footer { border-top: 1px solid var(--linha); padding: 28px 0 36px; font-size: 15px; color: var(--suave); }
-  footer nav { display: flex; flex-wrap: wrap; gap: 8px 20px; margin-bottom: 10px; }
-  footer p { margin: 0; }
 
   @media (max-width: 760px) {
     .hero .largura { grid-template-columns: 1fr; gap: 12px; padding-bottom: 48px; }
     .arte { order: -1; }
     .arte img { max-width: 190px; }
-    .botao { display: block; width: 100%; }
     :root:not([data-aparelho="iphone"]) .so-iphone { display: none; }
-    section { padding: 48px 0; }
-    .perfis, .instalar { grid-template-columns: 1fr; gap: 32px; }
+    .instalar { grid-template-columns: 1fr; gap: 32px; }
   }
-  @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
 </style>
 </head>
 <body>
@@ -125,7 +59,29 @@
 <header>
   <div class="largura">
     <a class="marca" href="/baixar">BarberMove</a>
-    <a class="link-entrar" href="/">Abrir no navegador</a>
+    <nav class="menu" aria-label="Principal">
+      <a href="/baixar" aria-current="page">Início</a>
+      <a href="/baixar#conheca">Conheça</a>
+      <a href="/baixar/freelancer">Para freelancers</a>
+      <a href="/baixar/proprietario">Para proprietários</a>
+      <a href="/baixar/financeiro">Financeiro</a>
+      <a href="/baixar/perguntas">Perguntas</a>
+      <a class="link-entrar" href="/">Abrir no navegador</a>
+      <a class="menu-app" href="/baixar#instalar">Acessar aplicativo</a>
+    </nav>
+    <details class="menu-movel">
+      <summary>Menu</summary>
+      <nav aria-label="Principal">
+        <a href="/baixar">Início</a>
+        <a href="/baixar#conheca">Conheça o BarberMove</a>
+        <a href="/baixar/freelancer">Para freelancers</a>
+        <a href="/baixar/proprietario">Para proprietários</a>
+        <a href="/baixar/financeiro">Financeiro</a>
+        <a href="/baixar/perguntas">Perguntas frequentes</a>
+        <a href="/">Abrir no navegador</a>
+        <a href="/baixar#instalar">Acessar aplicativo</a>
+      </nav>
+    </details>
   </div>
 </header>
 
@@ -150,7 +106,49 @@
     </div>
   </div>
 
-  <section class="alt" id="para-quem">
+  <section class="alt" id="conheca">
+    <div class="largura">
+      <span class="olho">Conheça o BarberMove</span>
+      <h2>Uma plataforma que conecta barbearias, profissionais e clientes</h2>
+      <p class="lead">O BarberMove é uma plataforma que conecta barbearias, profissionais freelancers e clientes, criando oportunidades de trabalho por diária e facilitando o acesso a serviços de barbearia.</p>
+      <p class="lead">Nossa proposta é aproximar profissionais e estabelecimentos, facilitar a divulgação de oportunidades e ajudar as barbearias a aproveitar melhor sua estrutura.</p>
+
+      <div class="grade-3">
+        <div class="card">
+          <span class="icone" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l1.5-5h15L21 9"/><path d="M4 9v11h16V9"/><path d="M3 9h18"/><path d="M9 20v-6h6v6"/></svg></span>
+          <h3>Barbearias</h3>
+          <p>Disponibilizam oportunidades de diárias e sua estrutura de atendimento.</p>
+        </div>
+        <div class="card">
+          <span class="icone vermelho" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M20 4 8.12 15.88M14.47 14.48 20 20M8.12 8.12 12 12"/></svg></span>
+          <h3>Profissionais</h3>
+          <p>Encontram oportunidades, conhecem novas barbearias e ampliam suas possibilidades de trabalho.</p>
+        </div>
+        <div class="card">
+          <span class="icone azul" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/></svg></span>
+          <h3>Clientes</h3>
+          <p>Encontram profissionais e serviços por meio da plataforma.</p>
+        </div>
+      </div>
+
+      <div class="grade-2" style="margin-top: 32px;">
+        <div class="card-perfil vermelho">
+          <span class="icone" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M20 4 8.12 15.88M14.47 14.48 20 20M8.12 8.12 12 12"/></svg></span>
+          <h3>Sou freelancer</h3>
+          <p>Conheça as oportunidades, entenda como funcionam as diárias, as candidaturas, os atendimentos e as regras financeiras.</p>
+          <a class="botao" href="/baixar/freelancer">Conhecer como funciona</a>
+        </div>
+        <div class="card-perfil">
+          <span class="icone" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l1.5-5h15L21 9"/><path d="M4 9v11h16V9"/><path d="M3 9h18"/><path d="M9 20v-6h6v6"/></svg></span>
+          <h3>Sou proprietário</h3>
+          <p>Conheça como disponibilizar diárias, receber profissionais, aproveitar cadeiras disponíveis e utilizar a plataforma.</p>
+          <a class="botao" href="/baixar/proprietario">Conhecer como funciona</a>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="para-quem">
     <div class="largura">
       <h2>Feito para os três lados da cadeira</h2>
       <div class="perfis">
@@ -182,7 +180,73 @@
     </div>
   </section>
 
-  <section id="instalar">
+  <section class="alt" id="diferenciais">
+    <div class="largura">
+      <span class="olho">Diferenciais</span>
+      <h2>O que o BarberMove oferece para cada perfil</h2>
+      <div class="grade-3">
+        <div class="card">
+          <span class="icone" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l1.5-5h15L21 9"/><path d="M4 9v11h16V9"/><path d="M3 9h18"/><path d="M9 20v-6h6v6"/></svg></span>
+          <h3>Para o proprietário</h3>
+          <ul>
+            <li>Divulgação de diárias</li>
+            <li>Recebimento de candidaturas</li>
+            <li>Possibilidade de escolher profissionais</li>
+            <li>Aproveitamento de cadeiras disponíveis</li>
+            <li>Possibilidade de receber clientes originados pela plataforma</li>
+          </ul>
+        </div>
+        <div class="card">
+          <span class="icone vermelho" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M20 4 8.12 15.88M14.47 14.48 20 20M8.12 8.12 12 12"/></svg></span>
+          <h3>Para o freelancer</h3>
+          <ul>
+            <li>Acesso a oportunidades em diferentes barbearias</li>
+            <li>Possibilidade de trabalhar em diferentes estabelecimentos</li>
+            <li>Visualização das condições antes da candidatura</li>
+            <li>Controle de presença e disponibilidade</li>
+            <li>Possibilidade de receber atendimentos originados pelo BarberMove</li>
+          </ul>
+        </div>
+        <div class="card">
+          <span class="icone azul" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/></svg></span>
+          <h3>Para o cliente</h3>
+          <ul>
+            <li>Possibilidade de encontrar profissionais e serviços</li>
+            <li>Acesso a barbearias e profissionais conectados à plataforma</li>
+            <li>Mais possibilidades de encontrar atendimento conforme a disponibilidade</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="cobertura">
+    <div class="largura">
+      <span class="olho">Cobertura geográfica</span>
+      <h2>Oportunidades em toda a cidade de São Paulo</h2>
+      <p class="lead">O BarberMove busca conectar profissionais e barbearias em diferentes regiões. As oportunidades de diária anunciadas por barbearias da capital paulista ficam visíveis para os profissionais em toda a cidade de São Paulo, conforme a cobertura configurada no aplicativo.</p>
+      <div class="grade-3">
+        <div class="card">
+          <span class="icone" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg></span>
+          <h3>Oportunidades de diária</h3>
+          <p>Abrangem toda a cidade de São Paulo. O profissional não precisa estar perto da barbearia para ver a vaga.</p>
+        </div>
+        <div class="card">
+          <span class="icone azul" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/></svg></span>
+          <h3>Atendimento de clientes</h3>
+          <p>A busca de profissionais e barbearias pelo cliente segue os parâmetros de proximidade e disponibilidade próprios do aplicativo.</p>
+        </div>
+        <div class="card">
+          <span class="icone vermelho" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21s-7-6.2-7-12a7 7 0 0 1 14 0c0 5.8-7 12-7 12z"/><circle cx="12" cy="9" r="2.5"/></svg></span>
+          <h3>Confirmação de chegada</h3>
+          <p>A chegada a um atendimento só é confirmada a até cerca de 200 metros da barbearia.</p>
+        </div>
+      </div>
+      <p class="nota" style="margin-top: 20px;">São funcionalidades diferentes, cada uma com suas próprias regras e alcance.</p>
+    </div>
+  </section>
+
+  <section class="alt" id="instalar">
     <div class="largura">
       <h2>Como instalar</h2>
       <div class="instalar">
@@ -209,7 +273,7 @@
     </div>
   </section>
 
-  <section class="alt" id="duvidas">
+  <section id="duvidas">
     <div class="largura">
       <h2>Dúvidas comuns</h2>
       <details>
@@ -228,12 +292,19 @@
         <summary>Já sou profissional. Posso começar a trabalhar na hora?</summary>
         <p>Depois do cadastro, o perfil de freelancer passa por uma análise antes de ser liberado.</p>
       </details>
+      <p style="margin-top: 28px;"><a class="botao botao-claro" href="/baixar/perguntas">Ver todas as perguntas frequentes</a></p>
     </div>
   </section>
 </main>
 
 <footer>
   <div class="largura">
+    <nav aria-label="Site">
+      <a href="/baixar/freelancer">Para freelancers</a>
+      <a href="/baixar/proprietario">Para proprietários</a>
+      <a href="/baixar/financeiro">Financeiro</a>
+      <a href="/baixar/perguntas">Perguntas frequentes</a>
+    </nav>
     <nav aria-label="Documentos legais">
       <a href="/api/v1/termos-de-uso?perfil=cliente">Termos para clientes</a>
       <a href="/api/v1/termos-de-uso?perfil=freelancer">Termos para freelancers</a>
