@@ -928,6 +928,12 @@ export default function ClientDashboard({ token, logout, API_URL: apiUrlProp, no
     useEffect(() => {
         if (tab !== 'inicio') return;
         carregarBarbeariasProximasHome();
+        // Reflete o dono abrindo/fechando o cadeado sem o cliente sair da Home.
+        const intervalo = setInterval(() => {
+            if (typeof document !== 'undefined' && document.hidden) return;
+            carregarBarbeariasProximasHome();
+        }, 30000);
+        return () => clearInterval(intervalo);
     }, [tab, carregarBarbeariasProximasHome]);
 
     // Quando o GPS do cliente já foi obtido (pelo fluxo padrão do app) enquanto ele
@@ -1935,9 +1941,28 @@ export default function ClientDashboard({ token, logout, API_URL: apiUrlProp, no
                                                         {barbearia.distancia_km} km
                                                     </span>
                                                 )}
-                                                <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${barbearia.cadeira_disponivel ? 'bg-green-600/80 text-white' : 'bg-zinc-700 text-zinc-300'}`}>
-                                                    {barbearia.cadeira_disponivel ? 'Cadeira disponível' : 'Sem cadeira no momento'}
-                                                </span>
+                                                {(() => {
+                                                    // Freelancer presente com a cadeira liberada pelo dono tem prioridade;
+                                                    // cadeado fechado cai em "Sem cadeira no momento".
+                                                    const presentes = Array.isArray(barbearia.freelancers_presentes_liberados)
+                                                        ? barbearia.freelancers_presentes_liberados
+                                                        : [];
+                                                    if (presentes.length > 0) {
+                                                        const texto = presentes.length === 1
+                                                            ? `Freelancer ${presentes[0]} presente na barbearia`
+                                                            : `Freelancers ${presentes[0]} e mais ${presentes.length - 1} presentes na barbearia`;
+                                                        return (
+                                                            <span data-testid="freelancer-presente-home" className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-green-600/80 text-white">
+                                                                {texto}
+                                                            </span>
+                                                        );
+                                                    }
+                                                    return (
+                                                        <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${barbearia.cadeira_disponivel ? 'bg-green-600/80 text-white' : 'bg-zinc-700 text-zinc-300'}`}>
+                                                            {barbearia.cadeira_disponivel ? 'Cadeira disponível' : 'Sem cadeira no momento'}
+                                                        </span>
+                                                    );
+                                                })()}
                                             </div>
                                         </div>
                                         <ArrowRight size={16} className="shrink-0 text-zinc-600" />

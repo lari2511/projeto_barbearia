@@ -17,6 +17,33 @@ from app.routes import get_current_user
 router = APIRouter(prefix="/api/v1/barbearias", tags=["Barbearias"])
 
 
+def _freelancers_liberados_por_barbearia(db: Session) -> dict:
+    """{barbearia_id: [primeiro nome, ...]} dos freelancers PRESENTES com o cadeado aberto.
+
+    Reusa os estados existentes: presença real (presente_em_local + barbearia_atual_id)
+    e cadeado do dono (clientes_app_liberado_barbearia_id == barbearia_atual_id).
+    Quem está com taxa vencida não aparece (não trabalha até quitar). Só leitura.
+    """
+    from app.pagamento_diario import freelancers_com_taxa_vencida
+
+    com_taxa_pendente = freelancers_com_taxa_vencida(db)
+    presentes = db.query(Usuario).filter(
+        Usuario.tipo == "barbeiro",
+        Usuario.perfil_aprovado == True,
+        Usuario.presente_em_local == True,
+        Usuario.barbearia_atual_id.isnot(None),
+        Usuario.clientes_app_liberado_barbearia_id == Usuario.barbearia_atual_id,
+    ).order_by(Usuario.horario_chegada.asc(), Usuario.id.asc()).all()
+
+    por_barbearia: dict = {}
+    for f in presentes:
+        if f.id in com_taxa_pendente:
+            continue
+        primeiro_nome = (f.nome or "").strip().split(" ")[0] or "Profissional"
+        por_barbearia.setdefault(f.barbearia_atual_id, []).append(primeiro_nome)
+    return por_barbearia
+
+
 @router.get("/proximas")
 def listar_barbearias_proximas(
     db: Session = Depends(get_db),
@@ -51,7 +78,8 @@ def listar_barbearias_proximas(
     ).all()
     
     barbearias_proximas = []
-    
+    liberados = _freelancers_liberados_por_barbearia(db)
+
     for user in barbearias_usuarios:
         barbearia = db.query(Barbearia).filter(
             Barbearia.usuario_id == user.id
@@ -100,7 +128,9 @@ def listar_barbearias_proximas(
                     "categoria": getattr(barbearia, "categoria", None),
                     "criado_em": user.criado_em,
                     "aprovado_em": user.perfil_aprovado_em,
-                    "cadeira_disponivel": cadeira_disponivel is not None
+                    "cadeira_disponivel": cadeira_disponivel is not None,
+                    # Freelancers presentes com a cadeira liberada pelo dono p/ o app.
+                    "freelancers_presentes_liberados": liberados.get(barbearia.id, []),
                 })
     
     # Ordenar por distância (mais próximos primeiro)
@@ -140,6 +170,7 @@ def listar_todas_barbearias_aprovadas(
     ).all()
     
     barbearias = []
+    liberados = _freelancers_liberados_por_barbearia(db)
     for user in barbearias_usuarios:
         barbearia = db.query(Barbearia).filter(
             Barbearia.usuario_id == user.id
@@ -190,7 +221,9 @@ def listar_todas_barbearias_aprovadas(
                 "categoria": getattr(barbearia, "categoria", None),
                 "criado_em": user.criado_em,
                 "aprovado_em": user.perfil_aprovado_em,
-                "cadeira_disponivel": cadeira_disponivel is not None
+                "cadeira_disponivel": cadeira_disponivel is not None,
+                    # Freelancers presentes com a cadeira liberada pelo dono p/ o app.
+                    "freelancers_presentes_liberados": liberados.get(barbearia.id, []),
             })
     
     # Ordenar por distância se disponível

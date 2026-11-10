@@ -283,3 +283,57 @@ def test_fechado_nao_aceita_chamado_aberto(http):
     abertos = http.get(f"{V1}/chamados/abertos", headers=headers).json()
     assert chamado_id not in [c["id"] for c in abertos]
     assert http.put(f"{V1}/chamados/{chamado_id}/aceitar", headers=headers).status_code == 400
+
+
+# ---- Home do cliente: "Freelancer X presente na barbearia" ----
+
+def _home(http, cliente):
+    r = http.get(f"{V1}/barbearias/proximas?raio_km=5", headers=cliente)
+    assert r.status_code == 200
+    return r.json()["barbearias"][0]
+
+
+def test_home_cliente_mostra_freelancer_so_com_cadeado_aberto(http):
+    loja = _barbearia(cadeiras=1)
+    _, cliente = _usuario("cliente", "c@t.com", latitude=LAT, longitude=LON)
+
+    # Sem ninguém presente: nenhum profissional anunciado.
+    assert _home(http, cliente)["freelancers_presentes_liberados"] == []
+
+    # Presente mas cadeado fechado: segue "Sem cadeira no momento".
+    fid, _ = _freelancer_presente(loja, email="aislan silva@t.com")
+    item = _home(http, cliente)
+    assert item["freelancers_presentes_liberados"] == []
+    assert item["cadeira_disponivel"] is False
+
+    # Dono abre o cadeado: aparece o primeiro nome.
+    assert _cadeado(http, loja, fid, True).status_code == 200
+    assert _home(http, cliente)["freelancers_presentes_liberados"] == ["aislan"]
+
+    # Dono fecha de novo: some.
+    assert _cadeado(http, loja, fid, False).status_code == 200
+    assert _home(http, cliente)["freelancers_presentes_liberados"] == []
+
+
+def test_home_cliente_esconde_freelancer_que_saiu(http):
+    loja = _barbearia(cadeiras=1)
+    _, cliente = _usuario("cliente", "c@t.com", latitude=LAT, longitude=LON)
+    fid, _ = _freelancer_presente(loja)
+    assert _cadeado(http, loja, fid, True).status_code == 200
+    db = SessionLocal()
+    try:
+        db.get(models.Usuario, fid).presente_em_local = False
+        db.commit()
+    finally:
+        db.close()
+    assert _home(http, cliente)["freelancers_presentes_liberados"] == []
+
+
+def test_home_cliente_esconde_freelancer_com_taxa_pendente(http, monkeypatch):
+    from app import pagamento_diario
+    loja = _barbearia(cadeiras=1)
+    _, cliente = _usuario("cliente", "c@t.com", latitude=LAT, longitude=LON)
+    fid, _ = _freelancer_presente(loja)
+    assert _cadeado(http, loja, fid, True).status_code == 200
+    monkeypatch.setattr(pagamento_diario, "freelancers_com_taxa_vencida", lambda db, agora=None: {fid})
+    assert _home(http, cliente)["freelancers_presentes_liberados"] == []
