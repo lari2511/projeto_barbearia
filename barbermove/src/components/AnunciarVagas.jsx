@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { Check, ChevronDown, ChevronUp, MessageCircle, Plus } from 'lucide-react';
+import { ChevronDown, ChevronUp, MessageCircle, Plus } from 'lucide-react';
 import ChatVaga from './ChatVaga';
+import FormularioVaga from './FormularioVaga';
 import {
   anunciarVagas,
   aoReceberMensagemVaga,
@@ -9,7 +10,6 @@ import {
   cancelarVaga,
   desbloquearCadeiraDaVaga,
   escolherCandidatoVaga,
-  lerPercentualFreelancer,
   textoDistanciaCandidato,
   textoPercentual,
 } from '../utils/vagas';
@@ -21,6 +21,12 @@ const textoVagas = (total) => `${total} ${total === 1 ? 'vaga' : 'vagas'}`;
 const descreverVaga = (vaga) => {
   switch (vaga.status) {
     case 'disponivel':
+      // Vaga enviada direto: o dono acompanha a resposta do convidado.
+      if (vaga.convidado_nome) {
+        return vaga.total_candidatos > 0
+          ? `${vaga.convidado_nome} aceitou · confirme a escolha`
+          : `Enviada para ${vaga.convidado_nome} · aguardando resposta`;
+      }
       return `Aberta · ${vaga.total_candidatos} ${vaga.total_candidatos === 1 ? 'candidato' : 'candidatos'}`;
     case 'aguardando_desbloqueio':
       return `${vaga.barbeiro_nome || 'Freelancer'} escolhido · aguardando chegada`;
@@ -38,7 +44,6 @@ const descreverVaga = (vaga) => {
 export default function AnunciarVagas({ API_URL, token, notify, onVerPerfil, onAbrirAssinatura }) {
   const [resumo, setResumo] = useState(null);
   const [seletorAberto, setSeletorAberto] = useState(false);
-  const [cadeirasEscolhidas, setCadeirasEscolhidas] = useState([]);
   const [publicando, setPublicando] = useState(false);
   const [listaAberta, setListaAberta] = useState(false);
   const [vagaExpandidaId, setVagaExpandidaId] = useState(null);
@@ -46,8 +51,6 @@ export default function AnunciarVagas({ API_URL, token, notify, onVerPerfil, onA
   const [acaoEmAndamento, setAcaoEmAndamento] = useState(null);
   const [cancelamentoPendenteId, setCancelamentoPendenteId] = useState(null);
   const [chatVaga, setChatVaga] = useState(null);
-  // Texto livre: o dono digita o percentual que quiser oferecer (sem valor padrão).
-  const [percentualTexto, setPercentualTexto] = useState('');
 
   const carregar = useCallback(async () => {
     try {
@@ -75,32 +78,10 @@ export default function AnunciarVagas({ API_URL, token, notify, onVerPerfil, onA
   const vagas = resumo?.vagas || [];
   const cadeirasLivres = resumo?.cadeiras_livres;
 
-  // O resumo atualiza sozinho: tira da escolha a cadeira que deixou de estar livre.
+  // Sem vaga disponível, o formulário fecha (a escolha da cadeira fica no FormularioVaga).
   useEffect(() => {
-    if (maximo <= 0) {
-      setSeletorAberto(false);
-      setCadeirasEscolhidas([]);
-      return;
-    }
-    const idsLivres = (cadeirasLivres || []).map((cadeira) => cadeira.id);
-    setCadeirasEscolhidas((atual) => {
-      const validas = atual.filter((id) => idsLivres.includes(id)).slice(0, maximo);
-      return validas.length === atual.length ? atual : validas;
-    });
-  }, [maximo, cadeirasLivres]);
-
-  const alternarCadeira = (cadeiraId) => {
-    setCadeirasEscolhidas((atual) => {
-      if (atual.includes(cadeiraId)) return atual.filter((id) => id !== cadeiraId);
-      return atual.length < maximo ? [...atual, cadeiraId] : atual;
-    });
-  };
-
-  const abrirSeletor = () => {
-    // Com uma cadeira só não há o que escolher: já vem marcada.
-    setCadeirasEscolhidas(cadeirasLivres?.length === 1 ? [cadeirasLivres[0].id] : []);
-    setSeletorAberto(true);
-  };
+    if (maximo <= 0) setSeletorAberto(false);
+  }, [maximo]);
 
   const carregarCandidatos = useCallback(async (vagaId) => {
     try {
@@ -132,16 +113,9 @@ export default function AnunciarVagas({ API_URL, token, notify, onVerPerfil, onA
     }
   };
 
-  const percentualFreelancer = lerPercentualFreelancer(percentualTexto);
-  const percentualInvalido = percentualTexto.trim() !== '' && percentualFreelancer === null;
+  const fecharSeletor = () => setSeletorAberto(false);
 
-  const fecharSeletor = () => {
-    setSeletorAberto(false);
-    setCadeirasEscolhidas([]);
-    setPercentualTexto('');
-  };
-
-  const confirmarAnuncio = async () => {
+  const confirmarAnuncio = async (cadeirasEscolhidas, percentualFreelancer) => {
     if (percentualFreelancer === null) {
       notify('Informe a porcentagem do freelancer, de 0% a 100%.', 'error');
       return;
@@ -226,7 +200,7 @@ export default function AnunciarVagas({ API_URL, token, notify, onVerPerfil, onA
           </p>
           <button
             type="button"
-            onClick={abrirSeletor}
+            onClick={() => setSeletorAberto(true)}
             disabled={maximo <= 0}
             className="w-full inline-flex items-center justify-center gap-1.5 rounded-xl bg-orange-500 px-3 py-3 text-sm font-black uppercase tracking-wide text-white hover:bg-orange-600 disabled:bg-zinc-800 disabled:text-zinc-500"
           >
@@ -234,77 +208,15 @@ export default function AnunciarVagas({ API_URL, token, notify, onVerPerfil, onA
           </button>
         </>
       ) : (
-        <div className="rounded-xl border border-zinc-800 bg-black/30 p-3 space-y-3">
-          <p className="text-xs font-bold text-white">Escolha a cadeira da vaga</p>
-          <div className="grid grid-cols-2 gap-2" data-testid="seletor-cadeiras">
-            {(cadeirasLivres || []).map((cadeira) => {
-              const marcada = cadeirasEscolhidas.includes(cadeira.id);
-              return (
-                <button
-                  key={cadeira.id}
-                  type="button"
-                  aria-pressed={marcada}
-                  onClick={() => alternarCadeira(cadeira.id)}
-                  disabled={publicando || (!marcada && cadeirasEscolhidas.length >= maximo)}
-                  className={`min-h-[44px] rounded-xl border px-3 py-2 text-left disabled:opacity-40 ${marcada ? 'border-orange-500 bg-orange-500/15' : 'border-zinc-700 bg-zinc-800'}`}
-                >
-                  <span className="flex items-center justify-between gap-1 text-xs font-black text-white">
-                    Cadeira {cadeira.numero}
-                    {marcada && <Check size={14} className="shrink-0 text-orange-300" />}
-                  </span>
-                  <span className="block text-[11px] text-zinc-400">{cadeira.bloqueada ? '🔒 Bloqueada' : 'Liberada'}</span>
-                </button>
-              );
-            })}
-          </div>
-          <p className="text-center text-[11px] text-zinc-400">Você pode anunciar até {textoVagas(maximo)}</p>
-          <div className="space-y-1">
-            <label htmlFor="percentual-freelancer" className="block text-xs font-bold text-white">
-              Valor da porcentagem ao freelancer
-            </label>
-            <div className="relative">
-              <input
-                id="percentual-freelancer"
-                data-testid="percentual-freelancer"
-                type="text"
-                inputMode="decimal"
-                autoComplete="off"
-                placeholder="Ex.: 50"
-                value={percentualTexto}
-                onChange={(e) => setPercentualTexto(e.target.value)}
-                disabled={publicando}
-                aria-invalid={percentualInvalido}
-                className={`w-full rounded-xl border bg-zinc-800 px-3 py-2.5 pr-8 text-sm text-white placeholder-zinc-500 outline-none focus:border-orange-500 ${percentualInvalido ? 'border-red-500' : 'border-zinc-700'}`}
-              />
-              <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-sm font-bold text-zinc-400">%</span>
-            </div>
-            <p className={`text-[11px] ${percentualInvalido ? 'text-red-400' : 'text-zinc-500'}`}>
-              {percentualInvalido
-                ? 'Digite um percentual de 0 a 100.'
-                : 'Percentual de cada serviço realizado (corte, barba, sobrancelha e demais) que vai para o freelancer.'}
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={confirmarAnuncio}
-            disabled={publicando || cadeirasEscolhidas.length === 0 || percentualFreelancer === null}
-            className="w-full rounded-xl bg-orange-500 px-3 py-2.5 text-sm font-black uppercase tracking-wide text-white hover:bg-orange-600 disabled:opacity-50"
-          >
-            {publicando
-              ? 'Anunciando...'
-              : cadeirasEscolhidas.length > 1
-                ? `Anunciar ${cadeirasEscolhidas.length} vagas`
-                : 'Confirmar anúncio'}
-          </button>
-          <button
-            type="button"
-            onClick={fecharSeletor}
-            disabled={publicando}
-            className="w-full text-xs font-semibold text-zinc-400 hover:text-white"
-          >
-            Cancelar
-          </button>
-        </div>
+        <FormularioVaga
+          cadeirasLivres={cadeirasLivres}
+          maximo={maximo}
+          enviando={publicando}
+          textoEnviando="Anunciando..."
+          textoConfirmar={(total) => (total > 1 ? `Anunciar ${total} vagas` : 'Confirmar anúncio')}
+          onConfirmar={confirmarAnuncio}
+          onCancelar={fecharSeletor}
+        />
       )}
 
       {vagas.length > 0 && (
@@ -365,7 +277,7 @@ export default function AnunciarVagas({ API_URL, token, notify, onVerPerfil, onA
                       aria-expanded={expandida}
                       className="rounded-lg bg-zinc-800 px-2.5 py-1.5 text-[11px] font-bold text-white hover:bg-zinc-700"
                     >
-                      {expandida ? 'Ocultar candidatos' : 'Ver candidatos'}
+                      {expandida ? 'Ocultar candidatos' : vaga.convidado_nome ? 'Ver resposta' : 'Ver candidatos'}
                     </button>
                   )}
                   {vaga.cadeira_bloqueada && vaga.cadeira_id && aguardando && (
@@ -392,7 +304,9 @@ export default function AnunciarVagas({ API_URL, token, notify, onVerPerfil, onA
 
                 {aberta && expandida && (
                   candidatos.length === 0 ? (
-                    <p className="text-[11px] text-zinc-500">Nenhum freelancer se candidatou ainda.</p>
+                    <p className="text-[11px] text-zinc-500">
+                      {vaga.convidado_nome ? `${vaga.convidado_nome} ainda não respondeu.` : 'Nenhum freelancer se candidatou ainda.'}
+                    </p>
                   ) : (
                     <div className="space-y-1.5">
                       {candidatos.map((candidato) => (
@@ -417,7 +331,7 @@ export default function AnunciarVagas({ API_URL, token, notify, onVerPerfil, onA
                             disabled={acaoEmAndamento === `escolher-${candidato.freelancer_id}`}
                             className="shrink-0 rounded-md bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white px-2.5 py-1.5 text-[11px] font-bold"
                           >
-                            Escolher
+                            {vaga.convidado_nome ? 'Confirmar' : 'Escolher'}
                           </button>
                         </div>
                       ))}

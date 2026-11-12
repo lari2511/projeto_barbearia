@@ -41,6 +41,8 @@ STATUS_AGUARDANDO_DESBLOQUEIO = "aguardando_desbloqueio"
 STATUS_OCUPADA = "ocupada_por_barbeiro"
 STATUS_RESERVADA_CLIENTE = "reservada_por_cliente"
 STATUS_CANCELADA = "cancelada"
+# Vaga enviada direto que o freelancer convidado recusou: libera a cadeira como a cancelada.
+STATUS_RECUSADA = "recusada"
 
 # "vencida" é gravado por verificar_assinatura_ativa quando o vencimento passa.
 STATUS_ASSINATURA_POR_CADEIRA = ("ativa", "vencida")

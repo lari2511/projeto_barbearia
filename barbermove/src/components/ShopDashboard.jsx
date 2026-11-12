@@ -15,6 +15,7 @@ import CronometroAtendimento, { parseDataServidorUTC } from './CronometroAtendim
 import DeslocamentoAtendimento from './DeslocamentoAtendimento';
 import ChatRoom from './ChatRoom';
 import AnunciarVagas from './AnunciarVagas';
+import EnviarVagaDireta from './EnviarVagaDireta';
 import { textoDistanciaCandidato } from '../utils/vagas';
 
 function AvatarFreelancer({ nome, foto, API_URL, size = 32 }) {
@@ -115,11 +116,13 @@ export default function ShopDashboard({ token, logout, notify, API_URL }) {
         return TABS_VALIDAS.includes(tabSalva) ? tabSalva : 'inicio';
     });
     const [freelancerPerfilModal, setFreelancerPerfilModal] = useState(null); // { id, nome } — só abre o perfil, nenhuma outra ação
+    const [vagaDiretaPara, setVagaDiretaPara] = useState(null); // { id, nome } — formulário de envio direto de vaga
     const [notificacoes, setNotificacoes] = useState([]); // sino: interesse de clientes, avaliações, etc (fonte única: Notificacao)
     const [notificacoesAbertas, setNotificacoesAbertas] = useState(false);
     const naoLidasCount = notificacoes.filter((n) => !n.lido).length;
     useBackHandler(() => {
         if (notificacoesAbertas) { setNotificacoesAbertas(false); return true; }
+        if (vagaDiretaPara) { setVagaDiretaPara(null); return true; }
         if (freelancerPerfilModal) { setFreelancerPerfilModal(null); return true; }
         if (tab === 'freelancers' || tab === 'servicos') { setTab('barbeiros'); return true; }
         if (tab === 'avaliar') { setTab('agenda'); return true; }
@@ -127,7 +130,7 @@ export default function ShopDashboard({ token, logout, notify, API_URL }) {
         if (tab === 'assinatura') { setTab('barbeiros'); return true; }
         if (tab !== 'inicio') { setTab('inicio'); return true; }
         return false;
-    }, [tab, freelancerPerfilModal, notificacoesAbertas]);
+    }, [tab, freelancerPerfilModal, vagaDiretaPara, notificacoesAbertas]);
 
     const [agendamentos, setAgendamentos] = useState([]);
     const [freelancersPresentes, setFreelancersPresentes] = useState([]);
@@ -2160,6 +2163,16 @@ export default function ShopDashboard({ token, logout, notify, API_URL }) {
                             <button onClick={() => setFreelancerPerfilModal(null)} className="text-zinc-400 px-2" aria-label="Fechar">✕</button>
                         </div>
 
+                        {/* Envio direto: mesma vaga de diária do anúncio, só para este freelancer. */}
+                        <button
+                            type="button"
+                            onClick={() => setVagaDiretaPara({ id: freelancerPerfilModal.id, nome: freelancerPerfilModal.nome || 'Freelancer' })}
+                            data-testid="enviar-vaga"
+                            className="mb-3 w-full rounded-xl bg-orange-500 px-3 py-2.5 text-sm font-black uppercase tracking-wide text-white hover:bg-orange-600"
+                        >
+                            Enviar vaga
+                        </button>
+
                         {/* Avaliação profissional (dono -> freelancer) + bloqueio discreto */}
                         <div className="mb-3 rounded-xl border border-zinc-800 bg-black/30 p-3 space-y-2">
                             {avaliacoesRecemEnviadas[freelancerPerfilModal.id] ? (
@@ -2217,6 +2230,18 @@ export default function ShopDashboard({ token, logout, notify, API_URL }) {
                         />
                     </div>
                 </div>
+            )}
+
+            {vagaDiretaPara && (
+                <EnviarVagaDireta
+                    API_URL={API_URL}
+                    token={token}
+                    notify={notify}
+                    freelancer={vagaDiretaPara}
+                    onFechar={() => setVagaDiretaPara(null)}
+                    onEnviada={() => setFreelancerPerfilModal(null)}
+                    onAbrirAssinatura={() => { setFreelancerPerfilModal(null); setTab('assinatura'); }}
+                />
             )}
 
             {freelancerParaAvaliar && (

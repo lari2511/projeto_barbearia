@@ -43,6 +43,19 @@ export const anunciarVagas = (apiBase, token, cadeiraIds, percentualFreelancer) 
     enviarJson({ cadeira_ids: cadeiraIds, percentual_freelancer: percentualFreelancer })
   );
 
+// Mesma vaga de diária, enviada só para um freelancer escolhido pelo dono (uma cadeira).
+export const enviarVagaDireta = (apiBase, token, freelancerId, cadeiraId, percentualFreelancer) =>
+  requisitar(
+    apiBase,
+    token,
+    '/on-demand/cadeiras-acionadas/enviar-direto',
+    enviarJson({ freelancer_id: freelancerId, cadeira_id: cadeiraId, percentual_freelancer: percentualFreelancer })
+  );
+
+// Freelancer convidado recusa a vaga enviada direto para ele.
+export const recusarVagaDireta = (apiBase, token, vagaId) =>
+  requisitar(apiBase, token, `/on-demand/cadeiras-acionadas/${vagaId}/recusar`, { method: 'POST' });
+
 // Percentual digitado pelo dono ("50", "50%", "37,5") -> número de 0 a 100; inválido ou vazio: null.
 export const lerPercentualFreelancer = (texto) => {
   const limpo = String(texto ?? '').replace('%', '').trim().replace(',', '.');

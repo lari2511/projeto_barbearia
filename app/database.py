@@ -179,5 +179,9 @@ def _init_db_tabelas():
             with engine.begin() as connection:
                 connection.execute(text("ALTER TABLE cadeiras_acionadas ADD COLUMN percentual_freelancer FLOAT"))
                 print("[migracao] Coluna cadeiras_acionadas.percentual_freelancer criada")
+        if "convidado_id" not in colunas_existentes:
+            with engine.begin() as connection:
+                connection.execute(text("ALTER TABLE cadeiras_acionadas ADD COLUMN convidado_id INTEGER REFERENCES usuarios(id)"))
+                print("[migracao] Coluna cadeiras_acionadas.convidado_id criada")
 
     print("--- Banco de dados inicializado com sucesso ---")

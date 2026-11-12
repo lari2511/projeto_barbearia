@@ -1008,3 +1008,127 @@ def test_anuncio_sem_percentual_e_recusado(http):
     loja = _barbearia("dono@t.com", 1)
     assert http.post(f"{BASE}/anunciar", json={"quantidade": 1}, headers=loja["headers"]).status_code == 422
     assert _resumo(http, loja)["vagas_anunciadas"] == 0
+
+
+# Envio direto de vaga para um freelancer escolhido
+def _enviar_direto(http, loja, freelancer_id, percentual=40, cadeira_id=None):
+    corpo = {"freelancer_id": freelancer_id, "percentual_freelancer": percentual}
+    if cadeira_id is not None:
+        corpo["cadeira_id"] = cadeira_id
+    return http.post(f"{BASE}/enviar-direto", json=corpo, headers=loja["headers"])
+
+
+def _notificacoes(usuario_id, tipo):
+    db = SessionLocal()
+    try:
+        return db.query(models.Notificacao).filter(
+            models.Notificacao.usuario_id == usuario_id, models.Notificacao.tipo == tipo
+        ).all()
+    finally:
+        db.close()
+
+
+def test_vaga_direta_so_chega_ao_convidado(http):
+    loja = _barbearia("dono@t.com", 2)
+    convidado = _freelancer("conv@t.com")
+    outro = _freelancer("outro@t.com")
+
+    r = _enviar_direto(http, loja, convidado[0], percentual=45)
+    assert r.status_code == 201, r.text
+    vaga_id = r.json()["publicadas"][0]
+
+    assert len(_notificacoes(convidado[0], "vaga_disponivel")) == 1
+    assert _notificacoes(outro[0], "vaga_disponivel") == []
+
+    vistas_convidado = http.get(f"{BASE}/ativas", headers=convidado[1]).json()
+    assert [(v["id"], v["percentual_freelancer"], v["convidado_id"]) for v in vistas_convidado] == [(vaga_id, 45, convidado[0])]
+    assert http.get(f"{BASE}/ativas", headers=outro[1]).json() == []
+    assert http.post(f"{BASE}/{vaga_id}/candidatar-se", headers=outro[1]).status_code == 404
+
+    vaga = next(v for v in _resumo(http, loja)["vagas"] if v["id"] == vaga_id)
+    assert vaga["convidado_nome"] == "conv"
+
+
+def test_anuncio_geral_continua_para_todos(http):
+    loja = _barbearia("dono@t.com", 2)
+    a, b = _freelancer("a@t.com"), _freelancer("b@t.com")
+    vaga_geral = _publicar(http, loja, 1)[0]
+    _enviar_direto(http, loja, a[0])
+    assert [v["id"] for v in http.get(f"{BASE}/ativas", headers=b[1]).json()] == [vaga_geral]
+    assert len(http.get(f"{BASE}/ativas", headers=a[1]).json()) == 2
+
+
+def test_vaga_direta_respeita_cadeiras_pagas(http):
+    loja = _barbearia("dono@t.com", 1)
+    a, b = _freelancer("a@t.com"), _freelancer("b@t.com")
+    assert _enviar_direto(http, loja, a[0]).status_code == 201
+    assert _resumo(http, loja)["vagas_disponiveis_para_anunciar"] == 0
+    assert _enviar_direto(http, loja, b[0]).status_code == 409
+    assert _anunciar(http, loja, 1).status_code == 409
+
+    sem_cadeira_paga = _barbearia("semplano@t.com", 0, linhas=1)
+    assert _enviar_direto(http, sem_cadeira_paga, a[0]).status_code == 402
+
+
+def test_aceitar_e_dono_confirmar_vaga_direta(http):
+    loja = _barbearia("dono@t.com", 1)
+    convidado = _freelancer("conv@t.com")
+    vaga_id = _enviar_direto(http, loja, convidado[0]).json()["publicadas"][0]
+
+    _selecionar(http, loja, vaga_id, convidado)
+
+    assert len(_notificacoes(loja["dono_id"], "vaga_candidatura")) == 1
+    vaga = next(v for v in _resumo(http, loja)["vagas"] if v["id"] == vaga_id)
+    assert vaga["status"] == "aguardando_desbloqueio"
+    assert vaga["barbeiro_id"] == convidado[0]
+
+
+def test_recusar_vaga_direta_libera_a_cadeira(http):
+    loja = _barbearia("dono@t.com", 1)
+    convidado, outro = _freelancer("conv@t.com"), _freelancer("outro@t.com")
+    vaga_id = _enviar_direto(http, loja, convidado[0]).json()["publicadas"][0]
+
+    assert http.post(f"{BASE}/{vaga_id}/recusar", headers=outro[1]).status_code == 404
+    r = http.post(f"{BASE}/{vaga_id}/recusar", headers=convidado[1])
+    assert r.status_code == 200, r.text
+    assert r.json()["status"] == "recusada"
+
+    assert len(_notificacoes(loja["dono_id"], "vaga_recusada")) == 1
+    resumo = _resumo(http, loja)
+    assert resumo["vagas_anunciadas"] == 0
+    assert resumo["vagas_disponiveis_para_anunciar"] == 1
+    assert http.post(f"{BASE}/{vaga_id}/recusar", headers=convidado[1]).status_code == 409
+
+
+def test_anuncio_geral_nao_pode_ser_recusado(http):
+    loja = _barbearia("dono@t.com", 1)
+    freelancer = _freelancer("f@t.com")
+    vaga_id = _publicar(http, loja, 1)[0]
+    assert http.post(f"{BASE}/{vaga_id}/recusar", headers=freelancer[1]).status_code == 404
+
+
+def test_vaga_direta_recusa_freelancer_invalido_ou_repetido(http):
+    loja = _barbearia("dono@t.com", 3)
+    convidado = _freelancer("conv@t.com")
+    cliente_id, _h = _usuario("cliente", "cli@t.com")
+    assert _enviar_direto(http, loja, cliente_id).status_code == 404
+    assert _enviar_direto(http, loja, 999999).status_code == 404
+
+    assert _enviar_direto(http, loja, convidado[0]).status_code == 201
+    assert _enviar_direto(http, loja, convidado[0]).status_code == 409
+
+    db = SessionLocal()
+    try:
+        db.add(models.BarbeariaFreelancer(barbearia_id=loja["id"], freelancer_id=_freelancer("bloq@t.com")[0], bloqueado=True))
+        db.commit()
+        bloqueado_id = db.query(models.Usuario).filter(models.Usuario.email == "bloq@t.com").first().id
+    finally:
+        db.close()
+    assert _enviar_direto(http, loja, bloqueado_id).status_code == 409
+
+
+@pytest.mark.parametrize("percentual", [-1, 101, None])
+def test_vaga_direta_exige_percentual_valido(http, percentual):
+    loja = _barbearia("dono@t.com", 1)
+    convidado = _freelancer("conv@t.com")
+    assert _enviar_direto(http, loja, convidado[0], percentual=percentual).status_code == 422

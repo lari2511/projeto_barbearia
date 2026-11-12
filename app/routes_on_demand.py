@@ -32,6 +32,7 @@ from app.vagas import (
     STATUS_AGUARDANDO_DESBLOQUEIO,
     STATUS_CANCELADA,
     STATUS_OCUPADA,
+    STATUS_RECUSADA,
     TIPO_VAGA_DIARIA,
     aplicar_freelancer_na_cadeira,
     cadeira_esta_bloqueada,
@@ -294,6 +295,8 @@ class CadeiraAcionadaResponse(BaseModel):
     barbearia_subprefeitura: Optional[str] = None
     barbearia_bairro: Optional[str] = None
     percentual_freelancer: Optional[float] = None
+    # Vaga enviada direto: id do freelancer convidado (None no anuncio geral).
+    convidado_id: Optional[int] = None
     eta_min_usuario_atual: Optional[int] = None
     limite_chegada: Optional[datetime] = None
     expira_em: Optional[datetime] = None
@@ -317,6 +320,13 @@ class CandidatoCadeiraAcionadaResponse(BaseModel):
 
 class EscolherFreelancerRequest(BaseModel):
     barbeiro_id: int
+
+
+class EnviarVagaDiretaRequest(BaseModel):
+    # Mesmos campos do anuncio (uma cadeira por envio), mais o freelancer escolhido pelo dono.
+    freelancer_id: int
+    cadeira_id: Optional[int] = None
+    percentual_freelancer: float = Field(..., ge=0, le=100, allow_inf_nan=False)
 
 
 def _calcular_eta_osrm_minutos(origem_lat: float, origem_lon: float, destino_lat: float, destino_lon: float) -> Optional[int]:
@@ -402,6 +412,7 @@ def _serializar_cadeira_acionada(vaga: CadeiraAcionada, eta_min_usuario_atual: O
         "tipo_servico": vaga.tipo_servico,
         "valor_oferta": vaga.valor_oferta,
         "percentual_freelancer": vaga.percentual_freelancer,
+        "convidado_id": vaga.convidado_id,
         "observacoes": vaga.observacoes,
         "barbearia_nome": barbearia.nome if barbearia else None,
         "barbearia_usuario_id": barbearia.usuario_id if barbearia else None,
@@ -946,9 +957,12 @@ def _avisar_freelancers_da_vaga(
     nome_servico: str,
     mensagem: str,
     todos_os_elegiveis: bool = False,
+    destinos: Optional[List[int]] = None,
 ) -> List[int]:
     """
     Avisa os freelancers (sino + push) e devolve os ids avisados.
+
+    destinos (vaga enviada direto): avisa so esses ids, com o mesmo aviso do anuncio.
 
     todos_os_elegiveis=False (vaga relampago): so quem esta com o radar ligado, livre e
     dentro de `raio_km`.
@@ -956,7 +970,9 @@ def _avisar_freelancers_da_vaga(
     qualquer regiao, ONLINE ou OFFLINE, ocupado ou com taxa pendente, sem raio. O aviso so
     informa a oportunidade; a candidatura continua com as regras dela.
     """
-    if todos_os_elegiveis:
+    if destinos is not None:
+        pass
+    elif todos_os_elegiveis:
         destinos = _freelancers_elegiveis_para_aviso_de_vaga(db)
     else:
         barbeiros_online = db.query(RadarFreelancer).filter(
@@ -1032,6 +1048,9 @@ def _resumo_de_vagas(db: Session, barbearia: Barbearia, usuario_id: int) -> dict
             "barbeiro_nome": vaga.barbeiro.nome if vaga.barbeiro else None,
             "total_candidatos": total_candidatos,
             "nao_lidas": nao_lidas.get(vaga.id, 0),
+            # Vaga enviada direto: o dono acompanha a resposta do convidado. Aceitar registra a
+            # candidatura dele (total_candidatos > 0); recusar encerra a vaga (sai da lista).
+            "convidado_nome": vaga.convidado.nome if vaga.convidado else None,
         })
 
     return {
@@ -1062,6 +1081,23 @@ async def resumo_de_vagas(
     return _resumo_de_vagas(db, barbearia, current_user.id)
 
 
+def _local_da_barbearia_para_diaria(barbearia: Barbearia) -> dict:
+    """Regiao da barbearia na capital; sem coordenadas ou fora da capital, nao ha vaga de diaria."""
+    if barbearia.latitude is None or barbearia.longitude is None:
+        raise HTTPException(
+            status_code=400,
+            detail="Não encontramos a localização da sua barbearia. Confira o endereço e o CEP no perfil.",
+        )
+    # Vaga de diaria vale para a capital inteira; barbearia de municipio vizinho nao anuncia.
+    local = localizar_na_capital(barbearia.latitude, barbearia.longitude)
+    if not local:
+        raise HTTPException(
+            status_code=400,
+            detail="As vagas de diária atendem apenas barbearias no município de São Paulo (capital).",
+        )
+    return local
+
+
 @router.post("/cadeiras-acionadas/anunciar", status_code=201)
 async def anunciar_vagas(
     request: AnunciarVagasRequest,
@@ -1076,18 +1112,7 @@ async def anunciar_vagas(
         raise HTTPException(status_code=400, detail="Escolha ao menos uma cadeira para anunciar")
 
     barbearia = _barbearia_do_dono(db, current_user)
-    if barbearia.latitude is None or barbearia.longitude is None:
-        raise HTTPException(
-            status_code=400,
-            detail="Não encontramos a localização da sua barbearia. Confira o endereço e o CEP no perfil.",
-        )
-    # Vaga de diaria vale para a capital inteira; barbearia de municipio vizinho nao anuncia.
-    local = localizar_na_capital(barbearia.latitude, barbearia.longitude)
-    if not local:
-        raise HTTPException(
-            status_code=400,
-            detail="As vagas de diária atendem apenas barbearias no município de São Paulo (capital).",
-        )
+    local = _local_da_barbearia_para_diaria(barbearia)
 
     _expirar_vagas_vencidas(db)
 
@@ -1137,6 +1162,93 @@ async def anunciar_vagas(
 
     return {
         "publicadas": [vaga.id for vaga in vagas],
+        **_resumo_de_vagas(db, barbearia, current_user.id),
+    }
+
+
+@router.post("/cadeiras-acionadas/enviar-direto", status_code=201)
+async def enviar_vaga_direto(
+    request: EnviarVagaDiretaRequest,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user)
+):
+    """
+    Mesma vaga de diaria do anuncio, mas so para um freelancer escolhido pelo dono: so ele e
+    avisado, ve e pode responder. Ocupa uma cadeira paga como qualquer vaga (reservar_cadeiras).
+    Aceitar = candidatar-se (mesmas regras); o dono confirma pelo "Escolher" de sempre.
+    """
+    from app.models import BarbeariaFreelancer
+    from app.pagamento_diario import freelancer_bloqueado
+
+    barbearia = _barbearia_do_dono(db, current_user)
+    local = _local_da_barbearia_para_diaria(barbearia)
+
+    freelancer = db.query(Usuario).filter(
+        Usuario.id == request.freelancer_id,
+        Usuario.tipo == "barbeiro",
+        Usuario.perfil_aprovado == True,  # noqa: E712
+        Usuario.bloqueado_por_admin.isnot(True),
+        Usuario.cadastro_pendente.isnot(True),
+    ).first()
+    if not freelancer:
+        raise HTTPException(status_code=404, detail="Freelancer não encontrado")
+
+    bloqueado_aqui = db.query(BarbeariaFreelancer).filter(
+        BarbeariaFreelancer.barbearia_id == barbearia.id,
+        BarbeariaFreelancer.freelancer_id == freelancer.id,
+        BarbeariaFreelancer.bloqueado == True,  # noqa: E712
+    ).first()
+    if bloqueado_aqui:
+        raise HTTPException(status_code=409, detail="Você bloqueou este freelancer na sua barbearia")
+    if freelancer_bloqueado(db, freelancer.id):
+        raise HTTPException(status_code=409, detail="Este freelancer está indisponível no momento")
+
+    _expirar_vagas_vencidas(db)
+
+    ja_enviada = db.query(CadeiraAcionada).filter(
+        CadeiraAcionada.barbearia_id == barbearia.id,
+        CadeiraAcionada.convidado_id == freelancer.id,
+        CadeiraAcionada.status == STATUS_ABERTA,
+    ).first()
+    if ja_enviada:
+        raise HTTPException(status_code=409, detail="Você já enviou uma vaga para este freelancer. Aguarde a resposta.")
+
+    cadeira = reservar_cadeiras(db, barbearia, 1, cadeira_id=request.cadeira_id)[0]
+    vaga = CadeiraAcionada(
+        barbearia_id=barbearia.id,
+        cadeira_id=cadeira.id,
+        status=STATUS_ABERTA,
+        tipo_servico=TIPO_VAGA_DIARIA,
+        percentual_freelancer=round(request.percentual_freelancer, 2),
+        convidado_id=freelancer.id,
+        expira_em=fim_do_dia_utc(),
+    )
+    db.add(vaga)
+    db.commit()
+    db.refresh(vaga)
+
+    avisados = _avisar_freelancers_da_vaga(
+        db,
+        barbearia,
+        vaga,
+        None,
+        current_user.id,
+        nome_servico="Vaga de cadeira",
+        destinos=[freelancer.id],
+        mensagem=(
+            f"{barbearia.nome} enviou uma vaga de cadeira diretamente para você, "
+            f"na {local['regiao']} ({local['subprefeitura']})."
+        ),
+    )
+    for freelancer_id in avisados:
+        await broadcast_event(
+            "cadeira_acionada_aberta",
+            destinatario_id=freelancer_id,
+            vaga=_serializar_cadeira_acionada(vaga),
+        )
+
+    return {
+        "publicadas": [vaga.id],
         **_resumo_de_vagas(db, barbearia, current_user.id),
     }
 
@@ -1249,6 +1361,10 @@ async def listar_cadeiras_acionadas_ativas(
         return eta_por_barbearia[barbearia_alvo.id]
 
     for vaga in vagas:
+        # Vaga enviada direto: so o freelancer convidado ve.
+        if vaga.convidado_id is not None and vaga.convidado_id != current_user.id:
+            continue
+
         barbearia = db.query(Barbearia).filter(Barbearia.id == vaga.barbearia_id).first()
         if not barbearia or barbearia.latitude is None or barbearia.longitude is None:
             continue
@@ -1396,9 +1512,11 @@ async def candidatar_se_cadeira_acionada(
     _expirar_vagas_vencidas(db)
 
     vaga = db.query(CadeiraAcionada).filter(CadeiraAcionada.id == vaga_id).first()
-    if not vaga:
+    # Vaga enviada direto a outro freelancer nao existe para quem nao foi convidado.
+    if not vaga or (vaga.convidado_id is not None and vaga.convidado_id != current_user.id):
         raise HTTPException(status_code=404, detail="Vaga nao encontrada")
     vaga_diaria = vaga.tipo_servico == TIPO_VAGA_DIARIA
+    vaga_direta = vaga.convidado_id is not None
 
     # Vaga de diaria vale para a capital inteira: nao pede localizacao do freelancer.
     if not vaga_diaria and (current_user.latitude is None or current_user.longitude is None):
@@ -1453,8 +1571,16 @@ async def candidatar_se_cadeira_acionada(
         if barbearia.usuario_id:
             db.add(Notificacao(
                 usuario_id=barbearia.usuario_id,
-                titulo="Novo candidato para vaga de cadeira 💈",
-                mensagem=f"{current_user.nome} se candidatou para a vaga de cadeira.",
+                titulo=(
+                    "Freelancer aceitou a vaga enviada 💈"
+                    if vaga_direta
+                    else "Novo candidato para vaga de cadeira 💈"
+                ),
+                mensagem=(
+                    f"{current_user.nome} aceitou a vaga que você enviou. Confirme a escolha em Ver e administrar vagas."
+                    if vaga_direta
+                    else f"{current_user.nome} se candidatou para a vaga de cadeira."
+                ),
                 tipo="vaga_candidatura",
                 referencia_id=vaga.id,
             ))
@@ -1480,6 +1606,59 @@ async def candidatar_se_cadeira_acionada(
         )
 
     return _serializar_cadeira_acionada(vaga, eta_min_usuario_atual=eta_min)
+
+
+@router.post("/cadeiras-acionadas/{vaga_id}/recusar", response_model=CadeiraAcionadaResponse, status_code=200)
+async def recusar_vaga_enviada(
+    vaga_id: int,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user)
+):
+    """Freelancer convidado recusa a vaga enviada direto: a vaga encerra e a cadeira volta a ficar livre."""
+    if current_user.tipo != "barbeiro":
+        raise HTTPException(status_code=403, detail="Apenas freelancers podem recusar vagas")
+
+    _expirar_vagas_vencidas(db)
+
+    vaga = db.query(CadeiraAcionada).filter(CadeiraAcionada.id == vaga_id).first()
+    if not vaga or vaga.convidado_id != current_user.id:
+        raise HTTPException(status_code=404, detail="Vaga nao encontrada")
+
+    atualizado = db.query(CadeiraAcionada).filter(
+        CadeiraAcionada.id == vaga_id,
+        CadeiraAcionada.status == STATUS_ABERTA,
+    ).update(
+        {CadeiraAcionada.status: STATUS_RECUSADA, CadeiraAcionada.atualizado_em: datetime.utcnow()},
+        synchronize_session=False,
+    )
+    if atualizado == 0:
+        raise HTTPException(status_code=409, detail=f"Esta vaga nao pode mais ser recusada (status: {vaga.status})")
+
+    # Recusou depois de aceitar: a candidatura deixa de valer.
+    db.query(CadeiraAcionadaCandidatura).filter(
+        CadeiraAcionadaCandidatura.vaga_id == vaga_id,
+        CadeiraAcionadaCandidatura.barbeiro_id == current_user.id,
+    ).delete(synchronize_session=False)
+
+    barbearia = db.query(Barbearia).filter(Barbearia.id == vaga.barbearia_id).first()
+    if barbearia and barbearia.usuario_id:
+        db.add(Notificacao(
+            usuario_id=barbearia.usuario_id,
+            titulo="Freelancer recusou a vaga enviada",
+            mensagem=f"{current_user.nome} recusou a vaga que você enviou. A cadeira voltou a ficar livre.",
+            tipo="vaga_recusada",
+            referencia_id=vaga.id,
+        ))
+    db.commit()
+    vaga = db.query(CadeiraAcionada).filter(CadeiraAcionada.id == vaga_id).first()
+
+    await broadcast_event(
+        "cadeira_acionada_fechada",
+        autor_id=current_user.id,
+        vaga=_serializar_cadeira_acionada(vaga),
+        accepted_by="freelancer_recusou",
+    )
+    return _serializar_cadeira_acionada(vaga)
 
 
 @router.get("/cadeiras-acionadas/{vaga_id}/candidatos", response_model=List[CandidatoCadeiraAcionadaResponse], status_code=200)

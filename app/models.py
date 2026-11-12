@@ -1178,6 +1178,9 @@ class CadeiraAcionada(Base):
     # So na vaga de diaria: percentual de cada servico que o dono oferece ao freelancer (0 a 100),
     # definido no anuncio. E so o combinado exibido na vaga: nao entra na divisao financeira.
     percentual_freelancer = Column(Float, nullable=True)
+    # Vaga de diaria enviada direto a um freelancer: so ele ve, e avisado e responde.
+    # None = anuncio geral (comportamento original).
+    convidado_id = Column(Integer, ForeignKey("usuarios.id"), nullable=True, index=True)
 
     criado_em = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
     atualizado_em = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
@@ -1187,6 +1190,7 @@ class CadeiraAcionada(Base):
     barbearia = relationship("Barbearia", foreign_keys=[barbearia_id])
     cadeira = relationship("Cadeira", foreign_keys=[cadeira_id])
     barbeiro = relationship("Usuario", foreign_keys=[barbeiro_id])
+    convidado = relationship("Usuario", foreign_keys=[convidado_id])
     cliente = relationship("Usuario", foreign_keys=[cliente_id])
 
 

@@ -17,7 +17,7 @@ import MinhasVagasSelecionadas from './MinhasVagasSelecionadas';
 import CronometroAtendimento, { parseDataServidorUTC } from './CronometroAtendimento';
 import BotaoVoltar from './BotaoVoltar';
 import { useBackHandler } from '../utils/useBackHandler';
-import { textoPercentual } from '../utils/vagas';
+import { recusarVagaDireta, textoPercentual } from '../utils/vagas';
 
 const TIPO_VAGA_DIARIA = 'vaga_diaria'; // app/vagas.py
 // Regioes da capital (app/sao_paulo_capital.py), na ordem em que as vagas de diaria aparecem.
@@ -597,7 +597,7 @@ export default function PainelBarberMovePremium({ token: tokenProp, logout: logo
   // Candidatar-se a uma vaga de cadeira: so registra o interesse do freelancer.
   // Nao assume a cadeira nem muda o status pra PRESENTE - isso so acontece
   // quando o proprietario escolhe o freelancer entre os candidatos.
-  const candidatarSeVagaRelampago = async (vagaId) => {
+  const candidatarSeVagaRelampago = async (vagaId, direta = false) => {
     if (!vagaId || candidaturaTravadaPorSaldo) return;
     try {
       setAceitandoVagaId(vagaId);
@@ -610,12 +610,31 @@ export default function PainelBarberMovePremium({ token: tokenProp, logout: logo
         throw new Error(data?.detail || 'Não foi possível se candidatar a vaga');
       }
 
-      notify('Candidatura registrada! Aguarde o proprietário escolher.', 'success');
+      notify(
+        direta ? 'Vaga aceita! Aguarde o proprietário confirmar.' : 'Candidatura registrada! Aguarde o proprietário escolher.',
+        'success'
+      );
       setVagasCandidatadas((prev) => new Set(prev).add(Number(vagaId)));
     } catch (err) {
       notify(err?.message || 'Erro ao se candidatar a vaga', 'error');
     } finally {
       setAceitandoVagaId(null);
+    }
+  };
+
+  // Vaga enviada direto: o convidado pode recusar; a vaga encerra e some da lista.
+  const recusarVaga = async (vagaId) => {
+    if (!vagaId) return;
+    try {
+      setAceitandoVagaId(vagaId);
+      await recusarVagaDireta(API_URL, token, vagaId);
+      notify('Vaga recusada. O proprietário foi avisado.', 'success');
+      setVagasRelampago((prev) => prev.filter((vaga) => Number(vaga.id) !== Number(vagaId)));
+    } catch (err) {
+      notify(err?.message || 'Não foi possível recusar a vaga', 'error');
+    } finally {
+      setAceitandoVagaId(null);
+      carregarVagasRelampago();
     }
   };
 
@@ -630,6 +649,7 @@ export default function PainelBarberMovePremium({ token: tokenProp, logout: logo
 
   const renderCardVaga = (vaga) => {
     const jaCandidatado = vagasCandidatadas.has(Number(vaga.id));
+    const direta = vaga.convidado_id != null;
     const abrirPerfilDaVaga = () => {
       if (vaga.barbearia_usuario_id) {
         setBarbeariaPerfilModal({ usuario_id: vaga.barbearia_usuario_id, nome: vaga.barbearia_nome });
@@ -652,7 +672,9 @@ export default function PainelBarberMovePremium({ token: tokenProp, logout: logo
       <div className="flex items-center justify-between gap-3">
         <div className="min-w-0">
           {vaga.tipo_servico === TIPO_VAGA_DIARIA && (
-            <p className="text-[11px] font-black uppercase tracking-wide text-emerald-300">Vaga de diária</p>
+            <p className="text-[11px] font-black uppercase tracking-wide text-emerald-300">
+              {direta ? 'Vaga de diária · enviada para você' : 'Vaga de diária'}
+            </p>
           )}
           <p className="text-sm font-bold text-white">{vaga.barbearia_nome || 'Barbearia'} {vaga.cadeira_numero ? `• Cadeira ${vaga.cadeira_numero}` : ''}</p>
           {vaga.tipo_servico === TIPO_VAGA_DIARIA ? (
@@ -687,15 +709,29 @@ export default function PainelBarberMovePremium({ token: tokenProp, logout: logo
           )}
         </div>
         {/* Wrapper: o clique na candidatura (mesmo com o botao desabilitado) nao abre o perfil. */}
-        <div className="shrink-0" onClick={(e) => e.stopPropagation()}>
+        <div className="shrink-0 flex flex-col gap-1.5" onClick={(e) => e.stopPropagation()}>
           <button
             type="button"
-            onClick={() => !candidaturaTravadaPorSaldo && candidatarSeVagaRelampago(vaga.id)}
+            onClick={() => !candidaturaTravadaPorSaldo && candidatarSeVagaRelampago(vaga.id, direta)}
             disabled={aceitandoVagaId === vaga.id || candidaturaTravadaPorSaldo || jaCandidatado}
             className="rounded-lg bg-red-600 hover:bg-red-500 disabled:bg-red-800/50 disabled:text-red-200/80 text-white px-3 py-2 text-xs font-bold"
           >
-            {candidaturaTravadaPorSaldo ? '⛔ Bloqueado' : jaCandidatado ? 'Candidatura enviada' : (aceitandoVagaId === vaga.id ? 'Candidatando...' : 'Candidatar-se')}
+            {candidaturaTravadaPorSaldo
+              ? '⛔ Bloqueado'
+              : direta
+                ? (jaCandidatado ? 'Vaga aceita' : aceitandoVagaId === vaga.id ? 'Enviando...' : 'Aceitar')
+                : (jaCandidatado ? 'Candidatura enviada' : aceitandoVagaId === vaga.id ? 'Candidatando...' : 'Candidatar-se')}
           </button>
+          {direta && (
+            <button
+              type="button"
+              onClick={() => recusarVaga(vaga.id)}
+              disabled={aceitandoVagaId === vaga.id}
+              className="rounded-lg border border-zinc-600 px-3 py-2 text-xs font-bold text-zinc-300 hover:bg-zinc-800 disabled:opacity-50"
+            >
+              Recusar
+            </button>
+          )}
         </div>
       </div>
       <div className="cursor-default" onClick={(e) => e.stopPropagation()}>
