@@ -992,8 +992,12 @@ class CadeiraContratada(Base):
     origem_contratacao = Column(String, default=OrigemContratacaoCadeira.COMPRA_INICIAL.value, nullable=False)
     valor_mensal = Column(Float, nullable=False)
 
-    data_contratacao = Column(DateTime, nullable=False)
+    data_contratacao = Column(DateTime, nullable=False)  # UTC
+    # Fim do período pago (UTC). A cadeira vale até aqui; ver app/vencimento_cadeiras.py.
     data_proxima_cobranca = Column(DateTime, nullable=False, index=True)
+    # Início do período em curso (UTC). Só muda quando a cadeira, já vencida, é paga de novo
+    # (o novo mês conta do pagamento). None = período ancorado na contratação.
+    data_inicio_periodo = Column(DateTime, nullable=True)
 
     ativa = Column(Boolean, default=True, index=True)
     cancelada_em = Column(DateTime, nullable=True)
@@ -1405,6 +1409,26 @@ class Cobranca(Base):
     atualizado_em = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     usuario = relationship("Usuario", foreign_keys=[usuario_id])
+
+
+class HistoricoCadeiraContratada(Base):
+    """
+    Histórico de cada cadeira contratada: contratação, renovação e cancelamento, com o
+    vencimento antes e depois. Só registro; o vencimento vigente fica em cadeiras_contratadas.
+    """
+    __tablename__ = "historico_cadeiras_contratadas"
+
+    id = Column(Integer, primary_key=True, index=True)
+    cadeira_contratada_id = Column(Integer, ForeignKey("cadeiras_contratadas.id"), nullable=False, index=True)
+    barbearia_id = Column(Integer, nullable=False, index=True)
+    # contratacao | renovacao_antecipada | renovacao_apos_vencimento | cancelamento
+    evento = Column(String(40), nullable=False)
+    valor = Column(Float, nullable=True)
+    vencimento_anterior = Column(DateTime, nullable=True)  # UTC
+    vencimento_novo = Column(DateTime, nullable=True)  # UTC
+    metodo_pagamento = Column(String(30), nullable=True)
+    detalhe = Column(String, nullable=True)
+    criado_em = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
 
 
 class CobrancaHistorico(Base):

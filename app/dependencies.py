@@ -69,8 +69,14 @@ async def verificar_barbearia_ativa(
     if not assinatura and perfil_teste:
         return usuario_atual
     
-    # Verificar se assinatura está vencida
-    if (assinatura.status == "inadimplente" or assinatura.proximo_vencimento < datetime.utcnow()) and not perfil_teste:
+    # Vencida = nenhuma cadeira em dia. Cada cadeira tem o próprio vencimento; o da assinatura
+    # é só o da primeira a vencer e não pode bloquear as que seguem pagas.
+    from app import vencimento_cadeiras as venc
+    if venc.cadeiras_contratadas_ativas(db, assinatura.id) > 0:
+        sem_cadeira_em_dia = venc.cadeiras_em_dia(db, assinatura.id) == 0
+    else:
+        sem_cadeira_em_dia = assinatura.proximo_vencimento < datetime.utcnow()
+    if (assinatura.status == "inadimplente" or sem_cadeira_em_dia) and not perfil_teste:
         # Bloquear automaticamente a barbearia
         from app.routes_assinaturas import mensalidade_devida
 

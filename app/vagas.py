@@ -27,6 +27,7 @@ from app.models import (
 from app.pagamento_diario import TZ_SP, _utc_naive, agora_sp, fechamento_bloqueante
 from app.plan_policy import merge_with_free_test_limit
 from app.routes_cadeiras import _assinatura_ativa_e_limite
+from app.vencimento_cadeiras import agora_utc
 
 TIPO_VAGA_DIARIA = "vaga_diaria"
 
@@ -84,7 +85,7 @@ def _contratadas_em_dia(db: Session, assinatura: Optional[AssinaturaBarbearia]) 
     return db.query(CadeiraContratada).filter(
         CadeiraContratada.assinatura_id == assinatura.id,
         CadeiraContratada.ativa.is_(True),
-        CadeiraContratada.data_proxima_cobranca >= datetime.now(),
+        CadeiraContratada.data_proxima_cobranca >= agora_utc(),  # banco em UTC
     ).count()
 
 
@@ -93,7 +94,7 @@ def cadeiras_vencidas(db: Session, barbearia: Barbearia) -> int:
     return db.query(CadeiraContratada).filter(
         CadeiraContratada.barbearia_id == barbearia.id,
         CadeiraContratada.ativa.is_(True),
-        CadeiraContratada.data_proxima_cobranca < datetime.now(),
+        CadeiraContratada.data_proxima_cobranca < agora_utc(),
     ).count()
 
 

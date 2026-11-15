@@ -184,4 +184,12 @@ def _init_db_tabelas():
                 connection.execute(text("ALTER TABLE cadeiras_acionadas ADD COLUMN convidado_id INTEGER REFERENCES usuarios(id)"))
                 print("[migracao] Coluna cadeiras_acionadas.convidado_id criada")
 
+    if "cadeiras_contratadas" in inspector.get_table_names():
+        colunas_existentes = {coluna["name"] for coluna in inspector.get_columns("cadeiras_contratadas")}
+        if "data_inicio_periodo" not in colunas_existentes:
+            with engine.begin() as connection:
+                # TIMESTAMP (não DATETIME): o Postgres de produção não aceita DATETIME.
+                connection.execute(text("ALTER TABLE cadeiras_contratadas ADD COLUMN data_inicio_periodo TIMESTAMP"))
+                print("[migracao] Coluna cadeiras_contratadas.data_inicio_periodo criada")
+
     print("--- Banco de dados inicializado com sucesso ---")

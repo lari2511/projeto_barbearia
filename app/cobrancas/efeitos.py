@@ -134,7 +134,7 @@ def _aplicar_assinatura_cadeiras(db: Session, cobranca: models.Cobranca, ref: di
 # ============================================================
 
 def _preparar_mensalidade(db: Session, usuario: models.Usuario, dados: dict) -> Preparo:
-    from app.routes_assinaturas import mensalidade_devida
+    from app.routes_assinaturas import cadeiras_cobertas_pela_mensalidade, mensalidade_devida
 
     barbearia = _barbearia_do_dono(db, usuario)
     assinatura = db.query(models.AssinaturaBarbearia).filter(
@@ -146,11 +146,16 @@ def _preparar_mensalidade(db: Session, usuario: models.Usuario, dados: dict) -> 
     if valor <= 0:
         raise HTTPException(status_code=400, detail="Assinatura sem valor de mensalidade")
     venc = assinatura.proximo_vencimento.date().isoformat() if assinatura.proximo_vencimento else "sem-vencimento"
+    # As cadeiras que este valor paga: só elas são renovadas na confirmação (cada uma no seu ciclo).
+    ids = sorted(c.id for c in cadeiras_cobertas_pela_mensalidade(db, assinatura))
+    referencia = {"barbearia_id": barbearia.id, "assinatura_id": assinatura.id, "vencimento": venc}
+    if ids:
+        referencia["cadeira_ids"] = ids
     return Preparo(
         valor=valor,
         descricao=f"BarberMove - mensalidade {cadeiras} cadeira(s)",
-        referencia={"barbearia_id": barbearia.id, "assinatura_id": assinatura.id, "vencimento": venc},
-        chave_referencia=f"mensalidade:{assinatura.id}:{venc}",
+        referencia=referencia,
+        chave_referencia=f"mensalidade:{assinatura.id}:{venc}:" + ",".join(str(i) for i in ids),
     )
 
 
@@ -163,7 +168,8 @@ def _aplicar_mensalidade(db: Session, cobranca: models.Cobranca, ref: dict) -> O
     ).first()
     if not barbearia or not assinatura:
         return "Barbearia/assinatura não encontrada na liberação"
-    aplicar_pagamento_mensalidade(db, barbearia, assinatura, "pix")
+    # Cobranças antigas (sem cadeira_ids) seguem o critério do momento da confirmação.
+    aplicar_pagamento_mensalidade(db, barbearia, assinatura, "pix", cadeira_ids=ref.get("cadeira_ids"))
     return None
 
 

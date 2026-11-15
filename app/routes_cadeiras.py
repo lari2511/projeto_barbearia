@@ -53,11 +53,25 @@ def _assinatura_ativa_e_limite(assinatura) -> tuple[bool, int]:
     ativa_flag = getattr(assinatura, "ativa", None)
     assinatura_ativa = status_assinatura == "ativa" or ativa_flag is True
 
+    limite_cadeiras = int(getattr(assinatura, "quantidade_cadeiras", 0) or 0)
+
+    # Assinatura por cadeira: cada cadeira vence no seu dia. `proximo_vencimento` é só o da
+    # que vence primeiro; usá-lo aqui derrubava todas as cadeiras quando a mais antiga vencia
+    # (inclusive as recém-pagas). Vale o que está em dia, cadeira a cadeira.
+    if isinstance(assinatura, AssinaturaBarbearia):
+        from sqlalchemy.orm import object_session
+        from app import vencimento_cadeiras as venc
+
+        sessao = object_session(assinatura)
+        if sessao is not None and venc.cadeiras_contratadas_ativas(sessao, assinatura.id) > 0:
+            em_dia = venc.cadeiras_em_dia(sessao, assinatura.id)
+            status_ok = status_assinatura in ("ativa", "vencida")
+            return (status_ok and em_dia > 0), (em_dia if status_ok else 0)
+
     proximo_vencimento = getattr(assinatura, "proximo_vencimento", None)
     if proximo_vencimento and proximo_vencimento < datetime.now():
         assinatura_ativa = False
 
-    limite_cadeiras = int(getattr(assinatura, "quantidade_cadeiras", 0) or 0)
     return assinatura_ativa, limite_cadeiras
 
 

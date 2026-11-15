@@ -52,6 +52,10 @@ def _buscar_assinatura_barbearia(db: Session, barbearia_id: int):
 def _assinatura_ativa_limite(assinatura):
     if not assinatura:
         return False, 0
+    if isinstance(assinatura, models.AssinaturaBarbearia):
+        # Mesma regra por cadeira de routes_cadeiras (vale o que está em dia, cadeira a cadeira).
+        from app.routes_cadeiras import _assinatura_ativa_e_limite
+        return _assinatura_ativa_e_limite(assinatura)
 
     status_assinatura = str(getattr(assinatura, "status", "")).lower()
     ativa_flag = getattr(assinatura, "ativa", None)

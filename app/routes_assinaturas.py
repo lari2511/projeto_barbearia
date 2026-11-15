@@ -18,6 +18,7 @@ from app import models
 from app.routes import get_current_user, oauth2_scheme
 from app.plan_policy import merge_with_free_test_limit, is_test_barbershop_profile
 from app.cobrancas.provedores import bloquear_fluxo_antigo_se_pix_real
+from app import vencimento_cadeiras as venc
 
 router = APIRouter(prefix="/assinaturas", tags=["Assinaturas"])
 
@@ -91,9 +92,11 @@ def normalizar_metodo_pagamento(metodo: Optional[str]) -> str:
 
 
 def calcular_proxima_cobranca_individual(data_base: datetime, dia_preferido: Optional[int] = None) -> datetime:
-    """Calcula a próxima cobrança no mesmo dia do mês seguinte (com ajuste de mês curto)."""
-    dia = dia_preferido or data_base.day
-    return _proximo_vencimento_mensal(data_base, dia)
+    """
+    Um mês de calendário depois de `data_base` (UTC), contado no horário de São Paulo
+    (com ajuste de mês curto). Regras em app/vencimento_cadeiras.py.
+    """
+    return venc.somar_um_mes(data_base, dia_preferido)
 
 
 def _preco_progressivo_por_posicao(posicao: int) -> float:
@@ -132,17 +135,35 @@ def calcular_precos_cadeiras_adicionais(quantidade: int) -> List[float]:
     return [round(PRECO_CADEIRA_CHEIO, 2) for _ in range(quantidade)]
 
 
-def _serializar_cadeira_contratada(cadeira: models.CadeiraContratada) -> dict:
+def _serializar_cadeira_contratada(cadeira: models.CadeiraContratada, historico: Optional[list] = None) -> dict:
     origem = "Compra Inicial" if cadeira.origem_contratacao == models.OrigemContratacaoCadeira.COMPRA_INICIAL.value else "Adicional"
-    return {
+    agora = venc.agora_utc()
+    dados = {
         "cadeira_contratada_id": cadeira.id,
         "numero_referencia": cadeira.numero_referencia,
         "origem": origem,
         "valor_individual": round(float(cadeira.valor_mensal or 0), 2),
         "data_contratacao": cadeira.data_contratacao,
+        "data_inicio_periodo": cadeira.data_inicio_periodo or cadeira.data_contratacao,
         "data_proxima_cobranca": cadeira.data_proxima_cobranca,
+        # Datas em UTC; o status vem pronto do servidor (não depende do relógio do celular).
+        "status_vencimento": venc.status_cadeira(cadeira, agora),
+        "dias_restantes": (cadeira.data_proxima_cobranca - agora).days if cadeira.data_proxima_cobranca else None,
         "ativa": bool(cadeira.ativa),
     }
+    if historico is not None:
+        dados["historico"] = [
+            {
+                "evento": h.evento,
+                "valor": h.valor,
+                "vencimento_anterior": h.vencimento_anterior,
+                "vencimento_novo": h.vencimento_novo,
+                "metodo_pagamento": h.metodo_pagamento,
+                "data": h.criado_em,
+            }
+            for h in historico
+        ]
+    return dados
 
 
 def _barbearia_tem_historico_contratacao(db: Session, barbearia_id: int) -> bool:
@@ -180,12 +201,18 @@ def mensalidade_devida(db: Session, assinatura: models.AssinaturaBarbearia, refe
     (valor, cadeiras) que o próximo pagamento cobre. Cada cadeira tem o próprio ciclo: paga-se só
     o que venceu. Sem nada vencido, é antecipação de um ciclo de todas (ver aplicar_pagamento_mensalidade).
     """
-    referencia = referencia or datetime.now()
+    referencia = referencia or venc.agora_utc()
     ativas = _resumo_ativo_cadeiras(db, assinatura.id)
-    vencidas = [c for c in ativas if c.data_proxima_cobranca <= referencia]
-    if not vencidas:
+    if not ativas:
         return round(float(assinatura.valor_mensalidade or 0.0), 2), assinatura.quantidade_cadeiras or 0
-    return round(sum(float(c.valor_mensal or 0) for c in vencidas), 2), len(vencidas)
+    cobertas = venc.cadeiras_a_renovar(ativas, referencia)
+    return round(sum(float(c.valor_mensal or 0) for c in cobertas), 2), len(cobertas)
+
+
+def cadeiras_cobertas_pela_mensalidade(db: Session, assinatura: models.AssinaturaBarbearia,
+                                      referencia: Optional[datetime] = None) -> List[models.CadeiraContratada]:
+    """As cadeiras que o próximo pagamento renova (mesmo critério de mensalidade_devida)."""
+    return venc.cadeiras_a_renovar(_resumo_ativo_cadeiras(db, assinatura.id), referencia or venc.agora_utc())
 
 
 def _sincronizar_totais_assinatura(
@@ -217,35 +244,57 @@ def _registrar_cadeiras(
     origem: str,
     precos: List[float],
     data_contratacao: datetime,
+    data_proxima: Optional[datetime] = None,
+    detalhe: Optional[str] = None,
 ):
+    """Cada cadeira nova vale 1 mês a partir da própria contratação (ou até `data_proxima`, já paga)."""
     numero_ref = _proximo_numero_referencia(db, assinatura.barbearia_id)
+    vencimento = data_proxima or calcular_proxima_cobranca_individual(data_contratacao)
+    novas = []
     for i in range(quantidade):
-        data_proxima = calcular_proxima_cobranca_individual(data_contratacao)
-        db.add(models.CadeiraContratada(
+        cadeira = models.CadeiraContratada(
             assinatura_id=assinatura.id,
             barbearia_id=assinatura.barbearia_id,
             numero_referencia=numero_ref + i,
             origem_contratacao=origem,
             valor_mensal=precos[i],
             data_contratacao=data_contratacao,
-            data_proxima_cobranca=data_proxima,
+            data_proxima_cobranca=vencimento,
             ativa=True,
-        ))
+        )
+        db.add(cadeira)
+        novas.append(cadeira)
+    db.flush()
+    for cadeira in novas:
+        venc.registrar_historico(
+            db, cadeira, venc.EVENTO_CONTRATACAO,
+            vencimento_novo=cadeira.data_proxima_cobranca, valor=cadeira.valor_mensal,
+            metodo_pagamento=assinatura.metodo_pagamento_preferido, detalhe=detalhe,
+        )
 
 
 def _avancar_ciclo_cobranca_cadeiras(
     cadeiras_ativas: List[models.CadeiraContratada],
     referencia: datetime,
     apenas_vencidas: bool = False,
+    db: Optional[Session] = None,
+    metodo_pagamento: Optional[str] = None,
 ) -> int:
-    """Avança a próxima cobrança de cada cadeira em um mês de calendário."""
+    """
+    Renova cada cadeira por um mês (regras em app/vencimento_cadeiras.renovar_cadeira):
+    em dia soma ao vencimento atual; vencida recomeça na confirmação do pagamento.
+    """
     atualizadas = 0
     for cadeira in cadeiras_ativas:
-        if apenas_vencidas and cadeira.data_proxima_cobranca > referencia:
+        if apenas_vencidas and venc.esta_em_dia(cadeira, referencia):
             continue
-
-        base = cadeira.data_proxima_cobranca or cadeira.data_contratacao or referencia
-        cadeira.data_proxima_cobranca = calcular_proxima_cobranca_individual(base, cadeira.data_contratacao.day)
+        if db is not None:
+            venc.renovar_cadeira(db, cadeira, referencia, metodo_pagamento)
+        elif venc.esta_em_dia(cadeira, referencia):
+            cadeira.data_proxima_cobranca = venc.somar_um_mes(cadeira.data_proxima_cobranca, venc.dia_ancora(cadeira))
+        else:
+            cadeira.data_inicio_periodo = referencia
+            cadeira.data_proxima_cobranca = venc.somar_um_mes(referencia)
         atualizadas += 1
 
     return atualizadas
@@ -362,7 +411,7 @@ def aplicar_contratacao_cadeiras(
         models.AssinaturaBarbearia.barbearia_id == barbearia.id
     ).first()
 
-    agora = agora or datetime.now()
+    agora = agora or venc.agora_utc()
 
     if assinatura:
         cadeiras_ativas = _resumo_ativo_cadeiras(db, assinatura.id)
@@ -370,6 +419,8 @@ def aplicar_contratacao_cadeiras(
 
         if quantidade_atual == 0 and (assinatura.quantidade_cadeiras or 0) > 0:
             # Migração compatível: assinaturas antigas sem histórico de cadeira.
+            # Mantém o vencimento já pago da assinatura (antes: criado_em + 1 mês, que podia
+            # nascer vencido e tirar dias pagos).
             precos_legado = calcular_precos_cadeiras_adicionais(assinatura.quantidade_cadeiras)
             _registrar_cadeiras(
                 db=db,
@@ -378,6 +429,8 @@ def aplicar_contratacao_cadeiras(
                 origem=models.OrigemContratacaoCadeira.ADICIONAL.value,
                 precos=precos_legado,
                 data_contratacao=assinatura.criado_em or agora,
+                data_proxima=assinatura.proximo_vencimento,
+                detalhe="migração da assinatura antiga",
             )
             db.flush()
             cadeiras_ativas = _resumo_ativo_cadeiras(db, assinatura.id)
@@ -399,14 +452,24 @@ def aplicar_contratacao_cadeiras(
 
         if quantidade < quantidade_atual:
             quantidade_retirar = quantidade_atual - quantidade
+            # Sai primeiro a que tem MENOS validade (vencida antes da paga). Antes saía a de
+            # número mais alto, ou seja, a recém-paga, e ficava a vencida (caso de 11/11/2026).
             cadeiras_para_desativar = db.query(models.CadeiraContratada).filter(
                 models.CadeiraContratada.assinatura_id == assinatura.id,
                 models.CadeiraContratada.ativa.is_(True),
-            ).order_by(models.CadeiraContratada.numero_referencia.desc()).limit(quantidade_retirar).all()
+            ).order_by(
+                models.CadeiraContratada.data_proxima_cobranca.asc(),
+                models.CadeiraContratada.numero_referencia.desc(),
+            ).limit(quantidade_retirar).all()
 
             for cadeira in cadeiras_para_desativar:
                 cadeira.ativa = False
                 cadeira.cancelada_em = agora
+                venc.registrar_historico(
+                    db, cadeira, venc.EVENTO_CANCELAMENTO,
+                    vencimento_anterior=cadeira.data_proxima_cobranca,
+                    detalhe=f"redução para {quantidade} cadeira(s)",
+                )
 
             db.flush()
 
@@ -596,15 +659,26 @@ def obter_painel_cadeiras(
         }
 
     cadeiras_ativas = _resumo_ativo_cadeiras(db, assinatura.id)
-    _sincronizar_totais_assinatura(assinatura, cadeiras_ativas, datetime.now())
+    _sincronizar_totais_assinatura(assinatura, cadeiras_ativas, venc.agora_utc())
     db.commit()
     db.refresh(assinatura)
+
+    historicos = {}
+    if cadeiras_ativas:
+        for h in db.query(models.HistoricoCadeiraContratada).filter(
+            models.HistoricoCadeiraContratada.cadeira_contratada_id.in_([c.id for c in cadeiras_ativas])
+        ).order_by(models.HistoricoCadeiraContratada.id.desc()).all():
+            historicos.setdefault(h.cadeira_contratada_id, []).append(h)
 
     return {
         "barbearia_id": barbearia.id,
         "total_cadeiras_ativas": len(cadeiras_ativas),
         "valor_total_mensal": round(assinatura.valor_mensalidade or 0, 2),
-        "cadeiras": [_serializar_cadeira_contratada(c) for c in cadeiras_ativas],
+        # Cada cadeira com a própria contratação, vencimento, status e histórico (mais recente primeiro).
+        "cadeiras": [
+            _serializar_cadeira_contratada(c, historicos.get(c.id, [])[:10])
+            for c in sorted(cadeiras_ativas, key=lambda c: c.data_proxima_cobranca)
+        ],
     }
 
 
@@ -725,10 +799,10 @@ def renovar_assinatura(
             detail="Nenhuma assinatura encontrada para renovar"
         )
 
-    agora = datetime.now()
+    agora = venc.agora_utc()
     cadeiras_ativas = _resumo_ativo_cadeiras(db, assinatura.id)
     if cadeiras_ativas:
-        _avancar_ciclo_cobranca_cadeiras(cadeiras_ativas, agora)
+        _avancar_ciclo_cobranca_cadeiras(cadeiras_ativas, agora, db=db)
         _sincronizar_totais_assinatura(assinatura, cadeiras_ativas, agora)
     else:
         assinatura.proximo_vencimento = _calcular_novo_vencimento_assinatura(assinatura, agora)
@@ -873,25 +947,34 @@ def aplicar_pagamento_mensalidade(
     barbearia: models.Barbearia,
     assinatura: models.AssinaturaBarbearia,
     metodo_pagamento: str,
+    cadeira_ids: Optional[List[int]] = None,
 ) -> datetime:
-    """Registra a mensalidade paga: avança o ciclo, reativa, desbloqueia e cria a fatura. Não faz commit.
+    """Registra a mensalidade paga: renova as cadeiras, reativa, desbloqueia e cria a fatura. Não faz commit.
 
     Usado pelo endpoint /pagar-mensalidade e pela liberação após pagamento Pix confirmado.
+    `cadeira_ids`: as cadeiras que a cobrança Pix calculou e cobrou. Sem ela, o critério de
+    mensalidade_devida (as vencidas; sem vencida, todas). Cada cadeira renova sozinha
+    (app/vencimento_cadeiras.renovar_cadeira); as outras não mudam.
     """
-    hoje = datetime.now()
+    hoje = venc.agora_utc()
 
     # Auto-correção para casos legados de vencimento adiantado em excesso.
     _normalizar_vencimento_adiantado(assinatura, hoje)
 
-    vencimento_referencia = assinatura.proximo_vencimento or datetime.now()
+    vencimento_referencia = assinatura.proximo_vencimento or hoje
     cadeiras_ativas = _resumo_ativo_cadeiras(db, assinatura.id)
-    valor_pago, cadeiras_pagas = mensalidade_devida(db, assinatura, hoje)
+    if cadeira_ids is not None:
+        ids = {int(i) for i in cadeira_ids}
+        a_renovar = [c for c in cadeiras_ativas if c.id in ids]
+    else:
+        a_renovar = venc.cadeiras_a_renovar(cadeiras_ativas, hoje)
+    valor_pago = round(sum(float(c.valor_mensal or 0) for c in a_renovar), 2)
+    cadeiras_pagas = len(a_renovar)
+    if not cadeiras_ativas:
+        valor_pago, cadeiras_pagas = mensalidade_devida(db, assinatura, hoje)
 
-    # Avança somente cadeiras vencidas para respeitar ciclos individuais.
-    atualizadas = _avancar_ciclo_cobranca_cadeiras(cadeiras_ativas, hoje, apenas_vencidas=True)
-    if atualizadas == 0 and cadeiras_ativas:
-        # Segurança operacional: se nenhuma venceu, ainda assim permite antecipar 1 ciclo.
-        _avancar_ciclo_cobranca_cadeiras(cadeiras_ativas, hoje, apenas_vencidas=False)
+    for cadeira in a_renovar:
+        venc.renovar_cadeira(db, cadeira, hoje, metodo_pagamento)
 
     _sincronizar_totais_assinatura(assinatura, cadeiras_ativas, hoje)
     novo_vencimento = assinatura.proximo_vencimento

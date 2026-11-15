@@ -8,6 +8,13 @@ import { gerarQrDataUrl, validarCartaoBasico, salvarMetodoPreferidoCliente } fro
 import { getApiBaseUrl } from '../utils/api';
 import PagamentoPix, { usePixDisponivel } from './PagamentoPix';
 import { criarPixAssinaturaCadeiras, criarPixMensalidade, orcarCadeiras } from '../utils/cobrancasPix';
+import { formatarDataSP, formatarHoraSP } from '../utils/dataHora';
+
+const VISUAL_VALIDADE = {
+  ativa: { rotulo: 'Ativa', classe: 'border-emerald-500/40 bg-emerald-500/10 text-emerald-300' },
+  proxima_do_vencimento: { rotulo: 'Vence em breve', classe: 'border-amber-500/40 bg-amber-500/10 text-amber-300' },
+  vencida: { rotulo: 'Vencida', classe: 'border-red-500/40 bg-red-500/10 text-red-300' },
+};
 
 const MAX_CADEIRAS = 20;
 
@@ -289,6 +296,18 @@ export default function TelaMensalidadeAssinatura({ token, barbeariaId, API_URL,
     return () => { ativo = false; };
   }, [barbeariaId, token, apiBase, recarga]);
 
+  // Validade de cada cadeira (contratação, vencimento e status calculados no servidor).
+  const [cadeirasContratadas, setCadeirasContratadas] = useState([]);
+  useEffect(() => {
+    if (!barbeariaId || !token) return undefined;
+    let ativo = true;
+    fetch(`${apiBase}/api/v1/assinaturas/painel-cadeiras`, { headers: { Authorization: `Bearer ${token}` } })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => { if (ativo) setCadeirasContratadas(Array.isArray(data?.cadeiras) ? data.cadeiras : []); })
+      .catch(() => { /* lista é informativa: sem ela a tela segue igual */ });
+    return () => { ativo = false; };
+  }, [barbeariaId, token, apiBase, recarga]);
+
   useEffect(() => {
     let ativo = true;
 
@@ -466,6 +485,11 @@ export default function TelaMensalidadeAssinatura({ token, barbeariaId, API_URL,
   // Reduzir não gera cobrança no Pix real; no fluxo antigo segue o mesmo caminho de antes.
   const reduzirCadeiras = async () => {
     const qtd = qtdReduzirValida;
+    const sair = (cadeirasAtuais ?? 0) - qtd;
+    // Redução tira cadeira do plano sem devolver o período pago: pede confirmação.
+    if (sair > 0 && !window.confirm(
+      `Reduzir para ${rotuloCadeiras(qtd)}? ${sair === 1 ? 'Sai 1 cadeira' : `Saem ${sair} cadeiras`}: primeiro as vencidas e as que vencem antes.`
+    )) return;
     if (!pixReal) {
       await handleConfirmar(qtd);
       return;
@@ -822,6 +846,35 @@ export default function TelaMensalidadeAssinatura({ token, barbeariaId, API_URL,
             >
               Voltar para seleção de cadeiras
             </button>
+          </div>
+        )}
+
+        {/* SUAS CADEIRAS: cada uma com o próprio mês de validade */}
+        {carregado && !emPagamento && cadeirasContratadas.length > 0 && (
+          <div className="mt-6 rounded-2xl border border-zinc-800 bg-zinc-900/40 p-3" data-testid="validade-cadeiras">
+            <p className="text-sm font-bold text-white mb-2">Suas cadeiras</p>
+            <ul className="space-y-2">
+              {cadeirasContratadas.map((c, i) => {
+                const visual = VISUAL_VALIDADE[c.status_vencimento] || VISUAL_VALIDADE.ativa;
+                return (
+                  <li key={c.cadeira_contratada_id} className="flex items-start justify-between gap-2 rounded-xl bg-zinc-900 px-3 py-2">
+                    <div className="min-w-0">
+                      <p className="text-sm font-semibold text-zinc-100">Cadeira {i + 1}</p>
+                      <p className="text-[11px] text-zinc-400">
+                        Contratada em {formatarDataSP(c.data_contratacao)}
+                      </p>
+                      <p className="text-[11px] text-zinc-300">
+                        {c.status_vencimento === 'vencida' ? 'Venceu em ' : 'Válida até '}
+                        {formatarDataSP(c.data_proxima_cobranca)} às {formatarHoraSP(c.data_proxima_cobranca)}
+                      </p>
+                    </div>
+                    <span className={`shrink-0 rounded-full border px-2 py-0.5 text-[11px] font-bold ${visual.classe}`}>
+                      {visual.rotulo}
+                    </span>
+                  </li>
+                );
+              })}
+            </ul>
           </div>
         )}
 
