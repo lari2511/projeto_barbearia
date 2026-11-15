@@ -78,8 +78,12 @@ export function usePixDisponivel(API_URL, token) {
  * - onConfirmado(cobranca): chamado uma vez quando o backend confirmar PAGO + liberado
  * - onGerarNovo(): opcional; mostra "Gerar novo Pix" quando expirar/cancelar/recusar
  * - onFechar(): opcional
+ * - rotuloCopiar / mensagemConfirmado: opcionais (textos do botão de copiar e da confirmação)
  */
-export default function PagamentoPix({ token, API_URL, cobranca: inicial, titulo, notify, onConfirmado, onGerarNovo, onFechar }) {
+export default function PagamentoPix({
+  token, API_URL, cobranca: inicial, titulo, notify, onConfirmado, onGerarNovo, onFechar,
+  rotuloCopiar = 'Copiar Pix', mensagemConfirmado = '✅ Pagamento confirmado. Tudo liberado.',
+}) {
   const [cobranca, setCobranca] = useState(inicial);
   const [copiado, setCopiado] = useState(false);
   const avisouConfirmacao = useRef(false);
@@ -174,7 +178,7 @@ export default function PagamentoPix({ token, API_URL, cobranca: inicial, titulo
             disabled={!cobranca.pix_copia_cola}
             className="w-full rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:opacity-60 px-3 py-2 text-xs font-bold text-white"
           >
-            {copiado ? 'Copiado ✓ — copiar de novo' : 'Copiar Pix'}
+            {copiado ? 'Copiado ✓ — copiar de novo' : rotuloCopiar}
           </button>
 
           <p className="text-[11px] text-zinc-400">
@@ -185,7 +189,7 @@ export default function PagamentoPix({ token, API_URL, cobranca: inicial, titulo
       )}
 
       {status === 'PAGO' && cobranca.liberado && (
-        <p className="text-xs text-emerald-200">✅ Pagamento confirmado. Tudo liberado.</p>
+        <p className="text-xs text-emerald-200">{mensagemConfirmado}</p>
       )}
       {pagoEmAnalise && (
         <p className="text-xs text-amber-200">Recebemos o pagamento, mas ele precisa de conferência. Fale com o suporte BarberMove.</p>

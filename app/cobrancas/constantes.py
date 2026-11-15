@@ -24,6 +24,7 @@ class Finalidade(str, enum.Enum):
     ASSINATURA_CADEIRAS = "ASSINATURA_CADEIRAS"      # dono contrata/aumenta cadeiras
     MENSALIDADE_BARBEARIA = "MENSALIDADE_BARBEARIA"  # dono renova a mensalidade
     TAXA_FREELANCER = "TAXA_FREELANCER"              # freelancer paga a taxa BarberMove (fechamento diário)
+    CANDIDATURA_VAGA = "CANDIDATURA_VAGA"            # freelancer paga para se candidatar a uma vaga de diária
 
 
 # Status do Mercado Pago -> status da cobrança.

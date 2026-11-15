@@ -18,6 +18,8 @@ import CronometroAtendimento, { parseDataServidorUTC } from './CronometroAtendim
 import BotaoVoltar from './BotaoVoltar';
 import { useBackHandler } from '../utils/useBackHandler';
 import { recusarVagaDireta, textoPercentual } from '../utils/vagas';
+import PagamentoPix from './PagamentoPix';
+import { criarPixCandidaturaVaga } from '../utils/cobrancasPix';
 
 const TIPO_VAGA_DIARIA = 'vaga_diaria'; // app/vagas.py
 // Regioes da capital (app/sao_paulo_capital.py), na ordem em que as vagas de diaria aparecem.
@@ -101,6 +103,8 @@ export default function PainelBarberMovePremium({ token: tokenProp, logout: logo
   const [perfil, setPerfil] = useState(user || null);
   const [vagasRelampago, setVagasRelampago] = useState([]);
   const [aceitandoVagaId, setAceitandoVagaId] = useState(null);
+  // Taxa de candidatura (vaga de diária): Pix aberto abaixo do card da vaga. { vagaId, direta, cobranca, carregando, erro }
+  const [pixCandidatura, setPixCandidatura] = useState(null);
   const [vagasCandidatadas, setVagasCandidatadas] = useState(() => new Set()); // ids de vaga que este freelancer ja se candidatou
   // Sino de notificações (fonte única: Notificacao) — mesmo sistema já usado
   // no painel da barbearia (novo chamado, agendamento, vaga de cadeira, etc).
@@ -606,6 +610,11 @@ export default function PainelBarberMovePremium({ token: tokenProp, logout: logo
         headers: { Authorization: `Bearer ${token}` },
       });
       const data = await res.json().catch(() => ({}));
+      if (res.status === 402) {
+        // Taxa de candidatura: nada foi registrado; gera o Pix e a candidatura sai na confirmação.
+        await gerarPixCandidatura(vagaId, direta);
+        return;
+      }
       if (!res.ok) {
         throw new Error(data?.detail || 'Não foi possível se candidatar a vaga');
       }
@@ -620,6 +629,29 @@ export default function PainelBarberMovePremium({ token: tokenProp, logout: logo
     } finally {
       setAceitandoVagaId(null);
     }
+  };
+
+  // Pix da taxa de candidatura. Repetir para a mesma vaga devolve o mesmo Pix em aberto (backend).
+  const gerarPixCandidatura = async (vagaId, direta = false) => {
+    setPixCandidatura({ vagaId: Number(vagaId), direta, cobranca: null, carregando: true, erro: null });
+    try {
+      const cobranca = await criarPixCandidaturaVaga(API_URL, token, vagaId);
+      setPixCandidatura({ vagaId: Number(vagaId), direta, cobranca, carregando: false, erro: null });
+    } catch (err) {
+      setPixCandidatura({
+        vagaId: Number(vagaId), direta, cobranca: null, carregando: false,
+        erro: err?.message || 'Não foi possível gerar o Pix agora. Tente novamente.',
+      });
+    }
+  };
+
+  const candidaturaPagaConfirmada = (vagaId, direta) => {
+    setVagasCandidatadas((prev) => new Set(prev).add(Number(vagaId)));
+    notify(
+      direta ? 'Pagamento confirmado! Vaga aceita, aguarde o proprietário confirmar.' : 'Pagamento confirmado! Candidatura enviada ao proprietário.',
+      'success'
+    );
+    setTimeout(() => setPixCandidatura((atual) => (atual?.vagaId === Number(vagaId) ? null : atual)), 4000);
   };
 
   // Vaga enviada direto: o convidado pode recusar; a vaga encerra e some da lista.
@@ -734,6 +766,53 @@ export default function PainelBarberMovePremium({ token: tokenProp, logout: logo
           )}
         </div>
       </div>
+      {pixCandidatura?.vagaId === Number(vaga.id) && (
+        <div className="mt-3 cursor-default space-y-2" onClick={(e) => e.stopPropagation()} data-testid="pix-candidatura">
+          <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-2.5 py-2">
+            <p className="text-[11px] font-black uppercase tracking-wide text-amber-300">Taxa de candidatura: R$ 3,00</p>
+            <p className="text-[11px] text-amber-50/90">
+              Sua candidatura será liberada e enviada ao proprietário após a confirmação do pagamento.
+            </p>
+          </div>
+          {pixCandidatura.carregando && <p className="text-xs text-zinc-300">Gerando o Pix...</p>}
+          {pixCandidatura.erro && (
+            <div className="space-y-2">
+              <p className="text-xs text-red-300">{pixCandidatura.erro}</p>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => gerarPixCandidatura(vaga.id, direta)}
+                  className="rounded-lg bg-zinc-800 hover:bg-zinc-700 px-3 py-2 text-xs font-bold text-white"
+                >
+                  Tentar de novo
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPixCandidatura(null)}
+                  className="rounded-lg border border-zinc-600 px-3 py-2 text-xs font-bold text-zinc-300"
+                >
+                  Fechar
+                </button>
+              </div>
+            </div>
+          )}
+          {pixCandidatura.cobranca && (
+            <PagamentoPix
+              key={pixCandidatura.cobranca.identificador}
+              token={token}
+              API_URL={API_URL}
+              cobranca={pixCandidatura.cobranca}
+              titulo="Pagamento da candidatura"
+              notify={notify}
+              rotuloCopiar="Copiar código Pix"
+              mensagemConfirmado="✅ Pagamento confirmado. Candidatura enviada ao proprietário."
+              onConfirmado={() => candidaturaPagaConfirmada(vaga.id, direta)}
+              onGerarNovo={() => gerarPixCandidatura(vaga.id, direta)}
+              onFechar={() => setPixCandidatura(null)}
+            />
+          )}
+        </div>
+      )}
       <div className="cursor-default" onClick={(e) => e.stopPropagation()}>
         <EstruturaDaVaga API_URL={API_URL} token={token} barbeariaId={vaga.barbearia_id} />
       </div>

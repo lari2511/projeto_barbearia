@@ -29,5 +29,11 @@ export const orcarCadeiras = (API_URL, token, cadeirasAtivas) =>
   chamar(API_URL, token, `/cadeiras/orcamento?cadeiras_ativas=${encodeURIComponent(cadeirasAtivas)}`);
 export const criarPixMensalidade =(API_URL, token) => chamar(API_URL, token, '/pix/mensalidade', { method: 'POST' });
 export const criarPixTaxaFreelancer = (API_URL, token) => chamar(API_URL, token, '/pix/taxa-freelancer', { method: 'POST' });
-export const consultarCobranca = (API_URL, token, identificador) =>
+// Taxa de candidatura a vaga de diária: o backend valida a vaga e devolve o mesmo Pix em aberto se repetir.
+export const criarPixCandidaturaVaga = (API_URL, token, vagaId) =>
+  chamar(API_URL, token, '/pix/candidatura-vaga', {
+    method: 'POST',
+    body: JSON.stringify({ vaga_id: vagaId }),
+  });
+export const consultarCobranca =(API_URL, token, identificador) =>
   chamar(API_URL, token, `/${encodeURIComponent(identificador)}`);

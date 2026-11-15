@@ -240,8 +240,25 @@ def _aplicar_taxa_freelancer(db: Session, cobranca: models.Cobranca, ref: dict) 
     return None
 
 
+# ============================================================
+# FREELANCER - TAXA DE CANDIDATURA A VAGA DE DIÁRIA
+# ============================================================
+
+def _preparar_candidatura_vaga(db: Session, usuario: models.Usuario, dados: dict) -> Preparo:
+    from app.cobrancas import candidatura_vaga
+
+    return candidatura_vaga.preparar(db, usuario, dados)
+
+
+def _aplicar_candidatura_vaga(db: Session, cobranca: models.Cobranca, ref: dict) -> Optional[str]:
+    from app.cobrancas import candidatura_vaga
+
+    return candidatura_vaga.aplicar(db, cobranca, ref)
+
+
 EFEITOS: Dict[str, Efeito] = {
     Finalidade.ASSINATURA_CADEIRAS.value: Efeito(_preparar_assinatura_cadeiras, _aplicar_assinatura_cadeiras),
     Finalidade.MENSALIDADE_BARBEARIA.value: Efeito(_preparar_mensalidade, _aplicar_mensalidade),
     Finalidade.TAXA_FREELANCER.value: Efeito(_preparar_taxa_freelancer, _aplicar_taxa_freelancer),
+    Finalidade.CANDIDATURA_VAGA.value: Efeito(_preparar_candidatura_vaga, _aplicar_candidatura_vaga),
 }

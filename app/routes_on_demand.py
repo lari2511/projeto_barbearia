@@ -1491,16 +1491,11 @@ async def cancelar_cadeira_acionada(
     return _serializar_cadeira_acionada(vaga)
 
 
-@router.post("/cadeiras-acionadas/{vaga_id}/candidatar-se", response_model=CadeiraAcionadaResponse, status_code=200)
-async def candidatar_se_cadeira_acionada(
-    vaga_id: int,
-    db: Session = Depends(get_db),
-    current_user: Usuario = Depends(get_current_user)
-):
+def validar_candidatura(db: Session, current_user: Usuario, vaga_id: int):
     """
-    Barbeiro manifesta interesse na vaga (candidatura). Nao assume a cadeira,
-    nao muda o status da vaga e nao altera presente_em_local - so registra o
-    interesse pra barbearia escolher depois (ver escolher_freelancer_cadeira_acionada).
+    Regras para o freelancer se candidatar (as mesmas de sempre). Lanca HTTPException.
+    Usada pelo candidatar-se e antes de gerar o Pix da taxa de candidatura (nunca se cobra
+    de quem nao poderia se candidatar). Nao faz commit. Retorna (vaga, barbearia, eta_min).
     """
     if current_user.tipo != "barbeiro":
         raise HTTPException(status_code=403, detail="Apenas barbeiros podem se candidatar a essa vaga")
@@ -1509,14 +1504,11 @@ async def candidatar_se_cadeira_acionada(
     if freelancer_bloqueado(db, current_user.id):
         raise HTTPException(status_code=403, detail=MENSAGEM_TAXA_PENDENTE)
 
-    _expirar_vagas_vencidas(db)
-
     vaga = db.query(CadeiraAcionada).filter(CadeiraAcionada.id == vaga_id).first()
     # Vaga enviada direto a outro freelancer nao existe para quem nao foi convidado.
     if not vaga or (vaga.convidado_id is not None and vaga.convidado_id != current_user.id):
         raise HTTPException(status_code=404, detail="Vaga nao encontrada")
     vaga_diaria = vaga.tipo_servico == TIPO_VAGA_DIARIA
-    vaga_direta = vaga.convidado_id is not None
 
     # Vaga de diaria vale para a capital inteira: nao pede localizacao do freelancer.
     if not vaga_diaria and (current_user.latitude is None or current_user.longitude is None):
@@ -1561,42 +1553,94 @@ async def candidatar_se_cadeira_acionada(
         if eta_min > 10:
             raise HTTPException(status_code=400, detail="Voce esta muito longe desta barbearia (limite maximo de 10 min)")
 
-    candidatura = db.query(CadeiraAcionadaCandidatura).filter(
+    return vaga, barbearia, eta_min
+
+
+def candidatura_existente(db: Session, vaga_id: int, barbeiro_id: int) -> Optional[CadeiraAcionadaCandidatura]:
+    return db.query(CadeiraAcionadaCandidatura).filter(
         CadeiraAcionadaCandidatura.vaga_id == vaga_id,
-        CadeiraAcionadaCandidatura.barbeiro_id == current_user.id,
+        CadeiraAcionadaCandidatura.barbeiro_id == barbeiro_id,
     ).first()
-    if not candidatura:
-        db.add(CadeiraAcionadaCandidatura(vaga_id=vaga_id, barbeiro_id=current_user.id))
 
-        if barbearia.usuario_id:
-            db.add(Notificacao(
-                usuario_id=barbearia.usuario_id,
-                titulo=(
-                    "Freelancer aceitou a vaga enviada 💈"
-                    if vaga_direta
-                    else "Novo candidato para vaga de cadeira 💈"
-                ),
-                mensagem=(
-                    f"{current_user.nome} aceitou a vaga que você enviou. Confirme a escolha em Ver e administrar vagas."
-                    if vaga_direta
-                    else f"{current_user.nome} se candidatou para a vaga de cadeira."
-                ),
-                tipo="vaga_candidatura",
-                referencia_id=vaga.id,
-            ))
 
+def registrar_candidatura(db: Session, freelancer: Usuario, vaga: CadeiraAcionada, barbearia: Barbearia) -> CadeiraAcionadaCandidatura:
+    """Grava a candidatura e a notificacao do dono (sino). Nao faz commit."""
+    candidatura = CadeiraAcionadaCandidatura(vaga_id=vaga.id, barbeiro_id=freelancer.id)
+    db.add(candidatura)
+    vaga_direta = vaga.convidado_id is not None
+
+    if barbearia.usuario_id:
+        db.add(Notificacao(
+            usuario_id=barbearia.usuario_id,
+            titulo=(
+                "Freelancer aceitou a vaga enviada 💈"
+                if vaga_direta
+                else "Novo candidato para vaga de cadeira 💈"
+            ),
+            mensagem=(
+                f"{freelancer.nome} aceitou a vaga que você enviou. Confirme a escolha em Ver e administrar vagas."
+                if vaga_direta
+                else f"{freelancer.nome} se candidatou para a vaga de cadeira."
+            ),
+            tipo="vaga_candidatura",
+            referencia_id=vaga.id,
+        ))
+    db.flush()
+    return candidatura
+
+
+def avisar_dono_por_push(db: Session, freelancer_nome: str, barbearia: Barbearia) -> None:
+    """Push no celular do dono (melhor esforco). Chamar depois do commit."""
+    dono = db.query(Usuario).filter(Usuario.id == barbearia.usuario_id).first() if barbearia.usuario_id else None
+    if dono and dono.device_token:
+        enviar_notificacao_novo_chamado(
+            token_dispositivo=dono.device_token,
+            nome_cliente=freelancer_nome,
+            nome_servico="se candidatou para sua vaga de cadeira",
+            nome_barbearia=barbearia.nome,
+            title="Novo candidato para vaga de cadeira 💈",
+            body=f"{freelancer_nome} quer assumir a cadeira anunciada.",
+        )
+
+
+@router.post("/cadeiras-acionadas/{vaga_id}/candidatar-se", response_model=CadeiraAcionadaResponse, status_code=200)
+async def candidatar_se_cadeira_acionada(
+    vaga_id: int,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user)
+):
+    """
+    Barbeiro manifesta interesse na vaga (candidatura). Nao assume a cadeira,
+    nao muda o status da vaga e nao altera presente_em_local - so registra o
+    interesse pra barbearia escolher depois (ver escolher_freelancer_cadeira_acionada).
+
+    Vaga de diaria com a taxa de candidatura ativa (app/cobrancas/candidatura_vaga.py):
+    sem credito de um Pix ja pago, responde 402 e nada e registrado. O app gera o Pix em
+    /api/v1/cobrancas/pix/candidatura-vaga e a candidatura nasce da confirmacao do pagamento.
+    """
+    if current_user.tipo != "barbeiro":
+        raise HTTPException(status_code=403, detail="Apenas barbeiros podem se candidatar a essa vaga")
+
+    _expirar_vagas_vencidas(db)
+
+    vaga, barbearia, eta_min = validar_candidatura(db, current_user, vaga_id)
+
+    if not candidatura_existente(db, vaga_id, current_user.id):
+        from app.cobrancas import candidatura_vaga
+
+        credito = None
+        if candidatura_vaga.exige_pagamento(db, current_user, vaga):
+            credito = candidatura_vaga.credito_disponivel(db, current_user.id, travar=True)
+            if credito is None:
+                db.rollback()
+                raise HTTPException(status_code=402, detail=candidatura_vaga.MENSAGEM_PAGAMENTO_NECESSARIO)
+
+        candidatura = registrar_candidatura(db, current_user, vaga, barbearia)
+        if credito is not None:
+            candidatura_vaga.consumir_credito(credito, vaga.id, candidatura.id)
         db.commit()
 
-        dono = db.query(Usuario).filter(Usuario.id == barbearia.usuario_id).first() if barbearia.usuario_id else None
-        if dono and dono.device_token:
-            enviar_notificacao_novo_chamado(
-                token_dispositivo=dono.device_token,
-                nome_cliente=current_user.nome,
-                nome_servico="se candidatou para sua vaga de cadeira",
-                nome_barbearia=barbearia.nome,
-                title="Novo candidato para vaga de cadeira 💈",
-                body=f"{current_user.nome} quer assumir a cadeira anunciada.",
-            )
+        avisar_dono_por_push(db, current_user.nome, barbearia)
 
         await broadcast_event(
             "cadeira_acionada_candidatura",

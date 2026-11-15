@@ -74,8 +74,22 @@ def serializar(c: models.Cobranca) -> dict:
     }
 
 
-def _cancelar_local(c: models.Cobranca, motivo: str) -> None:
+def _historico(db: Session, c: models.Cobranca, origem: str, status_anterior: Optional[str],
+               detalhe: Optional[str] = None) -> None:
+    """Uma linha no histórico da cobrança (só registro; não faz commit)."""
+    db.add(models.CobrancaHistorico(
+        cobranca_id=c.id,
+        status_anterior=status_anterior,
+        status_novo=c.status,
+        status_provedor=c.status_provedor,
+        origem=origem,
+        detalhe=detalhe,
+    ))
+
+
+def _cancelar_local(db: Session, c: models.Cobranca, motivo: str) -> None:
     """Cancela uma cobrança em aberto; tenta cancelar no provedor também (melhor esforço)."""
+    anterior = c.status
     c.status = StatusCobranca.CANCELADO.value
     c.observacao = motivo
     if c.provedor_pagamento_id:
@@ -84,6 +98,7 @@ def _cancelar_local(c: models.Cobranca, motivo: str) -> None:
             c.status_provedor = "cancelled"
         except Exception as exc:  # se o Pix antigo for pago mesmo assim, a aprovação ainda é honrada
             logger.warning("[cobrancas] não cancelou %s no provedor: %s", c.identificador, exc)
+    _historico(db, c, "cancelada", anterior, motivo)
 
 
 def criar_cobranca_pix(db: Session, usuario: models.Usuario, finalidade: str, dados: Optional[dict] = None) -> models.Cobranca:
@@ -114,7 +129,7 @@ def criar_cobranca_pix(db: Session, usuario: models.Usuario, finalidade: str, da
         if mesma:
             db.commit()
             return c
-        _cancelar_local(c, "Substituída por nova cobrança")
+        _cancelar_local(db, c, "Substituída por nova cobrança")
 
     cobranca = models.Cobranca(
         identificador=uuid.uuid4().hex,
@@ -152,6 +167,7 @@ def criar_cobranca_pix(db: Session, usuario: models.Usuario, finalidade: str, da
     cobranca.status_detalhe_provedor = pagamento.status_detalhe
     if pagamento.expira_em:
         cobranca.expira_em = pagamento.expira_em
+    _historico(db, cobranca, "criada", None, f"Pix gerado no provedor {pagamento.provedor_pagamento_id}")
     db.commit()
     db.refresh(cobranca)
     logger.info("[cobrancas] criada %s (%s) R$ %.2f usuario=%s", cobranca.identificador,
@@ -159,10 +175,15 @@ def criar_cobranca_pix(db: Session, usuario: models.Usuario, finalidade: str, da
     return cobranca
 
 
-def aplicar_pagamento_do_provedor(db: Session, cobranca_id: int, pagamento: PagamentoProvedor) -> models.Cobranca:
-    """Atualiza a cobrança com o status consultado no provedor e libera (uma vez) se aprovado. Faz commit."""
+def aplicar_pagamento_do_provedor(db: Session, cobranca_id: int, pagamento: PagamentoProvedor,
+                                  origem: str = "consulta") -> models.Cobranca:
+    """
+    Atualiza a cobrança com o status consultado no provedor e libera (uma vez) se aprovado. Faz commit.
+    `origem` (webhook | consulta | conciliacao) só vai para o histórico.
+    """
     c = db.query(models.Cobranca).filter(models.Cobranca.id == cobranca_id).with_for_update().one()
     agora = datetime.utcnow()
+    status_anterior, provedor_anterior, liberado_antes = c.status, c.status_provedor, c.liberado_em is not None
 
     if pagamento.referencia_externa and pagamento.referencia_externa != c.identificador:
         logger.error("[cobrancas] pagamento %s não pertence à cobrança %s (external_reference=%s)",
@@ -207,6 +228,11 @@ def aplicar_pagamento_do_provedor(db: Session, cobranca_id: int, pagamento: Paga
                 if (c.status == AGUARDANDO and c.expira_em
                         and agora > c.expira_em + FOLGA_EXPIRACAO_LOCAL):
                     c.status = StatusCobranca.EXPIRADO.value
+        liberado_agora = c.liberado_em is not None and not liberado_antes
+        if liberado_agora:
+            _historico(db, c, "liberada", status_anterior, f"{origem}; {c.observacao or 'efeito aplicado'}")
+        elif c.status != status_anterior or c.status_provedor != provedor_anterior:
+            _historico(db, c, origem, status_anterior, pagamento.status_detalhe or None)
         db.commit()
     except Exception:
         db.rollback()
@@ -256,7 +282,7 @@ def processar_notificacao(db: Session, provedor_pagamento_id: str, assinada: boo
         return None  # pagamento que não é uma cobrança deste módulo
     logger.info("[cobrancas] notificação do pagamento %s: status no MP=%s, cobrança %s (%s, usuario=%s)",
                 pagamento.provedor_pagamento_id, pagamento.status, c.identificador, c.finalidade, c.usuario_id)
-    return aplicar_pagamento_do_provedor(db, c.id, pagamento)
+    return aplicar_pagamento_do_provedor(db, c.id, pagamento, origem="webhook")
 
 
 # Status do MP em que o Pix ainda pode ser pago.
@@ -289,4 +315,4 @@ def cobrancas_para_conciliar(db: Session, limite_consulta: datetime):
 def conciliar(db: Session, c: models.Cobranca) -> models.Cobranca:
     """Consulta o pagamento no provedor e aplica (idempotente), qualquer que seja o status local."""
     pagamento = obter_provedor().consultar(c.provedor_pagamento_id)
-    return aplicar_pagamento_do_provedor(db, c.id, pagamento)
+    return aplicar_pagamento_do_provedor(db, c.id, pagamento, origem="conciliacao")

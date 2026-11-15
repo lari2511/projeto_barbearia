@@ -1407,6 +1407,49 @@ class Cobranca(Base):
     usuario = relationship("Usuario", foreign_keys=[usuario_id])
 
 
+class CobrancaHistorico(Base):
+    """
+    Histórico de cada cobrança: uma linha por mudança (criada, status do provedor, liberação).
+    Só registro; nenhuma regra lê esta tabela.
+    """
+    __tablename__ = "cobrancas_historico"
+
+    id = Column(Integer, primary_key=True, index=True)
+    cobranca_id = Column(Integer, ForeignKey("cobrancas.id"), nullable=False, index=True)
+    status_anterior = Column(String(30), nullable=True)
+    status_novo = Column(String(30), nullable=True)
+    status_provedor = Column(String(40), nullable=True)
+    # criada | webhook | consulta | conciliacao | cancelada | liberada
+    origem = Column(String(30), nullable=False)
+    detalhe = Column(String, nullable=True)
+    criado_em = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+
+
+class CandidaturaPaga(Base):
+    """
+    Pix aprovado da taxa de candidatura a uma vaga de diária (finalidade CANDIDATURA_VAGA).
+
+    Uma linha por cobrança (cobranca_id único): um pagamento libera no máximo UMA candidatura.
+    - CONCLUIDA: a candidatura foi registrada (vaga_utilizada_id / candidatura_id).
+    - CREDITO: pago, mas a candidatura não pôde ser concluída (vaga fechou, falha); a próxima
+      candidatura do freelancer usa este crédito em vez de cobrar de novo.
+    Sem FK em freelancer/vaga/candidatura: a candidatura pode ser apagada (recusa da vaga enviada).
+    """
+    __tablename__ = "candidaturas_pagas"
+
+    id = Column(Integer, primary_key=True, index=True)
+    cobranca_id = Column(Integer, ForeignKey("cobrancas.id"), nullable=False, unique=True, index=True)
+    freelancer_id = Column(Integer, nullable=False, index=True)
+    vaga_id = Column(Integer, nullable=False, index=True)  # vaga para a qual o Pix foi gerado
+    valor = Column(Float, nullable=False)
+    status = Column(String(20), nullable=False, index=True)  # CONCLUIDA | CREDITO
+    vaga_utilizada_id = Column(Integer, nullable=True, index=True)
+    candidatura_id = Column(Integer, nullable=True)
+    observacao = Column(String, nullable=True)
+    criado_em = Column(DateTime, default=datetime.utcnow, nullable=False)
+    concluida_em = Column(DateTime, nullable=True)
+
+
 class AceiteDocumento(Base):
     """
     Decisão do usuário sobre um documento legal (Termos de Uso / Política de Privacidade).

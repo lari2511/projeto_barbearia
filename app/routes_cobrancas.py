@@ -36,6 +36,10 @@ class CobrancaCadeirasRequest(BaseModel):
     cadeiras_ativas: int
 
 
+class CobrancaCandidaturaVagaRequest(BaseModel):
+    vaga_id: int
+
+
 def _criar(db: Session, usuario, finalidade: Finalidade, dados: Optional[dict] = None) -> dict:
     try:
         c = servico.criar_cobranca_pix(db, usuario, finalidade.value, dados)
@@ -50,9 +54,15 @@ def _criar(db: Session, usuario, finalidade: Finalidade, dados: Optional[dict] =
 @router.get("/config")
 def configuracao_pagamentos():
     """O app usa para saber se o Pix já está ativo (credenciais configuradas no backend)."""
+    from app.cobrancas import candidatura_vaga
+
     return {
         "pix_disponivel": pix_disponivel(),
         "metodos": sorted(m.value for m in METODOS_HABILITADOS),
+        "taxa_candidatura_vaga": {
+            "ativa": candidatura_vaga.taxa_ativa(),
+            "valor": candidatura_vaga.VALOR_CANDIDATURA,
+        },
     }
 
 
@@ -98,6 +108,23 @@ def criar_pix_taxa_freelancer(
     return _criar(db, usuario_atual, Finalidade.TAXA_FREELANCER)
 
 
+@router.post("/pix/candidatura-vaga")
+def criar_pix_candidatura_vaga(
+    dados: CobrancaCandidaturaVagaRequest,
+    db: Session = Depends(get_db),
+    usuario_atual=Depends(get_current_user),
+):
+    """
+    Freelancer: Pix da taxa de candidatura (R$ 3,00) de uma vaga de diária. A candidatura só é
+    registrada (e só aparece para o dono) quando o Mercado Pago confirma o pagamento.
+    Repetir o pedido para a mesma vaga devolve o mesmo Pix em aberto.
+    """
+    from app.routes_on_demand import _expirar_vagas_vencidas
+
+    _expirar_vagas_vencidas(db)  # fora da trava da criação (faz commit)
+    return _criar(db, usuario_atual, Finalidade.CANDIDATURA_VAGA, {"vaga_id": dados.vaga_id})
+
+
 @router.get("/{identificador}")
 def consultar_cobranca(
     identificador: str,
@@ -112,6 +139,8 @@ def consultar_cobranca(
         c = servico.sincronizar(db, c)
     except (ProvedorNaoConfigurado, ErroProvedor) as exc:
         logger.warning("[cobrancas] consulta %s falhou: %s", identificador, exc)
+    from app.cobrancas import candidatura_vaga
+    candidatura_vaga.emitir_avisos_em_thread(db)  # candidatura liberada nesta consulta: avisa o dono
     return servico.serializar(c)
 
 
@@ -159,5 +188,8 @@ async def webhook_mercadopago(request: Request, db: Session = Depends(get_db)):
         # 5xx faz o Mercado Pago reenviar a notificação depois.
         logger.error("[cobrancas] webhook: falha ao consultar pagamento %s: %s", data_id, exc)
         raise HTTPException(status_code=502, detail="Falha ao consultar o pagamento")
+
+    from app.cobrancas import candidatura_vaga
+    await candidatura_vaga.emitir_avisos(db)  # candidatura liberada por este webhook: avisa o dono
 
     return {"ok": True, "cobranca": c.identificador if c else None, "status": c.status if c else None}
