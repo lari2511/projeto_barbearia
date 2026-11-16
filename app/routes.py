@@ -1923,7 +1923,7 @@ def listar_meus_agendamentos(token: str = Depends(oauth2_scheme), db: Session = 
         raise HTTPException(status_code=403, detail="Apenas barbeiros podem acessar este endpoint")
     
     # Chamada interna ao endpoint acima
-    return listar_agendamentos_barbeiro(user.id, db)
+    return listar_agendamentos_barbeiro(user.id, token=token, db=db)
 
 @router.post("/barbeiro/{barbeiro_id}/agendamentos/filtrar")
 def filtrar_agendamentos_barbeiro(
