@@ -14,12 +14,13 @@ Fluxo:
 Liga/desliga: TAXA_CANDIDATURA_VAGA_ATIVA=1 no ambiente (e o Pix do Mercado Pago configurado).
 Desligada, a candidatura funciona exatamente como antes.
 
-A gratuidade dos 30 dias (etapa 2) entra em `exige_pagamento`.
+Gratuidade: cada freelancer tem 30 dias grátis contados do próprio cadastro (Usuario.criado_em);
+nesse período candidata-se sem taxa. Taxa já paga numa vaga nunca é cobrada de novo nela.
 """
 
 import logging
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Optional
 
 from fastapi import HTTPException
@@ -30,6 +31,7 @@ from app import models
 logger = logging.getLogger(__name__)
 
 VALOR_CANDIDATURA = 3.00
+DIAS_GRATUITOS = 30  # gratuidade individual, contada de Usuario.criado_em
 
 CONCLUIDA = "CONCLUIDA"
 CREDITO = "CREDITO"
@@ -50,11 +52,49 @@ def taxa_ativa() -> bool:
     return ligada and pix_disponivel()
 
 
+def fim_gratuidade(usuario: models.Usuario) -> Optional[datetime]:
+    """Fim dos 30 dias grátis do freelancer, contados do cadastro (UTC, como o banco)."""
+    if not usuario or usuario.criado_em is None:
+        return None
+    return usuario.criado_em + timedelta(days=DIAS_GRATUITOS)
+
+
+def em_gratuidade(usuario: models.Usuario, agora: Optional[datetime] = None) -> bool:
+    """
+    Dentro dos 30 dias grátis do cadastro? Individual, por freelancer.
+    Sem data de cadastro (não deveria acontecer: a coluna tem default) não cobra:
+    melhor deixar passar do que cobrar quem talvez tenha direito à gratuidade.
+    """
+    fim = fim_gratuidade(usuario)
+    if fim is None:
+        logger.warning("[candidatura_vaga] usuário %s sem criado_em; tratado como em gratuidade",
+                       getattr(usuario, "id", None))
+        return True
+    return (agora or datetime.utcnow()) < fim
+
+
+def ja_pagou_vaga(db: Session, freelancer_id: int, vaga_id: int) -> bool:
+    """Já houve taxa paga e usada nesta vaga? Então não cobra de novo (mesma vaga, mesma candidatura)."""
+    return db.query(models.CandidaturaPaga.id).filter(
+        models.CandidaturaPaga.freelancer_id == freelancer_id,
+        models.CandidaturaPaga.vaga_utilizada_id == vaga_id,
+        models.CandidaturaPaga.status == CONCLUIDA,
+    ).first() is not None
+
+
 def exige_pagamento(db: Session, usuario: models.Usuario, vaga: models.CadeiraAcionada) -> bool:
-    """Esta candidatura precisa da taxa? Só vaga de diária, com a cobrança ligada."""
+    """
+    Esta candidatura precisa da taxa? Só vaga de diária (anúncio ou enviada direto: "Aceitar"
+    é candidatura), com a cobrança ligada, fora dos 30 dias grátis do freelancer e sem taxa
+    já paga nesta mesma vaga.
+    """
     from app.vagas import TIPO_VAGA_DIARIA
 
-    return taxa_ativa() and vaga.tipo_servico == TIPO_VAGA_DIARIA
+    if not taxa_ativa() or vaga.tipo_servico != TIPO_VAGA_DIARIA:
+        return False
+    if em_gratuidade(usuario):
+        return False
+    return not ja_pagou_vaga(db, usuario.id, vaga.id)
 
 
 def credito_disponivel(db: Session, freelancer_id: int, travar: bool = False) -> Optional[models.CandidaturaPaga]:

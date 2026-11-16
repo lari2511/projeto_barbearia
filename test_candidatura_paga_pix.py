@@ -10,6 +10,7 @@ Nenhum dinheiro real é movimentado.
 
 import os
 import tempfile
+from datetime import datetime, timedelta
 
 _DB = os.path.join(tempfile.mkdtemp(prefix="bm_cand_pix_"), "teste.db")
 os.environ["DATABASE_URL"] = f"sqlite:///{_DB}"
@@ -22,9 +23,26 @@ from app import models, routes_on_demand  # noqa: E402
 from app.cobrancas import candidatura_vaga, provedores  # noqa: E402
 from app.database import Base, SessionLocal, engine, init_db  # noqa: E402
 from app.main import app  # noqa: E402
-from test_anuncio_vagas import BASE, _barbearia, _freelancer, _publicar  # noqa: E402
+from test_anuncio_vagas import BASE, _barbearia, _enviar_direto, _publicar  # noqa: E402
+from test_anuncio_vagas import _freelancer as _freelancer_base  # noqa: E402
 
 PIX = "/api/v1/cobrancas"
+
+
+def _definir_cadastro(fid, criado_em):
+    db = SessionLocal()
+    try:
+        db.query(models.Usuario).filter(models.Usuario.id == fid).update({models.Usuario.criado_em: criado_em})
+        db.commit()
+    finally:
+        db.close()
+
+
+def _freelancer(email, dias_de_cadastro=45):
+    """Freelancer já fora dos 30 dias grátis (padrão), para exercitar a cobrança."""
+    fid, headers = _freelancer_base(email)
+    _definir_cadastro(fid, datetime.utcnow() - timedelta(days=dias_de_cadastro))
+    return fid, headers
 
 
 class MercadoPagoFalso(provedores.ProvedorPagamento):
@@ -285,3 +303,106 @@ def test_sem_mercado_pago_configurado_nao_cobra(ambiente, monkeypatch):
     loja, (vaga_id,) = _cenario(http)
     fid, fh = _freelancer("free@t.com")
     assert http.post(f"{BASE}/{vaga_id}/candidatar-se", headers=fh).status_code == 200
+
+
+# ============================================================
+# 30 DIAS GRÁTIS (individual, a partir do cadastro) + VAGA DIRETA
+# ============================================================
+
+def test_dentro_dos_30_dias_candidata_sem_pagar(ambiente):
+    http, mp = ambiente
+    loja, (v1, v2) = _cenario(http, vagas=2)
+    fid, fh = _freelancer("novo@t.com", dias_de_cadastro=10)
+
+    for vaga_id in (v1, v2):  # quantas vagas quiser, sem taxa
+        r = http.post(f"{BASE}/{vaga_id}/candidatar-se", headers=fh)
+        assert r.status_code == 200, r.text
+        assert [c["freelancer_id"] for c in _candidatos(http, loja, vaga_id)] == [fid]
+
+    # Nem consegue gerar Pix: não há o que cobrar.
+    assert http.post(f"{PIX}/pix/candidatura-vaga", json={"vaga_id": v1}, headers=fh).status_code in (400, 409)
+    assert mp.criados == 0
+    assert _contar(models.Cobranca) == 0
+
+
+def test_gratuidade_e_individual_e_vence_no_dia_30(ambiente):
+    http, mp = ambiente
+    loja, (vaga_id,) = _cenario(http)
+    _, novo_h = _freelancer("novo@t.com", dias_de_cadastro=0)
+    antigo_id, antigo_h = _freelancer("antigo@t.com", dias_de_cadastro=31)
+
+    assert http.post(f"{BASE}/{vaga_id}/candidatar-se", headers=novo_h).status_code == 200
+    assert http.post(f"{BASE}/{vaga_id}/candidatar-se", headers=antigo_h).status_code == 402
+
+    # Borda: um minuto antes de completar 30 dias ainda é grátis; um minuto depois, cobra.
+    db = SessionLocal()
+    try:
+        u = db.query(models.Usuario).filter(models.Usuario.id == antigo_id).first()
+        agora = datetime.utcnow()
+        u.criado_em = agora - timedelta(days=30) + timedelta(minutes=1)
+        assert candidatura_vaga.em_gratuidade(u, agora) is True
+        u.criado_em = agora - timedelta(days=30) - timedelta(minutes=1)
+        assert candidatura_vaga.em_gratuidade(u, agora) is False
+        assert candidatura_vaga.fim_gratuidade(u) == u.criado_em + timedelta(days=30)
+    finally:
+        db.rollback()
+        db.close()
+
+
+def test_aceitar_vaga_enviada_direto_tambem_cobra(ambiente):
+    http, mp = ambiente
+    loja = _barbearia("dono@t.com", 1)
+    fid, fh = _freelancer("conv@t.com")
+    r = _enviar_direto(http, loja, fid)
+    assert r.status_code == 201, r.text
+    vaga_id = r.json()["publicadas"][0]
+
+    # "Aceitar" = candidatar-se: pede o Pix antes.
+    assert http.post(f"{BASE}/{vaga_id}/candidatar-se", headers=fh).status_code == 402
+    assert _candidatos(http, loja, vaga_id) == []
+
+    r = http.post(f"{PIX}/pix/candidatura-vaga", json={"vaga_id": vaga_id}, headers=fh)
+    assert r.status_code == 200, r.text
+    pid = next(iter(mp.pagamentos))
+    mp.pagar(pid)
+    assert _webhook(http, pid).status_code == 200
+    assert [c["freelancer_id"] for c in _candidatos(http, loja, vaga_id)] == [fid]
+
+
+def test_aceitar_vaga_direta_dentro_dos_30_dias_nao_cobra(ambiente):
+    http, mp = ambiente
+    loja = _barbearia("dono@t.com", 1)
+    fid, fh = _freelancer("conv@t.com", dias_de_cadastro=5)
+    vaga_id = _enviar_direto(http, loja, fid).json()["publicadas"][0]
+    assert http.post(f"{BASE}/{vaga_id}/candidatar-se", headers=fh).status_code == 200
+    assert mp.criados == 0
+
+
+def test_nao_cobra_duas_vezes_a_mesma_vaga(ambiente):
+    http, mp = ambiente
+    loja, (vaga_id,) = _cenario(http)
+    fid, fh = _freelancer("free@t.com")
+
+    assert http.post(f"{BASE}/{vaga_id}/candidatar-se", headers=fh).status_code == 402
+    http.post(f"{PIX}/pix/candidatura-vaga", json={"vaga_id": vaga_id}, headers=fh)
+    pid = next(iter(mp.pagamentos))
+    mp.pagar(pid)
+    _webhook(http, pid)
+    _webhook(http, pid)  # notificação repetida
+    assert _contar(models.CandidaturaPaga, freelancer_id=fid) == 1
+
+    # Clique repetido: já é candidato, não cobra nem duplica.
+    assert http.post(f"{BASE}/{vaga_id}/candidatar-se", headers=fh).status_code == 200
+    assert _contar(models.CadeiraAcionadaCandidatura, vaga_id=vaga_id, barbeiro_id=fid) == 1
+
+    # Mesmo se a candidatura sumir (ex.: removida), a taxa desta vaga já foi paga: não cobra de novo.
+    db = SessionLocal()
+    try:
+        db.query(models.CadeiraAcionadaCandidatura).filter(
+            models.CadeiraAcionadaCandidatura.vaga_id == vaga_id).delete()
+        db.commit()
+    finally:
+        db.close()
+    assert http.post(f"{BASE}/{vaga_id}/candidatar-se", headers=fh).status_code == 200
+    assert mp.criados == 1
+    assert _contar(models.Cobranca) == 1
