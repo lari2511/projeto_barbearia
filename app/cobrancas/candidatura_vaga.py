@@ -53,10 +53,18 @@ def taxa_ativa() -> bool:
 
 
 def fim_gratuidade(usuario: models.Usuario) -> Optional[datetime]:
-    """Fim dos 30 dias grátis do freelancer, contados do cadastro (UTC, como o banco)."""
+    """
+    Fim dos 30 dias grátis do freelancer, contados da data e hora do próprio cadastro.
+    Calculado no horário oficial de São Paulo (30 dias corridos, mesmo horário do relógio de SP)
+    e devolvido em UTC sem fuso, o formato do banco. Ex.: cadastro 17/11 10:00 (SP) -> grátis
+    até 17/12 10:00 (SP), exclusive.
+    """
+    from app.vencimento_cadeiras import para_sp, para_utc_naive
+
     if not usuario or usuario.criado_em is None:
         return None
-    return usuario.criado_em + timedelta(days=DIAS_GRATUITOS)
+    cadastro_sp = para_sp(usuario.criado_em)
+    return para_utc_naive(cadastro_sp + timedelta(days=DIAS_GRATUITOS))
 
 
 def em_gratuidade(usuario: models.Usuario, agora: Optional[datetime] = None) -> bool:
@@ -70,7 +78,11 @@ def em_gratuidade(usuario: models.Usuario, agora: Optional[datetime] = None) -> 
         logger.warning("[candidatura_vaga] usuário %s sem criado_em; tratado como em gratuidade",
                        getattr(usuario, "id", None))
         return True
-    return (agora or datetime.utcnow()) < fim
+    if agora is None:
+        from app.vencimento_cadeiras import agora_utc
+
+        agora = agora_utc()  # relógio do servidor, nunca o do celular
+    return agora < fim
 
 
 def ja_pagou_vaga(db: Session, freelancer_id: int, vaga_id: int) -> bool:

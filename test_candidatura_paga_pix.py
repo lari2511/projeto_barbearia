@@ -406,3 +406,155 @@ def test_nao_cobra_duas_vezes_a_mesma_vaga(ambiente):
     assert http.post(f"{BASE}/{vaga_id}/candidatar-se", headers=fh).status_code == 200
     assert mp.criados == 1
     assert _contar(models.Cobranca) == 1
+
+
+# ============================================================
+# Gratuidade individual: cadastro real, prazos em São Paulo, data preservada
+# ============================================================
+
+from datetime import timezone  # noqa: E402
+
+from app.vencimento_cadeiras import TZ_SP  # noqa: E402
+
+V1 = "/api/v1"
+SENHA = "segredo123"
+
+
+def _sp_para_utc(ano, mes, dia, hora=0, minuto=0, segundo=0):
+    """Horário de parede em São Paulo -> UTC sem fuso (formato do banco)."""
+    return datetime(ano, mes, dia, hora, minuto, segundo, tzinfo=TZ_SP).astimezone(timezone.utc).replace(tzinfo=None)
+
+
+def _usuario_db(uid):
+    db = SessionLocal()
+    try:
+        return db.query(models.Usuario).filter(models.Usuario.id == uid).first()
+    finally:
+        db.close()
+
+
+def _cadastrar_freelancer_real(http, email):
+    r = http.post(f"{V1}/cadastro-rapido/", json={
+        "tipo": "barbeiro", "email": email, "senha": SENHA, "data_nascimento": "1990-05-10",
+    })
+    assert r.status_code == 200, r.text
+    return r.json()["usuario"]["id"]
+
+
+def test_cadastro_novo_recebe_30_dias_gratis(ambiente):
+    http, _ = ambiente
+    antes = datetime.utcnow()
+    uid = _cadastrar_freelancer_real(http, "recem@t.com")
+    depois = datetime.utcnow()
+
+    u = _usuario_db(uid)
+    assert u.criado_em is not None and antes - timedelta(seconds=1) <= u.criado_em <= depois + timedelta(seconds=1)
+    assert candidatura_vaga.em_gratuidade(u) is True
+    fim = candidatura_vaga.fim_gratuidade(u)
+    assert fim - u.criado_em == timedelta(days=30)
+    # Ainda grátis no 29º dia; cobra ao completar 30.
+    assert candidatura_vaga.em_gratuidade(u, u.criado_em + timedelta(days=29, hours=23, minutes=59)) is True
+    assert candidatura_vaga.em_gratuidade(u, u.criado_em + timedelta(days=30)) is False
+
+
+def test_freelancers_de_datas_diferentes_tem_prazos_proprios(ambiente):
+    """17/11, 20/11 e 25/11 (SP): cada um vence 30 dias depois do PRÓPRIO cadastro, no mesmo horário de SP."""
+    exemplos = {
+        "a@t.com": ((2026, 11, 17, 9, 30), (2026, 12, 17, 9, 30)),
+        "b@t.com": ((2026, 11, 20, 23, 50), (2026, 12, 20, 23, 50)),
+        "c@t.com": ((2026, 11, 25, 0, 5), (2026, 12, 25, 0, 5)),
+    }
+    fins, fids = [], []
+    for email, (cadastro_sp, fim_sp) in exemplos.items():
+        fid, _ = _freelancer_base(email)
+        fids.append(fid)
+        _definir_cadastro(fid, _sp_para_utc(*cadastro_sp))
+        u = _usuario_db(fid)
+        fim = candidatura_vaga.fim_gratuidade(u)
+        assert fim == _sp_para_utc(*fim_sp), (email, fim)
+        fins.append(fim)
+    assert len(set(fins)) == 3
+
+    # No mesmo instante (18/12 12:00 SP), só o de 17/11 já paga.
+    instante = _sp_para_utc(2026, 12, 18, 12)
+    situacao = [candidatura_vaga.em_gratuidade(_usuario_db(fid), instante) for fid in fids]
+    assert situacao == [False, True, True]
+
+
+def test_limite_exato_do_30o_dia_em_horario_de_sao_paulo(ambiente):
+    """Cadastro 17/11 10:00 (SP): grátis até 17/12 09:59:59 (SP); às 10:00:00 já cobra."""
+    http, mp = ambiente
+    loja, (vaga_id,) = _cenario(http)
+    fid, fh = _freelancer_base("borda@t.com")
+    _definir_cadastro(fid, _sp_para_utc(2026, 11, 17, 10, 0, 0))
+    u = _usuario_db(fid)
+
+    assert candidatura_vaga.em_gratuidade(u, _sp_para_utc(2026, 12, 16, 23, 59, 59)) is True
+    assert candidatura_vaga.em_gratuidade(u, _sp_para_utc(2026, 12, 17, 9, 59, 59)) is True
+    assert candidatura_vaga.em_gratuidade(u, _sp_para_utc(2026, 12, 17, 10, 0, 0)) is False
+    # 10:00 em SP = 13:00 UTC: o limite não é meia-noite UTC nem meia-noite de SP.
+    assert candidatura_vaga.fim_gratuidade(u) == datetime(2026, 12, 17, 13, 0, 0)
+
+    # A rota usa o relógio do servidor: com o cadastro há 30 dias + 1 s, exige o Pix de R$ 3,00.
+    _definir_cadastro(fid, datetime.utcnow() - timedelta(days=30, seconds=1))
+    assert http.post(f"{BASE}/{vaga_id}/candidatar-se", headers=fh).status_code == 402
+    r = http.post(f"{PIX}/pix/candidatura-vaga", json={"vaga_id": vaga_id}, headers=fh)
+    assert r.status_code == 200, r.text
+    assert abs(r.json()["valor"] - 3.00) < 0.001
+
+
+def test_cliques_repetidos_no_pix_reusam_a_mesma_cobranca(ambiente):
+    http, mp = ambiente
+    loja, (vaga_id,) = _cenario(http)
+    fid, fh = _freelancer("clique@t.com")
+
+    ids = set()
+    for _ in range(4):
+        r = http.post(f"{PIX}/pix/candidatura-vaga", json={"vaga_id": vaga_id}, headers=fh)
+        assert r.status_code == 200, r.text
+        ids.add(r.json()["identificador"])
+        assert r.json()["pix_copia_cola"]
+    assert len(ids) == 1
+    assert mp.criados == 1
+    assert _contar(models.Cobranca, usuario_id=fid) == 1
+
+
+def test_webhook_repetido_e_consulta_nao_duplicam(ambiente):
+    http, mp = ambiente
+    loja, (vaga_id,) = _cenario(http)
+    fid, fh = _freelancer("webhook@t.com")
+    cob = http.post(f"{PIX}/pix/candidatura-vaga", json={"vaga_id": vaga_id}, headers=fh).json()
+    pid = next(iter(mp.pagamentos))
+    mp.pagar(pid)
+    for _ in range(5):
+        assert _webhook(http, pid).status_code == 200
+    http.get(f"{PIX}/{cob['identificador']}", headers=fh)  # consulta manual depois do webhook
+
+    assert _contar(models.CandidaturaPaga, freelancer_id=fid) == 1
+    assert _contar(models.CadeiraAcionadaCandidatura, vaga_id=vaga_id, barbeiro_id=fid) == 1
+    assert _contar(models.Notificacao, usuario_id=fid, tipo="vaga_candidatura_paga") == 1
+    assert _contar(models.Cobranca, usuario_id=fid) == 1
+
+
+def test_login_e_edicao_de_perfil_preservam_a_data_de_cadastro(ambiente):
+    """Freelancer antigo: login de novo, outro aparelho e edição de perfil não reiniciam os 30 dias."""
+    http, mp = ambiente
+    loja, (vaga_id,) = _cenario(http)
+    uid = _cadastrar_freelancer_real(http, "antigo@t.com")
+    original = datetime.utcnow() - timedelta(days=90)
+    _definir_cadastro(uid, original)
+
+    for aparelho in ("celular-1", "celular-2"):
+        r = http.post(f"{V1}/login/barbeiro/", data={"username": "antigo@t.com", "password": SENHA},
+                      headers={"User-Agent": aparelho})
+        assert r.status_code == 200, r.text
+    token = r.json()["access_token"]
+    h = {"Authorization": f"Bearer {token}"}
+    r = http.patch(f"{V1}/usuarios/me", json={"nome": "Nome Novo", "criado_em": datetime.utcnow().isoformat()},
+                   headers=h)
+    assert r.status_code == 200, r.text
+
+    u = _usuario_db(uid)
+    assert u.nome == "Nome Novo"  # o perfil mudou de verdade...
+    assert u.criado_em == original  # ...mas a data de cadastro não
+    assert candidatura_vaga.em_gratuidade(u) is False
